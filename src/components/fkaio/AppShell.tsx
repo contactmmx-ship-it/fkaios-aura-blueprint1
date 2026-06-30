@@ -15,6 +15,7 @@ import BusinessCreator from '@/components/fkaios/BusinessCreator';
 import ChiefOfStaff from '@/components/fkaios/ChiefOfStaff';
 import SelfLearning from '@/components/fkaios/SelfLearning';
 import AuraBlueprint from '@/components/fkaios/AuraBlueprint';
+import LoginPage from './LoginPage';
 import Dashboard from '@/components/fkaios/Dashboard';
 import VoiceAI from '@/components/fkaios/VoiceAI';
 import { supabase } from '@/lib/supabase';
@@ -100,12 +101,35 @@ export default function AppShell() {
   const [activePage, setActivePage] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userEmail, setUserEmail] = useState('');
+  const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session?.user?.email) setUserEmail(data.session.user.email);
+      setAuthChecked(true);
     });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUserEmail(session?.user?.email || '');
+    });
+    return () => listener.subscription.unsubscribe();
   }, []);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setUserEmail('');
+  };
+
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <span className="text-slate-500 text-sm">Loading...</span>
+      </div>
+    );
+  }
+
+  if (!userEmail) {
+    return <LoginPage onLoggedIn={() => { /* onAuthStateChange listener updates userEmail automatically */ }} />;
+  }
 
   const renderPage = () => {
     // Dashboard — real component
@@ -207,6 +231,9 @@ export default function AppShell() {
               <p className="text-xs text-slate-500">Founder</p>
             </div>
           </div>
+          <button onClick={handleSignOut} className="w-full text-xs text-slate-500 hover:text-slate-300 text-left cursor-pointer">
+            Sign out
+          </button>
         </div>
       </aside>
 
