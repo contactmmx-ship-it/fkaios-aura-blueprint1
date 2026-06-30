@@ -1,0 +1,15 @@
+node_modules/
+.next/
+.env
+.env.local
+*.log
+upload/
+download/
+tool-results/
+.zscripts/
+db/
+examples/
+mini-services/
+scripts/
+.vercel/
+bun.lock

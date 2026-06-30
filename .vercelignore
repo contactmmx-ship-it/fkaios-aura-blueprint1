@@ -1,0 +1,13 @@
+skills/
+upload/
+tool-results/
+scripts/
+download/
+db/
+examples/
+__pycache__/
+*.log
+*.map
+.git/
+.vercel/
+node_modules/.cache/
