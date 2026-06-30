@@ -13,3 +13,4 @@ mini-services/
 scripts/
 .vercel/
 bun.lock
+.env
