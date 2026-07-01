@@ -5,7 +5,7 @@ import {
   Bell, Settings, Menu, X, ChevronRight, Radio, Tag, UserCog,
   UserCircle, Database, GitBranch, TrendingUp, BookOpen, DollarSign,
   ShieldCheck, Sparkles, MessageSquare, Factory, Vault, Scale, Rocket,
-  UserCheck, GraduationCap, Zap, Compass, Phone
+  UserCheck, GraduationCap, Zap, Compass, Phone, Hammer
 } from 'lucide-react';
 import BrainChat from '@/components/fkaios/BrainChat';
 import AgentFactory from '@/components/fkaios/AgentFactory';
@@ -18,6 +18,7 @@ import AuraBlueprint from '@/components/fkaios/AuraBlueprint';
 import LoginPage from './LoginPage';
 import Dashboard from '@/components/fkaios/Dashboard';
 import VoiceAI from '@/components/fkaios/VoiceAI';
+import BuilderAI from '@/components/fkaios/BuilderAI';
 import { supabase } from '@/lib/supabase';
 
 // ---- Navigation definition matching original FKAIO + Brain pages ----
@@ -54,6 +55,7 @@ const brainNav = [
   { id: 'self-learning', label: 'Self-Learning', icon: GraduationCap },
   { id: 'aura-blueprint', label: 'AURA Blueprint', icon: Compass },
   { id: 'voice-ai', label: 'Voice AI', icon: Phone },
+  { id: 'builder-ai', label: 'Builder AI', icon: Hammer },
 ];
 
 // ---- Placeholder pages for original FKAIO modules ----
@@ -132,9 +134,7 @@ export default function AppShell() {
   }
 
   const renderPage = () => {
-    // Dashboard — real component
     if (activePage === 'dashboard') return <Dashboard />;
-    // Brain pages — fully functional
     switch (activePage) {
       case 'brain-chat': return <BrainChat />;
       case 'agent-factory': return <AgentFactory />;
@@ -145,8 +145,8 @@ export default function AppShell() {
       case 'self-learning': return <SelfLearning />;
       case 'aura-blueprint': return <AuraBlueprint />;
       case 'voice-ai': return <VoiceAI />;
+      case 'builder-ai': return <BuilderAI />;
     }
-    // FKAIO pages — placeholder (these come from your main app)
     return <PlaceholderPage title={fkaioNav.find(n => n.id === activePage)?.label || 'Dashboard'} description={pageDescriptions[activePage] || 'FKAIO module connected to your Supabase backend.'} />;
   };
 
@@ -155,12 +155,9 @@ export default function AppShell() {
 
   return (
     <div className="flex h-screen bg-slate-950 text-white overflow-hidden">
-      {/* Mobile overlay */}
       {sidebarOpen && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />}
 
-      {/* Sidebar */}
       <aside className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} fixed lg:static lg:translate-x-0 z-50 w-64 h-full bg-slate-900 border-r border-slate-800 transition-transform duration-300 flex flex-col`}>
-        {/* Logo */}
         <div className="flex items-center justify-between p-6">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-blue-500/30">
@@ -176,9 +173,7 @@ export default function AppShell() {
           </button>
         </div>
 
-        {/* Nav */}
         <nav className="flex-1 px-3 overflow-y-auto">
-          {/* FKAIO Section */}
           <p className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider px-3 mb-2 mt-1">Operations</p>
           <div className="space-y-0.5 mb-4">
             {fkaioNav.map((item) => {
@@ -197,7 +192,6 @@ export default function AppShell() {
             })}
           </div>
 
-          {/* Brain Section */}
           <p className="text-[9px] font-semibold text-purple-500 uppercase tracking-wider px-3 mb-2 flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
             AI Brain System
@@ -220,7 +214,6 @@ export default function AppShell() {
           </div>
         </nav>
 
-        {/* User footer */}
         <div className="p-4 border-t border-slate-800">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center text-xs font-bold">
@@ -237,9 +230,7 @@ export default function AppShell() {
         </div>
       </aside>
 
-      {/* Main content area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Header */}
         <header className="flex items-center justify-between px-6 py-4 bg-slate-900/50 border-b border-slate-800 backdrop-blur-sm shrink-0">
           <div className="flex items-center gap-3">
             <button className="lg:hidden text-slate-400 hover:text-white cursor-pointer" onClick={() => setSidebarOpen(true)}>
@@ -260,7 +251,6 @@ export default function AppShell() {
           </div>
         </header>
 
-        {/* Page content */}
         <main className="flex-1 overflow-auto p-6">
           {renderPage()}
         </main>
