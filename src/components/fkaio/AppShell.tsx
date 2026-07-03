@@ -5,7 +5,7 @@ import {
   Bell, Settings, Menu, X, ChevronRight, Radio, Tag, UserCog,
   UserCircle, Database, GitBranch, TrendingUp, BookOpen, DollarSign,
   ShieldCheck, Sparkles, MessageSquare, Factory, Vault, Scale, Rocket,
-  UserCheck, GraduationCap, Zap, Compass, Phone, Hammer
+  UserCheck, GraduationCap, Zap, Compass, Phone, Hammer, Network
 } from 'lucide-react';
 import BrainChat from '@/components/fkaios/BrainChat';
 import AgentFactory from '@/components/fkaios/AgentFactory';
@@ -19,6 +19,7 @@ import LoginPage from './LoginPage';
 import Dashboard from '@/components/fkaios/Dashboard';
 import VoiceAI from '@/components/fkaios/VoiceAI';
 import BuilderAI from '@/components/fkaios/BuilderAI';
+import OrchestratorAI from '@/components/fkaios/OrchestratorAI';
 import { supabase } from '@/lib/supabase';
 
 // ---- Navigation definition matching original FKAIO + Brain pages ----
@@ -56,6 +57,7 @@ const brainNav = [
   { id: 'aura-blueprint', label: 'AURA Blueprint', icon: Compass },
   { id: 'voice-ai', label: 'Voice AI', icon: Phone },
   { id: 'builder-ai', label: 'Builder AI', icon: Hammer },
+  { id: 'ai-company', label: 'AI Company', icon: Network },
 ];
 
 // ---- Placeholder pages for original FKAIO modules ----
@@ -146,6 +148,7 @@ export default function AppShell() {
       case 'aura-blueprint': return <AuraBlueprint />;
       case 'voice-ai': return <VoiceAI />;
       case 'builder-ai': return <BuilderAI />;
+      case 'ai-company': return <OrchestratorAI />;
     }
     return <PlaceholderPage title={fkaioNav.find(n => n.id === activePage)?.label || 'Dashboard'} description={pageDescriptions[activePage] || 'FKAIO module connected to your Supabase backend.'} />;
   };
