@@ -5,7 +5,7 @@ import {
   Bell, Settings, Menu, X, ChevronRight, Radio, Tag, UserCog,
   UserCircle, Database, GitBranch, TrendingUp, BookOpen, DollarSign,
   ShieldCheck, Sparkles, MessageSquare, Factory, Vault, Scale, Rocket,
-  UserCheck, GraduationCap, Zap, Compass, Phone, Hammer, Network
+  UserCheck, GraduationCap, Zap, Compass, Phone, Hammer, Network, Search
 } from 'lucide-react';
 import BrainChat from '@/components/fkaios/BrainChat';
 import AgentFactory from '@/components/fkaios/AgentFactory';
@@ -22,6 +22,7 @@ import BuilderAI from '@/components/fkaios/BuilderAI';
 import OrchestratorAI from '@/components/fkaios/OrchestratorAI';
 import SettingsPage from '@/components/fkaios/SettingsPage';
 import LeadsCRM from '@/components/fkaios/LeadsCRM';
+import ResearchOS from '@/components/fkaios/ResearchOS';
 import { supabase } from '@/lib/supabase';
 
 // ---- Navigation definition matching original FKAIO + Brain pages ----
@@ -52,6 +53,7 @@ const brainNav = [
   { id: 'voice-ai', label: 'Voice AI', icon: Phone },
   { id: 'builder-ai', label: 'Builder AI', icon: Hammer },
   { id: 'ai-company', label: 'AI Company', icon: Network },
+  { id: 'research', label: 'Research', icon: Search },
 ];
 
 // ---- Placeholder pages for original FKAIO modules ----
@@ -145,6 +147,7 @@ export default function AppShell() {
       case 'voice-ai': return <VoiceAI />;
       case 'builder-ai': return <BuilderAI />;
       case 'ai-company': return <OrchestratorAI />;
+      case 'research': return <ResearchOS />;
     }
     return <PlaceholderPage title={fkaioNav.find(n => n.id === activePage)?.label || 'Dashboard'} description={pageDescriptions[activePage] || 'Not yet built.'} />;
   };
@@ -257,4 +260,5 @@ export default function AppShell() {
     </div>
   );
 }
+
 
