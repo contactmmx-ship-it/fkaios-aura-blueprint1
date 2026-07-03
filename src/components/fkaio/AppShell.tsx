@@ -21,6 +21,7 @@ import VoiceAI from '@/components/fkaios/VoiceAI';
 import BuilderAI from '@/components/fkaios/BuilderAI';
 import OrchestratorAI from '@/components/fkaios/OrchestratorAI';
 import SettingsPage from '@/components/fkaios/SettingsPage';
+import LeadsCRM from '@/components/fkaios/LeadsCRM';
 import { supabase } from '@/lib/supabase';
 
 // ---- Navigation definition matching original FKAIO + Brain pages ----
@@ -35,6 +36,7 @@ import { supabase } from '@/lib/supabase';
 // built and wired to real data — see AEOS_STATUS.md for the honest roadmap.
 const fkaioNav = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'leads-crm', label: 'Leads CRM', icon: Users },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -130,6 +132,7 @@ export default function AppShell() {
   const renderPage = () => {
     if (activePage === 'dashboard') return <Dashboard />;
     if (activePage === 'settings') return <SettingsPage />;
+    if (activePage === 'leads-crm') return <LeadsCRM />;
     switch (activePage) {
       case 'brain-chat': return <BrainChat />;
       case 'agent-factory': return <AgentFactory />;
@@ -254,3 +257,4 @@ export default function AppShell() {
     </div>
   );
 }
+
