@@ -1,12 +1,29 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Plug, CheckCircle, XCircle, Loader2, Clock, RefreshCw } from 'lucide-react';
 
-interface ScheduledTask {
-  id: string; task_key: string; label: string; is_active: boolean;
-  last_run_at: string | null; last_status: string | null; next_run_at: string;
-  interval_minutes: number;
+// ─── Real error extraction ───────────────────────────────────────────────────
+// supabase-js's functions.invoke() returns a generic "Edge Function returned
+// a non-2xx status code" in error.message for ANY failure, regardless of what
+// the function actually responded with. The real error body is on
+// error.context (a Response object) and must be read separately. Without
+// this, every backend error looks identical in the UI no matter what
+// actually went wrong server-side.
+async function extractFunctionError(error: any, data: any): Promise<string> {
+  if (data?.error) return data.error;
+  if (error?.context && typeof error.context.json === 'function') {
+    try {
+      const body = await error.context.clone().json();
+      if (body?.error) return body.error;
+    } catch {
+      try {
+        const text = await error.context.clone().text();
+        if (text) return text.slice(0, 300);
+      } catch { /* fall through */ }
+    }
+  }
+  return error?.message || 'Unknown error';
 }
 
 export default function SettingsPage() {
@@ -14,7 +31,7 @@ export default function SettingsPage() {
   const [apifyStatus, setApifyStatus] = useState<{ connected: boolean; lastTestedAt?: string } | null>(null);
   const [apifyBusy, setApifyBusy] = useState(false);
   const [apifyMessage, setApifyMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [tasks, setTasks] = useState<ScheduledTask[]>([]);
+  const [tasks, setTasks] = useState<any[]>([]);
 
   useEffect(() => { loadApifyStatus(); loadTasks(); }, []);
 
@@ -35,8 +52,11 @@ export default function SettingsPage() {
     setApifyBusy(true); setApifyMessage(null);
     try {
       const { data, error } = await supabase.functions.invoke('apify-settings', { body: { action: 'save', token: apifyToken.trim() } });
-      if (error || data?.error) throw new Error(data?.error || error?.message || 'Failed to save');
-      setApifyMessage({ type: 'success', text: `Connected — ${data.actorCount ?? 0} actors visible` });
+      if (error || data?.error) {
+        const realError = await extractFunctionError(error, data);
+        throw new Error(realError);
+      }
+      setApifyMessage({ type: 'success', text: `Connected — verified as "${data.username ?? data.actorCount ?? 'ok'}"` });
       setApifyToken(''); await loadApifyStatus();
     } catch (e) { setApifyMessage({ type: 'error', text: e instanceof Error ? e.message : 'Failed' }); }
     finally { setApifyBusy(false); }
@@ -46,8 +66,11 @@ export default function SettingsPage() {
     setApifyBusy(true); setApifyMessage(null);
     try {
       const { data, error } = await supabase.functions.invoke('apify-settings', { body: { action: 'test' } });
-      if (error || data?.error) throw new Error(data?.error || error?.message || 'Test failed');
-      setApifyMessage({ type: data.valid ? 'success' : 'error', text: data.valid ? `Still valid — ${data.actorCount ?? 0} actors` : data.message });
+      if (error || data?.error) {
+        const realError = await extractFunctionError(error, data);
+        throw new Error(realError);
+      }
+      setApifyMessage({ type: data.valid ? 'success' : 'error', text: data.valid ? `Still valid — ${data.username ?? 'ok'}` : data.message });
       await loadApifyStatus();
     } catch (e) { setApifyMessage({ type: 'error', text: e instanceof Error ? e.message : 'Failed' }); }
     finally { setApifyBusy(false); }
@@ -60,7 +83,6 @@ export default function SettingsPage() {
         <p className="text-xs text-slate-500">Integrations and automation — real, wired connections only.</p>
       </div>
 
-      {/* Apify */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
         <div className="flex items-center gap-3">
           <Plug className="w-5 h-5 text-amber-400" />
@@ -102,15 +124,14 @@ export default function SettingsPage() {
         </div>
 
         {apifyMessage && (
-          <div className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm ${apifyMessage.type === 'success' ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border border-rose-500/30 text-rose-400'}`}>
-            {apifyMessage.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-            {apifyMessage.text}
+          <div className={`flex items-start gap-2 rounded-xl px-4 py-2 text-sm ${apifyMessage.type === 'success' ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border border-rose-500/30 text-rose-400'}`}>
+            {apifyMessage.type === 'success' ? <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" /> : <XCircle className="w-4 h-4 shrink-0 mt-0.5" />}
+            <span className="break-words">{apifyMessage.text}</span>
           </div>
         )}
         <p className="text-xs text-slate-600">Get a token at console.apify.com → Settings → Integrations → API tokens.</p>
       </div>
 
-      {/* Automation Center — real, shows the heartbeat state */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
