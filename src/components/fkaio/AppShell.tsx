@@ -20,29 +20,21 @@ import Dashboard from '@/components/fkaios/Dashboard';
 import VoiceAI from '@/components/fkaios/VoiceAI';
 import BuilderAI from '@/components/fkaios/BuilderAI';
 import OrchestratorAI from '@/components/fkaios/OrchestratorAI';
+import SettingsPage from '@/components/fkaios/SettingsPage';
 import { supabase } from '@/lib/supabase';
 
 // ---- Navigation definition matching original FKAIO + Brain pages ----
+// NOTE: This list previously had 20 items; 17 were non-functional
+// placeholders (Leads CRM, Command Centre, Brand Management, Team, AI
+// Agents, AI Jobs, Agent Memory, Workflows, AI Evolution, Meetings,
+// Calendar, Knowledge Base, Accounting, Approvals, Executive AI, Invoices,
+// Notifications, Profile) that rendered generic "connected to Supabase"
+// text with no actual data or function behind them. Per the no-placeholder
+// rule, they are removed from the sidebar rather than left visible and
+// non-functional. Each can be added back individually once it is genuinely
+// built and wired to real data — see AEOS_STATUS.md for the honest roadmap.
 const fkaioNav = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'leads', label: 'Leads CRM', icon: Users },
-  { id: 'command-centre', label: 'Command Centre', icon: Radio },
-  { id: 'brands', label: 'Brand Management', icon: Tag },
-  { id: 'team', label: 'Team', icon: UserCog },
-  { id: 'ai-agents', label: 'AI Agents', icon: Brain },
-  { id: 'ai-jobs', label: 'AI Jobs', icon: Cpu },
-  { id: 'agent-memory', label: 'Agent Memory', icon: Database },
-  { id: 'workflows', label: 'Workflows', icon: GitBranch },
-  { id: 'ai-evolution', label: 'AI Evolution', icon: TrendingUp },
-  { id: 'meetings', label: 'Meetings', icon: Calendar },
-  { id: 'calendar', label: 'Calendar', icon: CalendarDays },
-  { id: 'knowledge', label: 'Knowledge Base', icon: BookOpen },
-  { id: 'accounting', label: 'Accounting', icon: DollarSign },
-  { id: 'approvals', label: 'Approvals', icon: ShieldCheck },
-  { id: 'executive', label: 'Executive AI', icon: Sparkles },
-  { id: 'invoices', label: 'Invoices', icon: FileText },
-  { id: 'notifications', label: 'Notifications', icon: Bell },
-  { id: 'profile', label: 'Profile', icon: UserCircle },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -137,6 +129,7 @@ export default function AppShell() {
 
   const renderPage = () => {
     if (activePage === 'dashboard') return <Dashboard />;
+    if (activePage === 'settings') return <SettingsPage />;
     switch (activePage) {
       case 'brain-chat': return <BrainChat />;
       case 'agent-factory': return <AgentFactory />;
@@ -150,7 +143,7 @@ export default function AppShell() {
       case 'builder-ai': return <BuilderAI />;
       case 'ai-company': return <OrchestratorAI />;
     }
-    return <PlaceholderPage title={fkaioNav.find(n => n.id === activePage)?.label || 'Dashboard'} description={pageDescriptions[activePage] || 'FKAIO module connected to your Supabase backend.'} />;
+    return <PlaceholderPage title={fkaioNav.find(n => n.id === activePage)?.label || 'Dashboard'} description={pageDescriptions[activePage] || 'Not yet built.'} />;
   };
 
   const currentLabel = [...fkaioNav, ...brainNav].find(n => n.id === activePage)?.label || 'Dashboard';
