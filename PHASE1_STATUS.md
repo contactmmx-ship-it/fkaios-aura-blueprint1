@@ -66,3 +66,15 @@ Earlier flagged `knowledge`, `knowledge-engine`, `knowledge-search`, `document-e
 **No functions were deleted** — I have no delete capability for Supabase edge functions in this toolset (a deliberate safety boundary). This section exists so no future session wastes time trying to "fix" or debug code that was never wired to real tables in the first place. If you want them physically removed, that's a manual step in the Supabase dashboard (Edge Functions → select → Delete).
 
 **Conclusion: the canonical knowledge stack is `vault-engine` (semantic retrieval for RAG) + `knowledge-engine` (human-facing cited Q&A). Both real, both complementary, no consolidation needed.**
+
+## WhatsApp sender duplication investigated — real security gap found, not just duplication (2026-07-04)
+`whatsapp-send` and `whatsapp-outbound` both genuinely work, but are NOT interchangeable:
+
+| | whatsapp-send | whatsapp-outbound |
+|---|---|---|
+| JWT verification | Real HMAC-SHA256 signature check (cryptographically verified) | Decodes payload only — does NOT verify the signature. A JWT with a fabricated payload but no valid signature would currently pass this check. |
+| Access control | Admin/super_admin role required | Any authenticated user |
+| Rate limiting | None | Yes — 10 messages/phone/hour via `agent_memory` |
+| Message types | template, text, interactive (buttons) | template, text only |
+
+**Not resolved yet — deliberately deferred, not forgotten.** The honest fix is merging capabilities (real signature verification + admin restriction from `whatsapp-send`, rate limiting from `whatsapp-outbound`) into one canonical sender before Phase 2's WhatsApp work goes live. Low urgency while WhatsApp itself is blocked on the SIM purchase, but must be done before either function handles real customer messages, since `whatsapp-outbound`'s unverified-signature gap is a real security issue once anyone else has a valid-looking (but not cryptographically real) token.
