@@ -45,3 +45,12 @@ Built `orchestrator-brain` — the piece that was still missing: the actual Prom
 - "Send a payment link for Rs 50000..." → classified ACCOUNTS, risk `high`, `filed_for_approval`, ₹50,000 captured in the `approvals` table, nothing executed.
 
 New table: `orchestrator_requests` (full request lifecycle log: classification, department, plan, risk, autonomy level required, action taken, tokens/cost).
+
+## Real UI entry point built (2026-07-04, same day)
+Discovered while looking for the frontend to extend: **13+ Vercel projects** exist, all named some variant of "fkaios" (fkaios, fkaios-live, fkaios-deploy, fkaios-original, fk-aios-aura-blueprint, fkaio-app, fk-aos-verified-build, and more) with no reliable signal for which is production. Rather than guess and risk deploying to the wrong one, built `orchestrator-ui` — a standalone page served directly by Supabase (same place everything else lives). Live now at:
+
+https://nrlsqshkjuuwiovthrnb.supabase.co/functions/v1/orchestrator-ui
+
+Verified live: HTTP 200, full page renders, calls `orchestrator-brain` directly. This is the first way to actually use the master orchestrator without writing SQL.
+
+**Flagging for a real decision, not a technical one:** the 13+ Vercel projects should be audited and pruned to one canonical deployment before Phase 2. This is deferred, not resolved.
