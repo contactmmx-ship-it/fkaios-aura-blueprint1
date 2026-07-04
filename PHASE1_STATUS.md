@@ -54,3 +54,15 @@ https://nrlsqshkjuuwiovthrnb.supabase.co/functions/v1/orchestrator-ui
 Verified live: HTTP 200, full page renders, calls `orchestrator-brain` directly. This is the first way to actually use the master orchestrator without writing SQL.
 
 **Flagging for a real decision, not a technical one:** the 13+ Vercel projects should be audited and pruned to one canonical deployment before Phase 2. This is deferred, not resolved.
+
+## "Knowledge duplication" investigated — turned out not to be duplication (2026-07-04)
+Earlier flagged `knowledge`, `knowledge-engine`, `knowledge-search`, `document-engine`, `document-ingest` as possibly-duplicate. Read each instead of guessing:
+
+- **`knowledge-search`** — DEAD CODE. Depends on a SQL function `semantic_search_knowledge()`, a table `knowledge_search_log`, and a `metrics` table. None exist in the database. Every call fails immediately.
+- **`document-ingest`** — DEAD CODE. Depends on tables `knowledge_sources`, `knowledge_chunks`, `knowledge_embeddings` and a storage bucket `knowledge-docs`. None exist. Every call fails on step 1.
+- **`knowledge-engine`** — REAL AND WORKING. Queries the real `brain_knowledge_documents` table with real Claude calls (keyword search → cited answer, or document summarization). Genuinely complementary to `vault-engine`, not competing: `vault-engine` does raw semantic chunk retrieval for RAG grounding; `knowledge-engine` does a conversational, cited answer for direct human use. Both worth keeping.
+- **`knowledge`, `document-engine`** — not individually re-verified line by line, but strongly inferred dead (same abandoned "Knowledge OS / Phase 9" package as `knowledge-search`/`document-ingest`: same `_shared/metrics.ts` import, same non-`brain_`-prefixed schema that was never finished). Flagging as inferred, not confirmed.
+
+**No functions were deleted** — I have no delete capability for Supabase edge functions in this toolset (a deliberate safety boundary). This section exists so no future session wastes time trying to "fix" or debug code that was never wired to real tables in the first place. If you want them physically removed, that's a manual step in the Supabase dashboard (Edge Functions → select → Delete).
+
+**Conclusion: the canonical knowledge stack is `vault-engine` (semantic retrieval for RAG) + `knowledge-engine` (human-facing cited Q&A). Both real, both complementary, no consolidation needed.**
