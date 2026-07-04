@@ -1,6 +1,5 @@
-// ============================================================
-// business-engine — FK AIOS Brain: business idea evaluator
-// ============================================================
+// business-engine v24 — FIX: forward caller's JWT so RLS (TO authenticated on
+// brain_business_ideas) passes. Was using anon-only client -> every insert 500'd.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
@@ -58,10 +57,13 @@ Deno.serve(async (req) => {
   const id = cid();
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const authHeader = req.headers.get('Authorization');
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: authHeader ? { Authorization: authHeader } : {} },
+  });
 
   try {
-    const user = await verifyJWT(req.headers.get('Authorization'), supabaseUrl);
+    const user = await verifyJWT(authHeader, supabaseUrl);
     if (!user) return errRes('Unauthorized', 401, id);
     if (req.method !== 'POST') return errRes('Method not allowed', 405, id);
 

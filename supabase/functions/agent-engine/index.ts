@@ -1,6 +1,7 @@
-// ============================================================
-// agent-engine — FK AIOS Brain: executes a brain_agents persona with real Claude
-// ============================================================
+// agent-engine v24 — FIX: forward caller's JWT to the Supabase client so RLS
+// (restricted TO authenticated on brain_agent_executions) actually passes.
+// Previously created the client with only the anon key, never attaching the
+// user's session — every insert silently failed RLS and returned 500.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
@@ -50,10 +51,13 @@ Deno.serve(async (req) => {
   const id = cid();
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const authHeader = req.headers.get('Authorization');
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: authHeader ? { Authorization: authHeader } : {} },
+  });
 
   try {
-    const user = await verifyJWT(req.headers.get('Authorization'), supabaseUrl);
+    const user = await verifyJWT(authHeader, supabaseUrl);
     if (!user) return errRes('Unauthorized', 401, id);
     if (req.method !== 'POST') return errRes('Method not allowed', 405, id);
 
