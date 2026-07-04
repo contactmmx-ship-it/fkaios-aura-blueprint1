@@ -125,3 +125,22 @@ CREATE TABLE IF NOT EXISTS orchestrator_requests (
 ALTER TABLE orchestrator_requests ENABLE ROW LEVEL SECURITY;
 CREATE POLICY orchestrator_requests_auth ON orchestrator_requests FOR ALL TO authenticated USING (true) WITH CHECK (true);
 CREATE INDEX IF NOT EXISTS idx_orch_req_time ON orchestrator_requests(created_at DESC);
+
+-- Research engine (Prompt 15 subset): real Apify-backed research runs
+CREATE TABLE IF NOT EXISTS research_runs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  query text NOT NULL,
+  actor_used text,
+  requested_by text DEFAULT 'founder',
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','completed','failed')),
+  apify_run_id text,
+  result_count int DEFAULT 0,
+  results jsonb DEFAULT '[]',
+  cost_estimate_usd numeric,
+  error text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  completed_at timestamptz
+);
+ALTER TABLE research_runs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY research_runs_auth ON research_runs FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE INDEX IF NOT EXISTS idx_research_runs_time ON research_runs(created_at DESC);
