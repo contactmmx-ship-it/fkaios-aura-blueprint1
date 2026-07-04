@@ -1,17 +1,22 @@
-// ORCHESTRATOR-BRAIN v2 — the real master orchestrator (Prompt 3 request lifecycle + Prompt 29 execution pipeline).
-// Everything built in Phase 1 (departments, autonomy levels, vault, approvals, execution_log) converges here.
+// ORCHESTRATOR-BRAIN v3 — adds real research capability (Prompt 15 ResearchOS wired
+// into the master pipeline). v2 could only answer from the vault or general
+// knowledge; it had no path to go find live external information.
 //
-// Pipeline: understand intent -> classify department -> retrieve vault knowledge -> pick target agent ->
-//           plan -> check autonomy level -> execute (Level<=3) OR file for approval (Level>=4, real actions only) -> log everything.
+// New step: after classification, the model can request research_needed=true
+// with a search query. If so, orchestrator-brain calls research-engine's real
+// Apify integration (COSTS REAL MONEY — see cost gate below) and feeds genuine
+// live results into the planning stage, instead of letting the model guess.
 //
-// v1->v2 fix (verified live): v1 forced ANY request classified into a Level-4
-// department into 'awaiting_approval', even pure read-only questions. Autonomy
-// level must gate ACTIONS, not answers. v2 trusts the model's own
-// requires_approval judgment (already instructed on the boundary) and only
-// hard-forces approval when a real INR amount is proposed.
+// COST GATE: research is real external spend (Apify credits). It only runs
+// when the model explicitly judges live data is required AND the request
+// itself asked for something research-shaped (find/search/lookup/discover) —
+// never for a request that could be answered from the vault or general
+// reasoning. This mirrors the finance boundary: AI decides to prepare,
+// spend is bounded and logged, never silent or excessive (max 1 research
+// call per orchestrator request).
 //
-// Input:  { request: string, requested_by?: string }
-// Output: { classification, department, plan, action_taken, result, approval_id?, vault_sources }
+// Verified live: an informational question ("what is our finance rule?")
+// correctly triggered zero research_runs — the cost gate held.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type, x-heartbeat-secret', 'Content-Type': 'application/json' };
@@ -64,6 +69,7 @@ Deno.serve(async (req) => {
     const requestText: string = body.request ?? '';
     if (!requestText.trim()) return err('request is required', 400);
     const requestedBy = body.requested_by ?? 'founder';
+    const allowResearch = body.allow_research !== false;
 
     const { data: reqRow } = await db.from('orchestrator_requests').insert({ raw_request: requestText, requested_by: requestedBy, status: 'processing' }).select('id').single();
     const requestId = reqRow?.id;
@@ -88,12 +94,14 @@ Deno.serve(async (req) => {
     let totalInTok = 0, totalOutTok = 0;
 
     const classifySystem = `You are the classification stage of FKAIOS's master orchestrator. Given a request, output ONLY JSON (no markdown fences):
-{"department_code": one of [${(departments ?? []).map((d: any) => d.code).join(', ')}], "risk_level": "low"|"medium"|"high", "summary": "one sentence restating the request", "needs_vault_lookup": true|false}
+{"department_code": one of [${(departments ?? []).map((d: any) => d.code).join(', ')}], "risk_level": "low"|"medium"|"high", "summary": "one sentence restating the request", "needs_vault_lookup": true|false, "needs_live_research": true|false, "research_query": "short search query if needs_live_research, else null"}
 
 Departments:
 ${deptList}
 
-risk_level "high" means the request itself asks to EXECUTE a money movement, sign a contract, or make an external commitment right now — NOT merely asking a question about policy, rules, or data belonging to a sensitive department. Classify by department based on topic; classify risk by whether real-world action is being requested.`;
+risk_level "high" means the request itself asks to EXECUTE a money movement, sign a contract, or make an external commitment right now.
+
+needs_live_research=true ONLY if the request asks to find/discover/search for CURRENT external information not likely in internal records — e.g. "find furniture dealers in Chandigarh", "search for franchise leads in Pune", "who are our competitors in X city". Do NOT set true for questions about internal policy, existing data, or general reasoning — that's needs_vault_lookup instead. Live research costs real money, so only request it when genuinely necessary.`;
     const classifyResult = await claude(anthropicKey, classifySystem, requestText, 400);
     totalInTok += classifyResult.inputTokens; totalOutTok += classifyResult.outputTokens;
     let classification: any;
@@ -112,9 +120,36 @@ risk_level "high" means the request itself asks to EXECUTE a money movement, sig
         vaultMatches = (matches ?? []).filter((m: any) => m.similarity > 0.3);
       } catch (_) {}
     }
+
+    let researchResults: any[] = [];
+    let researchRunId: string | null = null;
+    if (allowResearch && classification.needs_live_research === true && classification.research_query) {
+      try {
+        const researchUrl = `${supabaseUrl}/functions/v1/research-engine`;
+        const rRes = await fetch(`${researchUrl}?secret=${secret}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'run', query: classification.research_query, requested_by: requestedBy }),
+        });
+        if (rRes.ok) {
+          const rData = await rRes.json();
+          researchResults = rData.results ?? [];
+          researchRunId = rData.run_id ?? null;
+          await logExec('live_research', 'success', classification.research_query, `${researchResults.length} results, run ${researchRunId}`, classification.department_code);
+        } else {
+          const errText = await rRes.text();
+          await logExec('live_research', 'failure', classification.research_query, '', errText.slice(0, 300));
+        }
+      } catch (rErr) {
+        await logExec('live_research', 'failure', classification.research_query, '', rErr instanceof Error ? rErr.message : String(rErr));
+      }
+    }
+
     const vaultContext = vaultMatches.length > 0
-      ? vaultMatches.map((m: any, i: number) => `[${i + 1}] ${m.chunk_text}`).join('\n\n')
+      ? vaultMatches.map((m: any, i: number) => `[V${i + 1}] ${m.chunk_text}`).join('\n\n')
       : 'No relevant vault knowledge found.';
+    const researchContext = researchResults.length > 0
+      ? researchResults.map((r: any, i: number) => `[R${i + 1}] ${JSON.stringify(r).slice(0, 400)}`).join('\n\n')
+      : (classification.needs_live_research ? 'Live research was requested but returned no usable results.' : 'No live research performed for this request.');
 
     const { data: deptRow } = await db.from('departments').select('id, code, automation_level').eq('code', classification.department_code).maybeSingle();
     let targetAgent: any = null;
@@ -126,13 +161,16 @@ risk_level "high" means the request itself asks to EXECUTE a money movement, sig
 
     const planSystem = `You are the planning stage of FKAIOS's master orchestrator, acting for department ${classification.department_code}${targetAgent ? ` via agent "${targetAgent.name}"` : ''}.
 
-GROUND TRUTH FROM THE KNOWLEDGE VAULT (never contradict, never invent beyond this):
+GROUND TRUTH FROM THE KNOWLEDGE VAULT (internal, verified):
 ${vaultContext}
+
+LIVE EXTERNAL RESEARCH RESULTS (if any, real-time from the web):
+${researchContext}
 
 The agent handling this request has autonomy level ${autonomyLevel} (0-5 scale). Level 0-3 = answer or prepare directly, no approval needed even for informational or analytical output. Level 4-5 = the agent must NOT autonomously EXECUTE a real-world action (sending money, signing a proposal, spending on ads, committing the company) — those specific action types require human approval. Answering questions, explaining policy, summarizing data, or drafting content for review is NOT an action requiring approval, even at Level 4-5 — only set requires_approval=true if you are being asked to actually DO the money-moving / commitment-making thing right now.
 
 Output ONLY JSON (no markdown fences):
-{"plan": "1-2 sentences on what you will do", "response": "the actual answer/draft/output for this request, grounded only in the vault context and general reasoning", "requires_approval": true|false, "approval_reason": "if requires_approval, why", "amount_inr": number or null}`;
+{"plan": "1-2 sentences on what you will do", "response": "the actual answer/draft/output for this request, grounded only in vault context + research results + general reasoning — cite [V1] or [R1] style tags when using them", "requires_approval": true|false, "approval_reason": "if requires_approval, why", "amount_inr": number or null}`;
     const planResult = await claude(anthropicKey, planSystem, requestText, 1500);
     totalInTok += planResult.inputTokens; totalOutTok += planResult.outputTokens;
     let plan: any;
@@ -190,6 +228,9 @@ Output ONLY JSON (no markdown fences):
       agent: targetAgent?.name ?? null,
       autonomy_level: autonomyLevel,
       vault_sources: vaultMatches.length,
+      research_performed: researchResults.length > 0,
+      research_run_id: researchRunId,
+      research_result_count: researchResults.length,
       plan: plan.plan,
       action_taken: actionTaken,
       response: plan.response,

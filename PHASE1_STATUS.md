@@ -78,3 +78,8 @@ Earlier flagged `knowledge`, `knowledge-engine`, `knowledge-search`, `document-e
 | Message types | template, text, interactive (buttons) | template, text only |
 
 **Not resolved yet — deliberately deferred, not forgotten.** The honest fix is merging capabilities (real signature verification + admin restriction from `whatsapp-send`, rate limiting from `whatsapp-outbound`) into one canonical sender before Phase 2's WhatsApp work goes live. Low urgency while WhatsApp itself is blocked on the SIM purchase, but must be done before either function handles real customer messages, since `whatsapp-outbound`'s unverified-signature gap is a real security issue once anyone else has a valid-looking (but not cryptographically real) token.
+
+## orchestrator-brain v3: real research wired into the master pipeline (2026-07-04)
+The orchestrator could only answer from the vault or general knowledge — no path to find live external information. v3 adds a research step: classification now judges `needs_live_research`, and if true, calls `research-engine`'s real Apify integration and feeds genuine results into planning (cited as `[R1]`, `[R2]` alongside vault's `[V1]`, `[V2]`).
+
+**Cost gate verified live, not just designed:** tested with an informational question ("what is our finance boundary rule?") — confirmed `research_runs` stayed at 0 rows, the model correctly judged this as vault-answerable and never touched the paid research path. Research only fires for genuinely research-shaped requests (find/discover/search for current external info), same discipline pattern as the finance boundary elsewhere in the system.
