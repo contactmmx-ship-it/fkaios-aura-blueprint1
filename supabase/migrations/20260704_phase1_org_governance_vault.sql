@@ -102,3 +102,26 @@ INSERT INTO departments (code, name, mission, executive_agent, kpis, automation_
  ('OPERATIONS','Operations','Onboarding, documentation, compliance, logistics','COO','["onboarding_days","docs_completed","compliance_score"]', 3),
  ('SUPPORT','Customer Support','World-class experience for franchisees, investors, software clients','CCO','["first_response_mins","resolution_hours","csat"]', 3)
 ON CONFLICT (code) DO NOTHING;
+
+-- Master orchestrator request log (Prompt 3 lifecycle + Prompt 29 pipeline)
+CREATE TABLE IF NOT EXISTS orchestrator_requests (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  raw_request text NOT NULL,
+  requested_by text DEFAULT 'founder',
+  classification text,
+  department_code text,
+  target_agent_id uuid REFERENCES ai_agents(id),
+  vault_sources_used int DEFAULT 0,
+  plan text,
+  risk_level text,
+  autonomy_level_required int,
+  action_taken text,
+  result_summary text,
+  approval_id uuid REFERENCES approvals(id),
+  status text NOT NULL DEFAULT 'processing' CHECK (status IN ('processing','completed','failed','awaiting_approval')),
+  input_tokens int, output_tokens int, cost_estimate_inr numeric, latency_ms int,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE orchestrator_requests ENABLE ROW LEVEL SECURITY;
+CREATE POLICY orchestrator_requests_auth ON orchestrator_requests FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE INDEX IF NOT EXISTS idx_orch_req_time ON orchestrator_requests(created_at DESC);

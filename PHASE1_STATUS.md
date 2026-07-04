@@ -34,3 +34,14 @@ None of these four are duplicates of each other or of `heartbeat-engine`. Acting
 
 ## Repo sync note
 This commit adds the 5 functions touched today (`brain-chat`, `heartbeat-engine`, `vault-engine` new, `agent-engine`, `business-engine`, `staff-engine`, `auto-pilot`, `agent-scheduler` fixes) plus the governance/vault migration. The live project has 55 deployed functions total; a full pull of the remaining unchanged functions into this repo is still pending as a separate sync.
+
+## Master orchestrator built and verified (2026-07-04, later same day)
+Built `orchestrator-brain` — the piece that was still missing: the actual Prompt 3+29 pipeline (understand → classify → retrieve vault → pick agent → plan → autonomy-gate → execute/file-approval → log). Everything else built in Phase 1 (departments, autonomy levels, vault, approvals, execution_log) converges here for the first time.
+
+**v1 bug found and fixed via live testing, not assumption:** v1 forced any request classified into a Level-4 department (Accounts/Marketing) into `awaiting_approval`, even pure read-only questions — verified live by asking "what is the finance rule" and getting it wrongly blocked. Root cause: autonomy level was applied as a blanket override after the model had already made a correct judgment. v2 fix: trust the model's own `requires_approval` field (it's explicitly instructed on the real boundary — action vs. answer), and only hard-force approval when a real INR amount is proposed.
+
+**v2 verified live, both cases correct:**
+- "What is our finance boundary rule...?" → classified ACCOUNTS, `answered_only`, real grounded answer returned, no approval filed.
+- "Send a payment link for Rs 50000..." → classified ACCOUNTS, risk `high`, `filed_for_approval`, ₹50,000 captured in the `approvals` table, nothing executed.
+
+New table: `orchestrator_requests` (full request lifecycle log: classification, department, plan, risk, autonomy level required, action taken, tokens/cost).
