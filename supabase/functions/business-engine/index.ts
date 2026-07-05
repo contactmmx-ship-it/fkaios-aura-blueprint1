@@ -1,5 +1,7 @@
+// ============================================================
 // business-engine v24 — FIX: forward caller's JWT so RLS (TO authenticated on
 // brain_business_ideas) passes. Was using anon-only client -> every insert 500'd.
+// ============================================================
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
@@ -58,6 +60,7 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
   const authHeader = req.headers.get('Authorization');
+  // FIX: forward the caller's real JWT so PostgREST evaluates RLS as `authenticated`, not `anon`.
   const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     global: { headers: authHeader ? { Authorization: authHeader } : {} },
   });

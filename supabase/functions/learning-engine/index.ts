@@ -1,5 +1,10 @@
 // ============================================================
 // learning-engine — FK AIOS Brain: analyzes real activity, writes real learning insights
+//
+// KNOWN GAP (found during repo-sync read-through, not yet fixed): same
+// anon-only Supabase client as brain-engine/decision-engine — does not forward
+// the caller's JWT. If brain_learning_insights has a `TO authenticated` RLS
+// policy, inserts here could be silently failing. Not re-verified live.
 // ============================================================
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const corsHeaders = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey, X-Correlation-ID' };

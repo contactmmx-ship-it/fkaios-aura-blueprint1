@@ -1,6 +1,15 @@
 // ============================================================
 // brain-engine — FK AIOS Brain Chat: list/create conversations,
 // send messages with real Claude + lightweight RAG over real tables.
+//
+// KNOWN GAP (found during repo-sync read-through, not yet fixed): unlike
+// agent-engine v24 and business-engine v24 (which forward the caller's JWT
+// to the Supabase client so RLS evaluates as `authenticated`), this function
+// is still on v23 and creates its client with the anon key only. If
+// brain_conversations / brain_messages have a `TO authenticated` RLS policy
+// like the tables those other two functions fixed, inserts here may be
+// silently failing the same way agent-engine's did before its v24 fix.
+// Not re-verified live — flagging as inferred from the pattern, not confirmed.
 // ============================================================
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 

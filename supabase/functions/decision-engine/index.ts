@@ -1,6 +1,12 @@
 // ============================================================
 // decision-engine — FK AIOS Brain: multi-dimensional decision scorer
 // Real Anthropic Claude API call, real Supabase writes, real auth.
+//
+// KNOWN GAP (found during repo-sync read-through, not yet fixed): same
+// anon-only Supabase client pattern as brain-engine — does not forward the
+// caller's JWT the way agent-engine v24 / business-engine v24 do. If
+// brain_decisions / brain_decision_dimensions carry a `TO authenticated` RLS
+// policy, inserts here could be silently failing RLS. Not re-verified live.
 // ============================================================
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
