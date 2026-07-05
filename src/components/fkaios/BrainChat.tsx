@@ -114,6 +114,15 @@ const GENERAL_KB: Record<string, string> = {
   'what is git': 'Git is a distributed version control system created by Linus Torvalds in 2005 for tracking changes in source code during software development. Key concepts include repositories, commits, branches, merging, and pull requests. GitHub, GitLab, and Bitbucket are popular Git hosting platforms.',
 };
 
+// ─── DISABLED (2026-07-05): scripted-answer fallback ───
+// This function is no longer called anywhere. It served hardcoded canned
+// answers — including FABRICATED business stats presented as real data
+// ("franchisees average 28% ROI", "franchise success rate ~90% vs ~10%") and
+// references to non-existent brands ("QuickShelf", "BrandBooster"). Because
+// brain-engine's RLS bug (fixed 2026-07-05) made every real call fail, this
+// fallback answered EVERY message in the AI Brain tab. Failures now surface
+// honestly in sendMessage. Kept temporarily for reference; safe to delete.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function getSmartResponse(msg: string): string {
   const m = msg.toLowerCase().trim();
 
@@ -381,19 +390,26 @@ export default function BrainChat() {
     setLoading(true);
     setMessages(prev => [...prev, { role: 'user', content: userMsg, created_at: new Date().toISOString() }]);
 
-    // Try edge function first, fall back to smart local response
+    // Real brain-engine call only — no scripted fallback.
+    // HONESTY FIX (2026-07-05): previously, any failure here fell through to
+    // getSmartResponse(), a ~200-line bank of scripted answers with fabricated
+    // stats (e.g. invented ROI figures and non-existent brands). Because
+    // brain-engine had an RLS bug until 2026-07-05, that fallback was firing on
+    // EVERY message — the AI Brain tab was serving 100% scripted responses
+    // while appearing to work. Failures now say so plainly instead.
     let reply = null;
+    let failureDetail = '';
     try {
-      const { data } = await supabase.functions.invoke('brain-engine', { body: { action: 'message', conversationId: convId, message: userMsg } });
+      const { data, error } = await supabase.functions.invoke('brain-engine', { body: { action: 'message', conversationId: convId, message: userMsg } });
+      if (error) failureDetail = error.message || 'edge function returned an error';
       if (data?.message) reply = data.message;
       else if (data?.content) reply = { role: 'assistant', content: data.content, created_at: new Date().toISOString() };
+      else if (data?.error) failureDetail = data.error;
       refreshConvList();
-    } catch { /* edge function unavailable, use local */ }
+    } catch (e) { failureDetail = e instanceof Error ? e.message : 'edge function unavailable'; }
 
     if (!reply) {
-      // Smart local fallback — always gives correct, contextual answers
-      const smartReply = getSmartResponse(userMsg);
-      reply = { role: 'assistant', content: smartReply, created_at: new Date().toISOString() };
+      reply = { role: 'assistant', content: `⚠ Brain engine call failed${failureDetail ? `: ${failureDetail}` : ''}. No answer was generated — this is a real error, not a canned response. Please retry; if it persists, check brain-engine logs in Supabase.`, created_at: new Date().toISOString() };
     }
 
     setMessages(prev => [...prev, reply]);

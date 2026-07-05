@@ -157,11 +157,14 @@ export default function AuraBlueprint() {
       } else if (data?.output) {
         setToolResult(data.output);
       } else {
-        // Smart fallback
-        setToolResult(generateToolFallback(tool.id, leads, agents));
+        // HONESTY FIX (2026-07-05): previously fell back to generateToolFallback,
+        // a client-side template that fabricated a report from local data and
+        // presented it as an AI tool result. Per the no-fake-data rule, a failed
+        // real call now says so plainly instead of showing invented output.
+        setToolResult('⚠ The AI engine did not return a result for this tool. This is a real error, not a report — please retry, and if it persists check the brain-engine function logs in Supabase.');
       }
-    } catch {
-      setToolResult(generateToolFallback(tool.id, leads, agents));
+    } catch (e) {
+      setToolResult(`⚠ AI engine call failed: ${e instanceof Error ? e.message : 'unknown error'}. No result was generated — this message is shown instead of a fabricated fallback report.`);
     }
     setToolLoading(false);
   }, [leads, agents]);
@@ -1092,7 +1095,13 @@ function SalesExecutiveAI({ leads, selectedLead, setSelectedLead, execTone, setE
 // templates) were removed and replaced with real Claude calls via the
 // `sales-engine` Supabase edge function. See selectAndStart/sendExecMessage above.
 
-// ─── Smart fallback for tool results ───
+// ─── DISABLED (2026-07-05): fabricated-report fallback ───
+// This function invented full "AI tool reports" client-side (including
+// fabricated formatting of pipeline stats presented as tool output) whenever
+// the real brain-engine call failed or returned empty. It is no longer called
+// anywhere — failures now surface as honest errors in executeTool above.
+// Kept temporarily for reference only; safe to delete entirely.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function generateToolFallback(toolId: string, leads: any[], agents: any[]): string {
   const hotLeads = leads.filter(l => l.score >= 80).sort((a, b) => b.score - a.score);
   const warmLeads = leads.filter(l => l.score >= 60 && l.score < 80);
