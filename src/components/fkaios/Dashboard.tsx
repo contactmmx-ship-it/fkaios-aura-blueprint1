@@ -7,19 +7,6 @@ import {
   Target, BarChart3, PieChart, Zap
 } from 'lucide-react';
 
-// Demo data matching FKAIO franchise context
-const DEMO_LEADS = [
-  { id: 1, contact_name: 'Vikram Singh', brand: 'Franchisee Kart', status: 'won', score: 96, value: 4200000, city: 'Mumbai', source: 'Website', created_at: '2026-06-15' },
-  { id: 2, contact_name: 'Rajesh Kumar', brand: 'Franchisee Kart', status: 'qualified', score: 92, value: 2500000, city: 'Delhi', source: 'Referral', created_at: '2026-06-18' },
-  { id: 3, contact_name: 'Meera Joshi', brand: 'BrandBooster', status: 'negotiation', score: 88, value: 2900000, city: 'Pune', source: 'LinkedIn', created_at: '2026-06-10' },
-  { id: 4, contact_name: 'Arjun Patel', brand: 'QuickShelf', status: 'proposal', score: 85, value: 1800000, city: 'Ahmedabad', source: 'Website', created_at: '2026-06-20' },
-  { id: 5, contact_name: 'Priya Sharma', brand: 'Franchisee Kart', status: 'qualified', score: 82, value: 3500000, city: 'Bangalore', source: 'Exhibition', created_at: '2026-06-12' },
-  { id: 6, contact_name: 'Suresh Reddy', brand: 'QuickShelf', status: 'proposal', score: 78, value: 1500000, city: 'Hyderabad', source: 'Referral', created_at: '2026-06-22' },
-  { id: 7, contact_name: 'Anita Desai', brand: 'BrandBooster', status: 'negotiation', score: 75, value: 1200000, city: 'Chennai', source: 'Cold Call', created_at: '2026-06-08' },
-  { id: 8, contact_name: 'Karan Mehta', brand: 'QuickShelf', status: 'new', score: 65, value: 2200000, city: 'Jaipur', source: 'Website', created_at: '2026-06-25' },
-  { id: 9, contact_name: 'Neha Gupta', brand: 'BrandBooster', status: 'new', score: 60, value: 900000, city: 'Kolkata', source: 'LinkedIn', created_at: '2026-06-24' },
-  { id: 10, contact_name: 'Rahul Verma', brand: 'Franchisee Kart', status: 'lost', score: 45, value: 3800000, city: 'Lucknow', source: 'Website', created_at: '2026-06-05' },
-];
 
 const BRANDS = [
   { name: 'Franchisee Kart', color: '#3b82f6', sector: 'Multi-brand Platform', minInvestment: '₹10L', maxInvestment: '₹50L' },
@@ -56,6 +43,7 @@ function ScoreRing({ score, size = 36 }: { score: number; size?: number }) {
 
 // Mini sparkline using pure SVG
 function Sparkline({ data, color, width = 80, height = 28 }: { data: number[]; color: string; width?: number; height?: number }) {
+  if (!data || data.length < 2) return null;
   const min = Math.min(...data);
   const max = Math.max(...data);
   const range = max - min || 1;
@@ -68,7 +56,7 @@ function Sparkline({ data, color, width = 80, height = 28 }: { data: number[]; c
 }
 
 export default function Dashboard() {
-  const [leads, setLeads] = useState<any[]>(DEMO_LEADS);
+  const [leads, setLeads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'pipeline' | 'brands'>('overview');
 
@@ -77,6 +65,24 @@ export default function Dashboard() {
       if (data && data.length > 0) setLeads(data);
       setLoading(false);
     }).catch(() => setLoading(false));
+  }, []);
+
+  // Real AI-operations pulse from execution_log (last 24h) — no simulated data.
+  const [ops, setOps] = useState<{ calls: number; costInr: number; fallbacks: number; lastAction: string } | null>(null);
+  useEffect(() => {
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    supabase.from('execution_log')
+      .select('cost_estimate_inr, status, action, created_at')
+      .gte('created_at', since).order('created_at', { ascending: false }).limit(500)
+      .then(({ data }) => {
+        if (!data) return;
+        setOps({
+          calls: data.length,
+          costInr: data.reduce((s2, r) => s2 + (Number(r.cost_estimate_inr) || 0), 0),
+          fallbacks: data.filter(r => r.status === 'success_fallback').length,
+          lastAction: data[0] ? `${data[0].action} · ${new Date(data[0].created_at).toLocaleTimeString()}` : '—',
+        });
+      });
   }, []);
 
   const activeLeads = leads.filter(l => !['won', 'lost'].includes(l.status));
@@ -121,8 +127,17 @@ export default function Dashboard() {
   // Top leads by score
   const topLeads = [...activeLeads].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 5);
 
-  // Monthly revenue sparkline data (simulated)
-  const revenueSparkline = [12, 18, 15, 22, 28, 42, 35, 38, 45, 42, 50, 55].map(v => v * 100000);
+  // Monthly won-revenue sparkline from REAL leads (empty until enough data)
+  const revenueSparkline = (() => {
+    const byMonth = new Map<string, number>();
+    for (const l of wonLeads) {
+      if (!l.created_at) continue;
+      const k = String(l.created_at).slice(0, 7);
+      byMonth.set(k, (byMonth.get(k) || 0) + (l.value || 0));
+    }
+    const keys = [...byMonth.keys()].sort();
+    return keys.map(k => byMonth.get(k) as number);
+  })();
 
   return (
     <div className="space-y-6">
@@ -136,18 +151,28 @@ export default function Dashboard() {
         ))}
       </div>
 
+      {/* Live AI operations — real execution_log data */}
+      {ops && (
+        <div className="flex flex-wrap gap-4 bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-xs">
+          <span className="text-slate-400">AI ops (24h): <span className="text-white font-semibold">{ops.calls} calls</span></span>
+          <span className="text-slate-400">Cost: <span className="text-emerald-400 font-semibold">₹{ops.costInr.toFixed(2)}</span></span>
+          <span className="text-slate-400">Gemini fallbacks: <span className={ops.fallbacks > 0 ? 'text-amber-400 font-semibold' : 'text-white font-semibold'}>{ops.fallbacks}</span></span>
+          <span className="text-slate-500 ml-auto">Last: {ops.lastAction}</span>
+        </div>
+      )}
+
       {activeTab === 'overview' && (
         <>
           {/* KPI Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <KPICard icon={DollarSign} label="Total Revenue (Won)" value={formatCurrency(wonRevenue)}
-              change="+18.2%" positive sparkline={revenueSparkline} color="#10b981" />
+              change={`${wonLeads.length} won deals`} positive sparkline={revenueSparkline} color="#10b981" />
             <KPICard icon={Users} label="Active Leads" value={activeLeads.length.toString()}
-              change="+3 this week" positive sparkline={[4, 5, 4, 6, 5, 7, 8]} color="#3b82f6" />
+              change={`${leads.length} total`} positive sparkline={[]} color="#3b82f6" />
             <KPICard icon={Target} label="Avg. Lead Score" value={`${avgScore}/100`}
-              change="+5 pts" positive sparkline={[62, 65, 68, 70, 72, 68, 72]} color="#f59e0b" />
+              change={`${activeLeads.length} scored`} positive sparkline={[]} color="#f59e0b" />
             <KPICard icon={Activity} label="Conversion Rate" value={`${conversionRate}%`}
-              change="+2.1%" positive sparkline={[6, 8, 7, 9, 8, 10, 10]} color="#8b5cf6" />
+              change={`${lostLeads.length} lost`} positive={false} sparkline={[]} color="#8b5cf6" />
           </div>
 
           {/* Pipeline Funnel + Top Leads */}

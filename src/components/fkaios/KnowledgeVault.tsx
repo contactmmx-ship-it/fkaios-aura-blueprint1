@@ -9,6 +9,12 @@ export default function KnowledgeVault() {
   const [selectedBrandId, setSelectedBrandId] = useState('');
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [showUpload, setShowUpload] = useState(false);
+  const [upTitle, setUpTitle] = useState('');
+  const [upContent, setUpContent] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [upMsg, setUpMsg] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     supabase.from('brain_brands').select('*').order('name').then(({ data }) => {
@@ -27,7 +33,37 @@ export default function KnowledgeVault() {
     if (selectedFolderId) q = q.eq('folder_id', selectedFolderId);
     if (search) q = q.ilike('title', `%${search}%`);
     q.then(({ data }) => setDocuments(data || []));
-  }, [selectedBrandId, selectedFolderId, search]);
+  }, [selectedBrandId, selectedFolderId, search, refreshKey]);
+
+
+  async function handleFile(f: File) {
+    const text = await f.text();
+    setUpContent(text);
+    if (!upTitle) setUpTitle(f.name.replace(/\.(txt|md|markdown)$/i, ''));
+  }
+
+  async function uploadDocument() {
+    if (!upTitle.trim() || !upContent.trim() || !selectedBrandId) { setUpMsg('Title and content are required.'); return; }
+    setUploading(true); setUpMsg(null);
+    try {
+      const { data: doc, error: insErr } = await supabase.from('brain_knowledge_documents').insert({
+        brand_id: selectedBrandId, folder_id: selectedFolderId, title: upTitle.trim(),
+        content: upContent, status: 'active', file_type: 'txt', category: 'uploaded', version: 1,
+      }).select('id').single();
+      if (insErr) throw new Error(insErr.message);
+      const { data: ing, error: fnErr } = await supabase.functions.invoke('vault-engine', {
+        body: { action: 'ingest_document', document_id: doc.id },
+      });
+      if (fnErr || ing?.error) throw new Error(ing?.error || fnErr?.message || 'Embedding failed');
+      setUpMsg(`Uploaded — ${ing?.chunks ?? 0} chunks embedded into the vault.`);
+      setUpTitle(''); setUpContent('');
+      setRefreshKey(k => k + 1);
+    } catch (e) {
+      setUpMsg(e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  }
 
   const selectedBrand = brands.find((b: any) => b.id === selectedBrandId);
   const filteredDocs = selectedFolderId ? documents.filter((d: any) => d.folder_id === selectedFolderId) : documents;
@@ -39,7 +75,34 @@ export default function KnowledgeVault() {
           <h1 className="text-lg font-bold text-white">Knowledge Vault</h1>
           <span className="text-[10px] px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded-full">RAG + OCR + Embeddings</span>
         </div>
+        <button onClick={() => { setShowUpload(true); setUpMsg(null); }}
+          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition-colors">
+          + Add Document
+        </button>
       </div>
+
+      {showUpload && (
+        <div className="bg-slate-900 border border-blue-500/30 rounded-xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-white">Add document to {selectedBrand?.name ?? 'vault'} — embedded for AI retrieval</p>
+            <button onClick={() => setShowUpload(false)} className="text-slate-500 hover:text-white text-xs">Close</button>
+          </div>
+          <input value={upTitle} onChange={e => setUpTitle(e.target.value)} placeholder="Document title"
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white" />
+          <textarea rows={6} value={upContent} onChange={e => setUpContent(e.target.value)}
+            placeholder="Paste document text here, or choose a .txt/.md file below"
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white resize-y" />
+          <div className="flex items-center gap-3">
+            <input type="file" accept=".txt,.md,.markdown" onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])}
+              className="text-xs text-slate-400 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-slate-800 file:text-slate-300 file:text-xs" />
+            <button onClick={uploadDocument} disabled={uploading || !upTitle.trim() || !upContent.trim()}
+              className="ml-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors">
+              {uploading ? 'Embedding…' : 'Upload & Embed'}
+            </button>
+          </div>
+          {upMsg && <p className={`text-xs ${upMsg.startsWith('Uploaded') ? 'text-emerald-400' : 'text-rose-400'}`}>{upMsg}</p>}
+        </div>
+      )}
 
       <div className="flex gap-3">
         <select value={selectedBrandId} onChange={e => { setSelectedBrandId(e.target.value); setSelectedFolderId(null); }}

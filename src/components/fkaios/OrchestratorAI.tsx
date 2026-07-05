@@ -34,6 +34,13 @@ export default function OrchestratorAI() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
   const stopRef = useRef(false);
+  const [pastProjects, setPastProjects] = useState<{ id: string; request: string; status: string; created_at: string; has_final?: boolean }[]>([]);
+
+  useEffect(() => { loadProjects(); }, []);
+  async function loadProjects() {
+    const { data } = await supabase.functions.invoke('orchestrator-engine', { body: { action: 'list' } });
+    if (data?.projects) setPastProjects(data.projects);
+  }
 
   async function refreshStatus(projectId: string) {
     const { data } = await supabase.functions.invoke('orchestrator-engine', { body: { action: 'status', project_id: projectId } });
@@ -52,19 +59,45 @@ export default function OrchestratorAI() {
       setStepLog(l => [...l, `CEO created ${data.tasks_created} specialist tasks`]);
       await refreshStatus(projectId);
 
-      // advance loop — each call = one AI step
-      let safety = 25;
-      while (safety-- > 0 && !stopRef.current) {
-        const { data: adv, error: advErr } = await supabase.functions.invoke('orchestrator-engine', { body: { action: 'advance', project_id: projectId } });
-        if (advErr || adv?.error) throw new Error(adv?.error || advErr?.message || 'Advance failed');
-        if (adv.step) setStepLog(l => [...l, adv.step]);
-        const p = await refreshStatus(projectId);
-        if (adv.done || p?.status === 'complete' || p?.status === 'failed') break;
-      }
+      await runAdvanceLoop(projectId);
     } catch (err2) {
       setError(err2 instanceof Error ? err2.message : 'Orchestration failed');
     } finally {
       setRunning(false);
+      loadProjects();
+    }
+  }
+
+  // advance loop — each call = one AI step; one automatic retry per step so a
+  // single transient failure no longer kills the whole pipeline
+  async function runAdvanceLoop(projectId: string) {
+    let safety = 25;
+    while (safety-- > 0 && !stopRef.current) {
+      let adv: any = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const { data, error: advErr } = await supabase.functions.invoke('orchestrator-engine', { body: { action: 'advance', project_id: projectId } });
+        if (!advErr && !data?.error) { adv = data; break; }
+        if (attempt === 1) throw new Error(data?.error || advErr?.message || 'Advance failed after retry');
+        setStepLog(l => [...l, 'Step failed once — retrying…']);
+      }
+      if (adv.step) setStepLog(l => [...l, adv.step]);
+      const p = await refreshStatus(projectId);
+      if (adv.done || p?.status === 'complete' || p?.status === 'failed') break;
+    }
+  }
+
+  // Resume a stuck project from wherever it stopped — advance is stateless
+  async function resume(projectId: string) {
+    setError(null); setRunning(true); setStepLog([`Resuming project…`]); setPreviewOpen(false);
+    stopRef.current = false;
+    try {
+      await refreshStatus(projectId);
+      await runAdvanceLoop(projectId);
+    } catch (err2) {
+      setError(err2 instanceof Error ? err2.message : 'Resume failed');
+    } finally {
+      setRunning(false);
+      loadProjects();
     }
   }
 
@@ -195,6 +228,39 @@ export default function OrchestratorAI() {
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Past projects — resume stuck runs, reopen completed ones */}
+      {pastProjects.length > 0 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-2">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Past projects</p>
+          {pastProjects.slice(0, 10).map(pp => {
+            const stuck = !['complete', 'failed'].includes(pp.status);
+            return (
+              <div key={pp.id} className="flex items-center gap-3 bg-slate-800/50 rounded-xl px-3 py-2">
+                {pp.status === 'complete' ? <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                  : pp.status === 'failed' ? <XCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  : <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />}
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-white truncate">{pp.request}</p>
+                  <p className="text-[10px] text-slate-500 capitalize">{pp.status} · {new Date(pp.created_at).toLocaleString()}</p>
+                </div>
+                {stuck && (
+                  <button onClick={() => resume(pp.id)} disabled={running}
+                    className="px-3 py-1.5 bg-amber-600/20 border border-amber-500/30 text-amber-400 text-[11px] font-semibold rounded-lg hover:bg-amber-600/30 disabled:opacity-50 transition-all shrink-0">
+                    Resume
+                  </button>
+                )}
+                {pp.status === 'complete' && (
+                  <button onClick={() => { refreshStatus(pp.id); setStepLog([]); }} disabled={running}
+                    className="px-3 py-1.5 bg-slate-700/50 border border-slate-600/50 text-slate-300 text-[11px] font-semibold rounded-lg hover:bg-slate-700 disabled:opacity-50 transition-all shrink-0">
+                    View
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
