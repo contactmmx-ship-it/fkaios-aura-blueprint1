@@ -1,22 +1,10 @@
-// ORCHESTRATOR-BRAIN v3 — adds real research capability (Prompt 15 ResearchOS wired
-// into the master pipeline). v2 could only answer from the vault or general
-// knowledge; it had no path to go find live external information.
-//
-// New step: after classification, the model can request research_needed=true
-// with a search query. If so, orchestrator-brain calls research-engine's real
-// Apify integration (COSTS REAL MONEY — see cost gate below) and feeds genuine
-// live results into the planning stage, instead of letting the model guess.
-//
-// COST GATE: research is real external spend (Apify credits). It only runs
-// when the model explicitly judges live data is required AND the request
-// itself asked for something research-shaped (find/search/lookup/discover) —
-// never for a request that could be answered from the vault or general
-// reasoning. This mirrors the finance boundary: AI decides to prepare,
-// spend is bounded and logged, never silent or excessive (max 1 research
-// call per orchestrator request).
-//
-// Verified live: an informational question ("what is our finance rule?")
-// correctly triggered zero research_runs — the cost gate held.
+// ORCHESTRATOR-BRAIN v4 — real department-agent routing.
+// v3 gap: always picked the FIRST agent in a department (`agents[0]`, limit 5),
+// so with SALES having 7 agents, "close this deal" could route to Follow-up AI.
+// v4 fix: the classification stage (same single Claude call — zero added cost)
+// now sees the full agent roster per department and picks the best-fit agent
+// by task code. Deterministic lookup after that; logged fallback to first
+// agent only if the model returns an unknown task code.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type, x-heartbeat-secret', 'Content-Type': 'application/json' };
@@ -69,7 +57,7 @@ Deno.serve(async (req) => {
     const requestText: string = body.request ?? '';
     if (!requestText.trim()) return err('request is required', 400);
     const requestedBy = body.requested_by ?? 'founder';
-    const allowResearch = body.allow_research !== false;
+    const allowResearch = body.allow_research !== false; // caller can opt out
 
     const { data: reqRow } = await db.from('orchestrator_requests').insert({ raw_request: requestText, requested_by: requestedBy, status: 'processing' }).select('id').single();
     const requestId = reqRow?.id;
@@ -88,16 +76,32 @@ Deno.serve(async (req) => {
       } catch (_) {}
     }
 
-    const { data: departments } = await db.from('departments').select('code, name, mission, automation_level').eq('is_active', true);
+    const { data: departments } = await db.from('departments').select('id, code, name, mission, automation_level').eq('is_active', true);
     const deptList = (departments ?? []).map((d: any) => `${d.code}: ${d.mission}`).join('\n');
+
+    // v4: load the FULL active agent roster once (27 agents — cheap, one query)
+    // so classification can route to a specific agent, not just a department.
+    const { data: allAgents } = await db.from('ai_agents').select('id, name, task, autonomy_level, permissions, department_id').eq('is_active', true);
+    const rosterLines: string[] = [];
+    for (const d of departments ?? []) {
+      const agents = (allAgents ?? []).filter((a: any) => a.department_id === d.id);
+      if (agents.length > 0) rosterLines.push(`${d.code}: ${agents.map((a: any) => `${a.name} [${a.task}]`).join(', ')}`);
+    }
+    const rosterList = rosterLines.join('\n');
 
     let totalInTok = 0, totalOutTok = 0;
 
+    // STEP 1: classify department + best-fit agent + research need (single call)
     const classifySystem = `You are the classification stage of FKAIOS's master orchestrator. Given a request, output ONLY JSON (no markdown fences):
-{"department_code": one of [${(departments ?? []).map((d: any) => d.code).join(', ')}], "risk_level": "low"|"medium"|"high", "summary": "one sentence restating the request", "needs_vault_lookup": true|false, "needs_live_research": true|false, "research_query": "short search query if needs_live_research, else null"}
+{"department_code": one of [${(departments ?? []).map((d: any) => d.code).join(', ')}], "agent_task": "the [TASK_CODE] of the single best-fit agent WITHIN the chosen department, exactly as listed below, or null if none fits", "risk_level": "low"|"medium"|"high", "summary": "one sentence restating the request", "needs_vault_lookup": true|false, "needs_live_research": true|false, "research_query": "short search query if needs_live_research, else null"}
 
 Departments:
 ${deptList}
+
+Agents per department (pick agent_task ONLY from the department you chose):
+${rosterList}
+
+agent_task guidance: match the request's PRIMARY intent to the agent's task code — e.g. a request to close or negotiate a deal -> CLOSE_DEAL, chasing a cold lead -> FOLLOW_UP, finding new prospects -> CAPTURE_LEADS, scoring/vetting a lead -> QUALIFY_LEAD, booking a meeting -> SCHEDULE_MEETING, writing a proposal -> GENERATE_PROPOSAL. If the request spans several agents, pick the one owning the FINAL deliverable.
 
 risk_level "high" means the request itself asks to EXECUTE a money movement, sign a contract, or make an external commitment right now.
 
@@ -112,6 +116,7 @@ needs_live_research=true ONLY if the request asks to find/discover/search for CU
     }
     await logExec('classify', 'success', requestText, JSON.stringify(classification), classification.department_code, { in: classifyResult.inputTokens, out: classifyResult.outputTokens });
 
+    // STEP 2: vault retrieval (existing)
     let vaultMatches: any[] = [];
     if (classification.needs_vault_lookup !== false) {
       try {
@@ -121,6 +126,7 @@ needs_live_research=true ONLY if the request asks to find/discover/search for CU
       } catch (_) {}
     }
 
+    // STEP 2b: live research via research-engine, gated by cost + explicit need
     let researchResults: any[] = [];
     let researchRunId: string | null = null;
     if (allowResearch && classification.needs_live_research === true && classification.research_query) {
@@ -151,15 +157,27 @@ needs_live_research=true ONLY if the request asks to find/discover/search for CU
       ? researchResults.map((r: any, i: number) => `[R${i + 1}] ${JSON.stringify(r).slice(0, 400)}`).join('\n\n')
       : (classification.needs_live_research ? 'Live research was requested but returned no usable results.' : 'No live research performed for this request.');
 
-    const { data: deptRow } = await db.from('departments').select('id, code, automation_level').eq('code', classification.department_code).maybeSingle();
+    // v4 ROUTING: deterministic agent lookup by task code within the classified
+    // department. Fallback (logged, visible) to first agent only if the model
+    // returned an unknown/absent task code — never silently.
+    const deptRow = (departments ?? []).find((d: any) => d.code === classification.department_code) ?? null;
     let targetAgent: any = null;
+    let routingMethod = 'none';
     if (deptRow) {
-      const { data: agents } = await db.from('ai_agents').select('id, name, task, autonomy_level, permissions').eq('department_id', deptRow.id).eq('is_active', true).limit(5);
-      targetAgent = (agents ?? [])[0] ?? null;
+      const deptAgents = (allAgents ?? []).filter((a: any) => a.department_id === deptRow.id);
+      if (classification.agent_task) {
+        targetAgent = deptAgents.find((a: any) => a.task === classification.agent_task) ?? null;
+        if (targetAgent) routingMethod = 'task_match';
+      }
+      if (!targetAgent && deptAgents.length > 0) {
+        targetAgent = deptAgents[0];
+        routingMethod = 'fallback_first_agent';
+        await logExec('agent_routing', 'fallback', `dept=${deptRow.code} model_task=${classification.agent_task ?? 'null'}`, `fell back to ${targetAgent.name} [${targetAgent.task}]`, deptRow.code);
+      }
     }
     const autonomyLevel = targetAgent?.autonomy_level ?? deptRow?.automation_level ?? 1;
 
-    const planSystem = `You are the planning stage of FKAIOS's master orchestrator, acting for department ${classification.department_code}${targetAgent ? ` via agent "${targetAgent.name}"` : ''}.
+    const planSystem = `You are the planning stage of FKAIOS's master orchestrator, acting for department ${classification.department_code}${targetAgent ? ` as agent "${targetAgent.name}" whose job is ${targetAgent.task}` : ''}.
 
 GROUND TRUTH FROM THE KNOWLEDGE VAULT (internal, verified):
 ${vaultContext}
@@ -226,6 +244,8 @@ Output ONLY JSON (no markdown fences):
       classification: classification.summary,
       department: classification.department_code,
       agent: targetAgent?.name ?? null,
+      agent_task: targetAgent?.task ?? null,
+      routing_method: routingMethod,
       autonomy_level: autonomyLevel,
       vault_sources: vaultMatches.length,
       research_performed: researchResults.length > 0,
