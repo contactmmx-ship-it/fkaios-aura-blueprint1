@@ -1,7 +1,3 @@
-// auto-pilot v37 — deterministic lead-scoring engine (no AI calls, no Math.random).
-// AUTH v37: accepts either a real service_role JWT (original) OR the shared
-// HEARTBEAT_SECRET (same pattern as heartbeat-engine/vault-engine) so pg_cron
-// can call this without the raw service_role key ever being embedded in a cron job.
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {

@@ -5,8 +5,8 @@ function ok(d: unknown) { return new Response(JSON.stringify(d), { status: 200, 
 function err(m: string, s = 500) { return new Response(JSON.stringify({ error: m }), { status: s, headers: CORS }); }
 
 const MODEL = 'claude-sonnet-4-6';
-const INR_PER_INPUT_MTOK = 270;
-const INR_PER_OUTPUT_MTOK = 1350;
+const INR_PER_INPUT_MTOK = 270;   // ~$3/MTok input at ~90 INR/USD
+const INR_PER_OUTPUT_MTOK = 1350; // ~$15/MTok output
 
 async function claude(apiKey: string, system: string, user: string, maxTokens = 500) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -39,6 +39,7 @@ async function sendWhatsAppReply(accessToken: string, phoneNumberId: string, toP
   return body?.messages?.[0]?.id ?? null;
 }
 
+const VALID_STAGES = ['new', 'contacted', 'qualified', 'proposal_sent', 'negotiation', 'closed', 'lost'];
 const AI_ALLOWED_STAGES = ['contacted', 'qualified', 'lost'];
 
 function extractJson(raw: string): any {
@@ -131,6 +132,7 @@ Deno.serve(async (req) => {
 
             // CIRCUIT BREAKER: if this message already failed 3+ times with an auth
             // error, stop burning Claude tokens on drafts that can never be sent.
+            // Resumes automatically once the token is fixed and failures stop matching.
             const { count: authFails } = await db.from('system_events')
               .select('id', { count: 'exact', head: true })
               .eq('event_type', 'ai_reply_failed')
@@ -193,7 +195,7 @@ Deno.serve(async (req) => {
 
             const convo = history.map((h: any) => `Prospect: ${h.message_text}${h.reply_text ? `\nAgent: ${h.reply_text}` : ''}`).join('\n');
 
-            const system = `You are a strict lead qualification analyst for a franchise consulting company. Analyze the real conversation given and output ONLY JSON (no markdown fences):\n{"new_stage": "contacted" | "qualified" | "lost" | "no_change", "reasoning": "one sentence, cite specific evidence from the conversation", "confidence": "high" | "medium" | "low"}\n\nRules:\n- "contacted": at least one AI reply has been sent (default if there's a real exchange and no stronger signal).\n- "qualified": ONLY if the prospect showed concrete buying signals — mentioned a real budget/investment amount, asked about next steps (meeting, application, documents), or explicitly confirmed serious interest. Do not qualify on vague interest alone.\n- "lost": ONLY if the prospect explicitly said not interested, or asked to stop contact.\n- "no_change": if evidence is genuinely ambiguous — do not guess.\nBe conservative. A wrong "qualified" wastes a salesperson's time worse than a missed one.`;
+            const system = `You are a strict lead qualification analyst for a franchise consulting company. Analyze the real conversation given and output ONLY JSON (no markdown fences):\n{\"new_stage\": \"contacted\" | \"qualified\" | \"lost\" | \"no_change\", \"reasoning\": \"one sentence, cite specific evidence from the conversation\", \"confidence\": \"high\" | \"medium\" | \"low\"}\n\nRules:\n- \"contacted\": at least one AI reply has been sent (default if there's a real exchange and no stronger signal).\n- \"qualified\": ONLY if the prospect showed concrete buying signals — mentioned a real budget/investment amount, asked about next steps (meeting, application, documents), or explicitly confirmed serious interest. Do not qualify on vague interest alone.\n- \"lost\": ONLY if the prospect explicitly said not interested, or asked to stop contact.\n- \"no_change\": if evidence is genuinely ambiguous — do not guess.\nBe conservative. A wrong \"qualified\" wastes a salesperson's time worse than a missed one.`;
 
             let decision: any;
             let usage = { inputTokens: 0, outputTokens: 0 };

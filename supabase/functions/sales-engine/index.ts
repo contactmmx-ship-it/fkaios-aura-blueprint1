@@ -1,7 +1,11 @@
 // ============================================================
-// sales-engine — real Claude-powered franchise sales conversation,
-// grounded in real leads/brands data. Replaces the scripted/fabricated
-// "Sales Executive AI" templates that previously invented stats.
+// sales-engine — real Claude-powered franchise sales conversation.
+// v2: hardened so backend issues surface as a real, specific message
+// in the chat itself (200 + diagnostic text) instead of a generic
+// "non-2xx" error the frontend can't see into. Also defensively fixes
+// message ordering (Anthropic requires the first message to have role
+// 'user') and isolates each data fetch so one bad query can't crash
+// the whole request.
 // ============================================================
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const corsHeaders = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey, X-Correlation-ID' };
@@ -29,12 +33,22 @@ async function callClaude(system: string, messages: { role: string; content: str
   return data.content.filter((b) => b.type === 'text').map((b) => b.text || '').join('\n');
 }
 
+// Anthropic requires messages[0].role === 'user'. Drop any leading
+// assistant messages (e.g. a greeting shown before the user replied)
+// so we never send an invalid sequence.
+function sanitizeMessages(messages: { role: string; content: string }[]): { role: string; content: string }[] {
+  let i = 0;
+  while (i < messages.length && messages[i].role !== 'user') i++;
+  return messages.slice(i);
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
   const id = cid();
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
   try {
     const user = await verifyJWT(req.headers.get('Authorization'), supabaseUrl);
     if (!user) return errRes('Unauthorized', 401, id);
@@ -45,14 +59,27 @@ Deno.serve(async (req) => {
 
     let leadCtx = 'No specific lead selected — speak in general terms about Franchise Kart\'s brand portfolio.';
     if (body.leadId) {
-      const { data: lead } = await supabase.from('leads').select('*, brand:brands(name, sector, investment_range, royalty)').eq('id', body.leadId).single();
-      if (lead) {
-        leadCtx = `Lead: ${lead.contact_name || lead.company_name} | Brand interest: ${lead.brand?.name || 'unspecified'} (${lead.brand?.sector || ''}) | Investment range: ${lead.brand?.investment_range || lead.investment_capacity || 'not specified'} | Royalty: ${lead.brand?.royalty || 'not specified'} | Stage: ${lead.stage} | Lead score: ${lead.lead_score}`;
+      try {
+        const { data: lead, error: leadErr } = await supabase.from('leads').select('*, brand:brands(name, sector, investment_range, royalty)').eq('id', body.leadId).maybeSingle();
+        if (leadErr) log('warn', 'Lead lookup failed, continuing without lead context', { error: leadErr.message }, id);
+        if (lead) {
+          leadCtx = `Lead: ${lead.contact_name || lead.company_name} | Brand interest: ${lead.brand?.name || 'unspecified'} (${lead.brand?.sector || ''}) | Investment range: ${lead.brand?.investment_range || lead.investment_capacity || 'not specified'} | Royalty: ${lead.brand?.royalty || 'not specified'} | Stage: ${lead.stage} | Lead score: ${lead.lead_score}`;
+        }
+      } catch (leadCatchErr) {
+        log('warn', 'Lead lookup threw, continuing without lead context', { error: String(leadCatchErr) }, id);
       }
     }
 
-    const { data: brands } = await supabase.from('brands').select('name, sector, investment_range, royalty').eq('is_active', true);
-    const brandsCtx = (brands || []).map((b) => `${b.name} (${b.sector}, ${b.investment_range || 'investment range not set'}, royalty ${b.royalty || 'not set'})`).join('; ') || 'No active brands configured yet';
+    let brandsCtx = 'No active brands configured yet';
+    try {
+      const { data: brands, error: brandsErr } = await supabase.from('brands').select('name, sector, investment_range, royalty').eq('is_active', true);
+      if (brandsErr) log('warn', 'Brands lookup failed', { error: brandsErr.message }, id);
+      if (brands && brands.length > 0) {
+        brandsCtx = brands.map((b) => `${b.name} (${b.sector}, ${b.investment_range || 'investment range not set'}, royalty ${b.royalty || 'not set'})`).join('; ');
+      }
+    } catch (brandsCatchErr) {
+      log('warn', 'Brands lookup threw', { error: String(brandsCatchErr) }, id);
+    }
 
     const toneInstruction: Record<string, string> = {
       professional: 'Warm, polished, consultative. No hype.',
@@ -63,15 +90,27 @@ Deno.serve(async (req) => {
     const system = `You are a franchise sales consultant AI for Franchise Kart, an Indian franchise consulting and brand holding company.\n\nReal brand portfolio: ${brandsCtx}\n${leadCtx}\n\nTone: ${toneInstruction[tone] || toneInstruction.professional}\n\nCRITICAL RULE: Never invent statistics, revenue figures, satisfaction percentages, success rates, or franchisee counts that aren't given to you above. If you don't have a real number for something the prospect asks (ROI, revenue, success rate), say plainly that you'll follow up with verified figures rather than estimating or making one up. Keep replies to 3-5 sentences, end with a relevant question to move the conversation forward.`;
 
     if (body.action === 'greet') {
-      const reply = await callClaude(system, [{ role: 'user', content: 'Greet this prospect and open the conversation.' }]);
-      return okRes({ reply }, id);
+      try {
+        const reply = await callClaude(system, [{ role: 'user', content: 'Greet this prospect and open the conversation.' }]);
+        return okRes({ reply }, id);
+      } catch (claudeErr) {
+        const msg = claudeErr instanceof Error ? claudeErr.message : String(claudeErr);
+        log('error', 'Claude call failed on greet', { error: msg }, id);
+        return okRes({ reply: `(Couldn't reach the AI brain: ${msg})` }, id);
+      }
     }
 
     if (body.action === 'reply') {
       if (!body.message) return errRes('message is required', 400, id);
-      const history = (body.history || []).map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }));
-      const reply = await callClaude(system, [...history, { role: 'user', content: body.message }]);
-      return okRes({ reply }, id);
+      const history = sanitizeMessages((body.history || []).map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })));
+      try {
+        const reply = await callClaude(system, [...history, { role: 'user', content: body.message }]);
+        return okRes({ reply }, id);
+      } catch (claudeErr) {
+        const msg = claudeErr instanceof Error ? claudeErr.message : String(claudeErr);
+        log('error', 'Claude call failed on reply', { error: msg }, id);
+        return okRes({ reply: `(Couldn't reach the AI brain: ${msg})` }, id);
+      }
     }
 
     return errRes(`Unknown action: ${body.action}`, 400, id);
