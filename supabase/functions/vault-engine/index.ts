@@ -1,6 +1,4 @@
-// VAULT-ENGINE v3 — Real Knowledge Vault (Prompt 7): chunk -> embed (gte-small, free, in-runtime) -> store -> semantic search.
-// Auth: x-vault-secret header or ?secret= must match HEARTBEAT_SECRET (same pattern as heartbeat-engine).
-// Actions: ingest_document {document_id} | ingest_all | search {query, brand_id?, match_count?} | status
+// VAULT-ENGINE v3 — fix: pgvector column requires stringified vector via supabase-js.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type, x-vault-secret', 'Content-Type': 'application/json' };
@@ -23,7 +21,7 @@ function chunkText(text: string, target = 1200, overlap = 150): string[] {
     let end = Math.min(start + target, clean.length);
     if (end < clean.length) {
       const window = clean.slice(start, end);
-      const lastBreak = Math.max(window.lastIndexOf('\n\n'), window.lastIndexOf('. '));
+      const lastBreak = Math.max(window.lastIndexOf('\n\n'), window.lastIndexOf('. '), window.lastIndexOf('।'));
       if (lastBreak > target * 0.5) end = start + lastBreak + 1;
     }
     chunks.push(clean.slice(start, end).trim());
