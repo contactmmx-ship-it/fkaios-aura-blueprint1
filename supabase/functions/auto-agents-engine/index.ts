@@ -137,7 +137,42 @@ Deno.serve(async (req) => {
       return ok({ phase: 'daily-report', status: 'complete' });
     }
 
-    return err(`Unknown phase: ${phase}. Use qualify | daily-report`, 400);
+    if (phase === 'hunt-leads') {
+      const { data: agent } = await db.from('ai_agents').select('id, name').eq('task', 'CAPTURE_LEADS').maybeSingle();
+      if (!agent) return err('Lead Hunter AI not found');
+
+      // Rotating real-world search targets across the actual brand portfolio —
+      // franchise/dealer prospects, not generic "leads" spam. One query per
+      // run keeps Apify spend small and predictable; rotates by day-of-year
+      // so the same search isn't repeated every single day.
+      const TARGETS = [
+        { query: 'chicken restaurant franchise opportunity India', brand: 'Mr. Chick' },
+        { query: 'construction chemicals distributor dealership India', brand: 'GoMax' },
+        { query: 'paint dealership franchise opportunity India', brand: 'Gio Paints' },
+        { query: 'furniture showroom franchise India', brand: 'Arofur' },
+        { query: 'street food QSR franchise opportunity India', brand: 'Chaat Masters' },
+        { query: 'diagnostic lab franchise opportunity India', brand: 'Chawla Lab' },
+      ];
+      const dayIndex = Math.floor(Date.now() / 86400000) % TARGETS.length;
+      const target = TARGETS[dayIndex];
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/lead-discovery?secret=${hbSecret}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-heartbeat-secret': hbSecret ?? '' },
+        body: JSON.stringify({ action: 'discover', query: target.query, brand: target.brand, requested_by: 'auto-agents-engine' }),
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        await logDispatch(agent.id, 'hunt_leads', 'failed', target.query, text.slice(0, 300));
+        return err(`lead-discovery call failed: ${text.slice(0, 300)}`, 502);
+      }
+      let parsed: any = {};
+      try { parsed = JSON.parse(text); } catch {}
+      await logDispatch(agent.id, 'hunt_leads', 'completed', target.query, `inserted ${parsed.inserted ?? 0}, skipped ${parsed.skipped_duplicates ?? 0} duplicates, ${parsed.raw_results ?? 0} raw results`);
+      return ok({ phase: 'hunt-leads', target: target.query, ...parsed });
+    }
+
+    return err(`Unknown phase: ${phase}. Use qualify | daily-report | hunt-leads`, 400);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.log('AUTO-AGENTS-ENGINE ERROR', msg);
