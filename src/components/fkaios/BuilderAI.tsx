@@ -35,6 +35,8 @@ export default function BuilderAI() {
   const [history, setHistory] = useState<BuildProject[]>([]);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deploying, setDeploying] = useState(false);
+  const [deployError, setDeployError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -95,6 +97,20 @@ export default function BuilderAI() {
     a.href = URL.createObjectURL(new Blob([JSON.stringify(build.output_json, null, 2)], { type: 'application/json' }));
     a.download = `${build.brand_name.toLowerCase().replace(/\s+/g, '-')}-${build.build_type}.json`;
     a.click();
+  }
+
+  async function deployBuild(build: BuildProject) {
+    setDeploying(true); setDeployError(null);
+    try {
+      const { data, error: fnErr } = await supabase.functions.invoke('builder-engine', { body: { action: 'deploy', build_id: build.id } });
+      if (fnErr || data?.error) throw new Error(data?.error || fnErr?.message || 'Deploy failed');
+      setCurrentBuild(prev => prev && prev.id === build.id ? { ...prev, deployed_url: data.deployed_url } : prev);
+      loadHistory();
+    } catch (e) {
+      setDeployError(e instanceof Error ? e.message : 'Deploy failed');
+    } finally {
+      setDeploying(false);
+    }
   }
 
   return (
@@ -183,7 +199,18 @@ export default function BuilderAI() {
                       <ExternalLink className="w-4 h-4" />Live: {currentBuild.deployed_url}
                     </a>
                   )}
+                  {deployError && (
+                    <div className="flex items-center gap-2 text-rose-400 text-sm bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2">
+                      <XCircle className="w-4 h-4 shrink-0" />{deployError}
+                    </div>
+                  )}
                   <div className="flex gap-2 flex-wrap">
+                    {currentBuild.output_html && !currentBuild.deployed_url && (
+                      <button onClick={() => deployBuild(currentBuild)} disabled={deploying}
+                        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-all">
+                        {deploying ? <><Loader2 className="w-4 h-4 animate-spin" />Deploying to Netlify…</> : <><ExternalLink className="w-4 h-4" />Deploy Live</>}
+                      </button>
+                    )}
                     {currentBuild.output_html && (
                       <>
                         <button onClick={() => setPreviewOpen(v => !v)} className="flex items-center gap-2 px-4 py-2 bg-slate-800 border border-slate-700 text-slate-300 text-sm font-medium rounded-xl hover:bg-slate-700 transition-all">
