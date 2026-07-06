@@ -33,9 +33,10 @@ export default function AgentFactory() {
     if (!selectedAgent || !execInput.trim()) return;
     setExecuting(true);
     try {
-      const { data } = await supabase.functions.invoke('agent-engine', { body: { action: 'execute', agentId: selectedAgent.id, input: execInput } });
-      setExecOutput(data?.execution?.output || 'No output.');
-    } catch { setExecOutput('Execution failed.'); }
+      const { data, error: fnError } = await supabase.functions.invoke('agent-engine', { body: { action: 'execute', agentId: selectedAgent.id, input: execInput } });
+      if (fnError || data?.error) throw new Error(data?.error || fnError?.message || 'Execution failed');
+      setExecOutput(data?.execution?.output || data?.output || 'No output returned.');
+    } catch (e) { setExecOutput(`ERROR: ${e instanceof Error ? e.message : 'Execution failed.'}`); }
     setExecuting(false);
   };
 
@@ -87,22 +88,28 @@ export default function AgentFactory() {
 
       {execOpen && selectedAgent && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setExecOpen(false)}>
-          <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-2xl max-h-[80vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-bold text-white">{selectedAgent.name}</h2>
-              <button onClick={() => setExecOpen(false)} className="text-slate-400 hover:text-white text-lg cursor-pointer">X</button>
+          <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-4xl h-[88vh] flex flex-col p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3 shrink-0">
+              <div>
+                <h2 className="text-base font-bold text-white">{selectedAgent.name}</h2>
+                <p className="text-xs text-slate-500">{selectedAgent.description}</p>
+              </div>
+              <button onClick={() => setExecOpen(false)} className="text-slate-400 hover:text-white text-lg cursor-pointer px-2">✕</button>
             </div>
-            <div className="flex gap-2 mb-4">
-              <input value={execInput} onChange={e => setExecInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && runExecution()}
-                placeholder="Enter input for the agent..." className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+            {/* Output takes ALL remaining height — was max-h-96 and unreadable on mobile */}
+            <div className="flex-1 min-h-0 bg-slate-800 rounded-lg p-4 text-sm text-slate-200 whitespace-pre-wrap overflow-y-auto leading-relaxed">
+              {executing ? 'Agent is working — real AI call in progress…' : (execOutput || 'Give the agent an instruction below, e.g. "Draft a follow-up for a cold Mr. Chick\'n lead in Ludhiana".')}
+            </div>
+            <div className="flex gap-2 mt-3 shrink-0">
+              <textarea rows={2} value={execInput} onChange={e => setExecInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runExecution(); } }}
+                placeholder="Enter input for the agent… (Enter to run, Shift+Enter for newline)"
+                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-none" />
               <button onClick={runExecution} disabled={executing || !execInput.trim()}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium cursor-pointer">
-                {executing ? 'Running...' : 'Run'}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium cursor-pointer self-end">
+                {executing ? 'Running…' : 'Run'}
               </button>
             </div>
-            {execOutput && (
-              <div className="bg-slate-800 rounded-lg p-4 text-sm text-slate-200 whitespace-pre-wrap max-h-96 overflow-y-auto">{execOutput}</div>
-            )}
           </div>
         </div>
       )}

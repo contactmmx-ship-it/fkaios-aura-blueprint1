@@ -233,7 +233,7 @@ export default function BuilderAI() {
                 </div>
                 <div className="flex items-center gap-2">
                   {b.deployed_url && <a href={b.deployed_url} target="_blank" rel="noopener noreferrer" className="text-xs text-emerald-400 flex items-center gap-1 hover:underline"><ExternalLink className="w-3 h-3" />Live</a>}
-                  {b.status === 'complete' && <button onClick={() => { setCurrentBuild(b); setPreviewOpen(false); }} className="text-xs text-violet-400 hover:text-violet-300">View</button>}
+                  {b.status === 'complete' && <button onClick={async () => { const { data } = await supabase.functions.invoke('builder-engine', { body: { action: 'status', build_id: b.id } }); setCurrentBuild(data?.build ?? data ?? b); setPreviewOpen(true); }} className="text-xs text-violet-400 hover:text-violet-300">View</button>}
                 </div>
               </div>
             ))}

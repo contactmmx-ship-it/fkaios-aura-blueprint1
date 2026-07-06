@@ -1,5 +1,49 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
+// ── __LLM_FALLBACK__ v1 (injected) ─────────────────────────────────────────
+// Drop-in replacement for the raw Anthropic fetch: primary claude-sonnet-4-6,
+// fallback gemini-2.5-flash via GEMINI_API_KEY on ANY Anthropic failure
+// (credit exhaustion 400, 401, 429, 529, network). On fallback it returns an
+// ANTHROPIC-SHAPED response body ({content:[{text}], usage:{...}, model}) so
+// every existing parse site downstream works unchanged. model field carries
+// the model that actually served.
+async function llmFetch(apiKey: string, payload: Record<string, unknown>): Promise<Response> {
+  let errMsg = '';
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) return res;
+    errMsg = `Anthropic ${res.status}: ${(await res.text()).slice(0, 200)}`;
+  } catch (e) {
+    errMsg = e instanceof Error ? e.message : String(e);
+  }
+  const gKey = Deno.env.get('GEMINI_API_KEY');
+  if (!gKey) return new Response(JSON.stringify({ error: errMsg }), { status: 502, headers: { 'content-type': 'application/json' } });
+  console.log('LLM FALLBACK to gemini-2.5-flash \u2014', errMsg.slice(0, 150));
+  const sys = typeof payload.system === 'string' ? payload.system : '';
+  const msgs = Array.isArray(payload.messages) ? payload.messages : [];
+  const contents = msgs.map((m: any) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) }] }));
+  const gRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
+    method: 'POST',
+    headers: { 'x-goog-api-key': gKey, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      ...(sys ? { systemInstruction: { parts: [{ text: sys }] } } : {}),
+      contents,
+      generationConfig: { maxOutputTokens: Number(payload.max_tokens ?? 1024) + 256, thinkingConfig: { thinkingBudget: 0 } },
+    }),
+  });
+  if (!gRes.ok) return new Response(JSON.stringify({ error: `${errMsg} | Gemini ${gRes.status}: ${(await gRes.text()).slice(0, 200)}` }), { status: 502, headers: { 'content-type': 'application/json' } });
+  const g = await gRes.json() as any;
+  const text = (g.candidates?.[0]?.content?.parts ?? []).map((p: any) => p.text ?? '').join('');
+  const shaped = { model: 'gemini-2.5-flash', content: [{ type: 'text', text }], usage: { input_tokens: g.usageMetadata?.promptTokenCount ?? 0, output_tokens: g.usageMetadata?.candidatesTokenCount ?? 0 } };
+  return new Response(JSON.stringify(shaped), { status: 200, headers: { 'content-type': 'application/json' } });
+}
+// ── end __LLM_FALLBACK__ ───────────────────────────────────────────────────
+
+
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -87,11 +131,29 @@ Deno.serve(async (req) => {
     const userPrompt = `Build a ${build_type} for: ${brandName}.${brandContext}\n\nRequirements: ${requirements}`;
 
     console.log('CALLING ANTHROPIC', { model: MODEL, promptLen: userPrompt.length });
-    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, max_tokens: 8000, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] }),
-    });
+    // TRUNCATION FIX: builds hitting the 8000-token cap were stored cut mid-tag
+    // (verified: 'Franchisee Kart website' build ended inside an <a> attribute).
+    // Now we continue the generation (up to 3 extra segments) whenever
+    // stop_reason === 'max_tokens', stitching segments together.
+    const genMessages: { role: string; content: string }[] = [{ role: 'user', content: userPrompt }];
+    let fullText = '';
+    let genUsage = { input: 0, output: 0, model: MODEL as string, provider: 'anthropic' };
+    for (let seg = 0; seg < 4; seg++) {
+      const segRes = await llmFetch(anthropicKey, { model: MODEL, max_tokens: 8000, system: systemPrompt, messages: genMessages });
+      if (!segRes.ok) { const t = await segRes.text(); throw new Error(`LLM failed: ${t.slice(0, 300)}`); }
+      const segData = await segRes.json() as any;
+      const segText = segData.content?.[0]?.text ?? '';
+      fullText += segText;
+      genUsage.input += segData.usage?.input_tokens ?? 0;
+      genUsage.output += segData.usage?.output_tokens ?? 0;
+      genUsage.model = segData.model ?? MODEL;
+      genUsage.provider = String(segData.model ?? '').startsWith('gemini') ? 'gemini' : 'anthropic';
+      if (segData.stop_reason !== 'max_tokens') break;
+      console.log(`CONTINUATION ${seg + 1}: output truncated at cap, continuing`);
+      genMessages.push({ role: 'assistant', content: segText });
+      genMessages.push({ role: 'user', content: 'Continue EXACTLY from where you stopped. Do not repeat anything, do not add commentary — output only the remaining content.' });
+    }
+    const anthropicRes = new Response(JSON.stringify({ content: [{ type: 'text', text: fullText }], usage: { input_tokens: genUsage.input, output_tokens: genUsage.output }, model: genUsage.model }), { status: 200, headers: { 'content-type': 'application/json' } });
     console.log('ANTHROPIC STATUS', anthropicRes.status);
     if (!anthropicRes.ok) {
       const errText = await anthropicRes.text();
@@ -129,11 +191,11 @@ Deno.serve(async (req) => {
       status: 'complete',
       output_html: outputHtml,
       output_json: outputJson,
-      token_cost: { input: anthropicData.usage?.input_tokens, output: anthropicData.usage?.output_tokens, model: MODEL, provider: 'anthropic' },
+      token_cost: { input: genUsage.input, output: genUsage.output, model: genUsage.model, provider: genUsage.provider },
     }).eq('id', buildId);
     if (updateErr) console.log('UPDATE ERROR (non-fatal)', updateErr.message);
 
-    return ok({ build_id: buildId, status: 'complete', build_type, brand: brandName, model: MODEL });
+    return ok({ build_id: buildId, status: 'complete', build_type, brand: brandName, model: genUsage.model });
 
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

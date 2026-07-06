@@ -2,13 +2,55 @@
 // decision-engine — FK AIOS Brain: multi-dimensional decision scorer
 // Real Anthropic Claude API call, real Supabase writes, real auth.
 //
-// KNOWN GAP (found during repo-sync read-through, not yet fixed): same
-// anon-only Supabase client pattern as brain-engine — does not forward the
-// caller's JWT the way agent-engine v24 / business-engine v24 do. If
-// brain_decisions / brain_decision_dimensions carry a `TO authenticated` RLS
-// policy, inserts here could be silently failing RLS. Not re-verified live.
+// v26: RLS bug FIXED — client now forwards the caller's JWT (was anon-only,
+// so every insert was silently RLS-blocked; explains zero new decisions since
+// Jun 26 despite UI clicks). Also carries the llmFetch Claude→Gemini fallback.
 // ============================================================
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+// ── __LLM_FALLBACK__ v1 (injected) ─────────────────────────────────────────
+// Drop-in replacement for the raw Anthropic fetch: primary claude-sonnet-4-6,
+// fallback gemini-2.5-flash via GEMINI_API_KEY on ANY Anthropic failure
+// (credit exhaustion 400, 401, 429, 529, network). On fallback it returns an
+// ANTHROPIC-SHAPED response body ({content:[{text}], usage:{...}, model}) so
+// every existing parse site downstream works unchanged. model field carries
+// the model that actually served.
+async function llmFetch(apiKey: string, payload: Record<string, unknown>): Promise<Response> {
+  let errMsg = '';
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) return res;
+    errMsg = `Anthropic ${res.status}: ${(await res.text()).slice(0, 200)}`;
+  } catch (e) {
+    errMsg = e instanceof Error ? e.message : String(e);
+  }
+  const gKey = Deno.env.get('GEMINI_API_KEY');
+  if (!gKey) return new Response(JSON.stringify({ error: errMsg }), { status: 502, headers: { 'content-type': 'application/json' } });
+  console.log('LLM FALLBACK to gemini-2.5-flash \u2014', errMsg.slice(0, 150));
+  const sys = typeof payload.system === 'string' ? payload.system : '';
+  const msgs = Array.isArray(payload.messages) ? payload.messages : [];
+  const contents = msgs.map((m: any) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) }] }));
+  const gRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
+    method: 'POST',
+    headers: { 'x-goog-api-key': gKey, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      ...(sys ? { systemInstruction: { parts: [{ text: sys }] } } : {}),
+      contents,
+      generationConfig: { maxOutputTokens: Number(payload.max_tokens ?? 1024) + 256, thinkingConfig: { thinkingBudget: 0 } },
+    }),
+  });
+  if (!gRes.ok) return new Response(JSON.stringify({ error: `${errMsg} | Gemini ${gRes.status}: ${(await gRes.text()).slice(0, 200)}` }), { status: 502, headers: { 'content-type': 'application/json' } });
+  const g = await gRes.json() as any;
+  const text = (g.candidates?.[0]?.content?.parts ?? []).map((p: any) => p.text ?? '').join('');
+  const shaped = { model: 'gemini-2.5-flash', content: [{ type: 'text', text }], usage: { input_tokens: g.usageMetadata?.promptTokenCount ?? 0, output_tokens: g.usageMetadata?.candidatesTokenCount ?? 0 } };
+  return new Response(JSON.stringify(shaped), { status: 200, headers: { 'content-type': 'application/json' } });
+}
+// ── end __LLM_FALLBACK__ ───────────────────────────────────────────────────
+
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -44,11 +86,7 @@ async function verifyJWT(authHeader: string | null, supabaseUrl: string): Promis
 async function callClaudeJSON<T>(system: string, userMessage: string, maxTokens = 1500): Promise<T> {
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not configured as a Supabase secret');
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: maxTokens, system, messages: [{ role: 'user', content: userMessage }] }),
-  });
+  const res = await llmFetch(apiKey, { model: 'claude-sonnet-4-6', max_tokens: maxTokens, system, messages: [{ role: 'user', content: userMessage }] });
   if (!res.ok) { const t = await res.text(); throw new Error(`Anthropic API error ${res.status}: ${t.slice(0, 500)}`); }
   const data = await res.json() as { content: { type: string; text?: string }[] };
   const text = data.content.filter((b) => b.type === 'text').map((b) => b.text || '').join('\n');
@@ -72,7 +110,10 @@ Deno.serve(async (req) => {
   const id = cid();
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  // RLS FIX: forward the caller's JWT so inserts run as the authenticated user.
+  // Without this the client acted as anon and every insert was silently blocked
+  // by RLS (authenticated-only policies) -> 500 -> tab looked dead.
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, { global: { headers: { Authorization: (typeof req !== 'undefined' && req.headers.get('Authorization')) || '' } } });
 
   try {
     const user = await verifyJWT(req.headers.get('Authorization'), supabaseUrl);

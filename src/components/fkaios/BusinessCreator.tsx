@@ -11,12 +11,23 @@ export default function BusinessCreator() {
     supabase.from('brain_business_ideas').select('*, brand:brain_brands(name, color)').order('created_at', { ascending: false }).then(({ data }) => setIdeas(data || []));
   }, []);
 
+  const [evaluating, setEvaluating] = useState(false);
+  const [evalError, setEvalError] = useState<string | null>(null);
+  const [lastAnalysis, setLastAnalysis] = useState<string | null>(null);
   const createIdea = async () => {
-    if (!title.trim()) return;
+    if (!title.trim() || evaluating) return; // guard fixes the double-insert seen in DB (two identical ideas 2s apart)
+    setEvaluating(true); setEvalError(null); setLastAnalysis(null);
     try {
-      const { data } = await supabase.functions.invoke('business-engine', { body: { title, description: desc } });
-      if (data) { setIdeas(prev => [data, ...prev]); setTitle(''); setDesc(''); }
-    } catch (e) { console.error('Failed to create idea:', e); }
+      const { data, error: fnError } = await supabase.functions.invoke('business-engine', { body: { title, description: desc } });
+      if (fnError || data?.error) throw new Error(data?.error || fnError?.message || 'Evaluation failed');
+      const analysisText = data?.idea?.description || data?.description || data?.analysis || null;
+      if (analysisText) setLastAnalysis(analysisText);
+      const { data: fresh } = await supabase.from('brain_business_ideas').select('*, brand:brain_brands(name, color)').order('created_at', { ascending: false });
+      if (fresh) setIdeas(fresh);
+      setTitle(''); setDesc('');
+    } catch (e) {
+      setEvalError(e instanceof Error ? e.message : 'Failed to evaluate idea');
+    } finally { setEvaluating(false); }
   };
 
   const statusCfg: Record<string, { label: string; color: string }> = { idea: { label: 'Idea', color: 'bg-slate-500/10 text-slate-400' }, validating: { label: 'Validating', color: 'bg-blue-500/10 text-blue-400' }, planning: { label: 'Planning', color: 'bg-amber-500/10 text-amber-400' }, building: { label: 'Building', color: 'bg-purple-500/10 text-purple-400' }, launched: { label: 'Launched', color: 'bg-emerald-500/10 text-emerald-400' } };
@@ -48,8 +59,15 @@ export default function BusinessCreator() {
 
       <div className="grid grid-cols-3 gap-3">
         <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Business idea title" className="col-span-2 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500" />
-        <button onClick={createIdea} disabled={!title.trim()} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-medium cursor-pointer">Submit & Analyze</button>
+        <button onClick={createIdea} disabled={!title.trim() || evaluating} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-medium cursor-pointer">{evaluating ? 'AI evaluating…' : 'Submit & Analyze'}</button>
       </div>
+      {evalError && <p className="text-xs text-rose-400">{evalError}</p>}
+      {lastAnalysis && (
+        <div className="bg-slate-900 border border-emerald-500/30 rounded-xl p-4">
+          <p className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-2">Investment-committee analysis</p>
+          <p className="text-sm text-slate-300 whitespace-pre-wrap">{lastAnalysis}</p>
+        </div>
+      )}
 
       <div className="flex gap-4">
         <div className="w-64 shrink-0 space-y-2">

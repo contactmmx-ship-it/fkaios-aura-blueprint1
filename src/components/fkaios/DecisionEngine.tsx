@@ -28,12 +28,21 @@ export default function DecisionEngine() {
     supabase.from('brain_decisions').select('*, dimensions:brain_decision_dimensions(*)').order('created_at', { ascending: false }).then(({ data }) => setDecisions(data || []));
   }, []);
 
+  const [scoring, setScoring] = useState(false);
+  const [scoreError, setScoreError] = useState<string | null>(null);
   const createDecision = async () => {
-    if (!title.trim()) return;
+    if (!title.trim() || scoring) return;
+    setScoring(true); setScoreError(null);
     try {
-      const { data } = await supabase.functions.invoke('decision-engine', { body: { title, description: desc } });
-      if (data) { setDecisions(prev => [data, ...prev]); setSelected(data); setTitle(''); setDesc(''); }
-    } catch (e) { console.error('Failed to create decision:', e); }
+      const { data, error: fnError } = await supabase.functions.invoke('decision-engine', { body: { title, description: desc } });
+      if (fnError || data?.error) throw new Error(data?.error || fnError?.message || 'Scoring failed');
+      // Re-fetch with the dimensions join so the detail panel has real data
+      const { data: fresh } = await supabase.from('brain_decisions').select('*, dimensions:brain_decision_dimensions(*)').order('created_at', { ascending: false }).limit(50);
+      if (fresh) { setDecisions(fresh); setSelected(fresh[0] ?? null); }
+      setTitle(''); setDesc('');
+    } catch (e) {
+      setScoreError(e instanceof Error ? e.message : 'Failed to score decision');
+    } finally { setScoring(false); }
   };
 
   const verdict = (s: number) => s >= 8 ? { label: 'Strongly Recommended', color: 'text-emerald-400 bg-emerald-500/10' } : s >= 6 ? { label: 'Recommended with Conditions', color: 'text-amber-400 bg-amber-500/10' } : { label: 'Not Recommended', color: 'text-red-400 bg-red-500/10' };
@@ -46,7 +55,8 @@ export default function DecisionEngine() {
           <h1 className="text-lg font-bold text-white">Decision Support Engine</h1>
           <span className="text-[10px] px-2 py-0.5 bg-cyan-500/10 text-cyan-400 rounded-full">6-Dimension Framework</span>
         </div>
-        <button onClick={createDecision} disabled={!title.trim()} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-medium cursor-pointer">+ New Analysis</button>
+        <button onClick={createDecision} disabled={!title.trim() || scoring} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-medium cursor-pointer">{scoring ? 'Scoring with AI…' : '+ New Analysis'}</button>
+        {scoreError && <p className="text-xs text-rose-400 mt-1">{scoreError}</p>}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
