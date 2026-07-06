@@ -13,7 +13,7 @@ export default function BrainChat() {
 
   const refreshConvList = () => {
     supabase.functions.invoke('brain-engine', { body: { action: 'list' } }).then(({ data }) => {
-      if (data) setConversations(Array.isArray(data) ? data : []);
+      setConversations(Array.isArray(data?.conversations) ? data.conversations : []);
     }).catch(() => {});
   };
 
@@ -24,7 +24,7 @@ export default function BrainChat() {
     const fetch = async () => {
       try {
         const { data } = await supabase.functions.invoke('brain-engine', { body: { action: 'list' } }, { signal: ac.signal as any });
-        if (data && !ac.signal.aborted) setConversations(Array.isArray(data) ? data : []);
+        if (!ac.signal.aborted) setConversations(Array.isArray(data?.conversations) ? data.conversations : []);
       } catch { /* ignore */ }
     };
     fetch();
@@ -33,23 +33,24 @@ export default function BrainChat() {
 
   const createChat = async () => {
     try {
-      const { data } = await supabase.functions.invoke('brain-engine', { body: { action: 'create' } });
-      if (data) { setActiveConvId(data.id); setMessages([]); refreshConvList(); }
-    } catch (e) {
-      // Fallback: create local conversation
-      const fakeId = 'local-' + Date.now();
-      setActiveConvId(fakeId);
+      const { data, error } = await supabase.functions.invoke('brain-engine', { body: { action: 'create' } });
+      if (error || !data?.conversation?.id) throw new Error(error?.message || 'no conversation returned');
+      setActiveConvId(data.conversation.id);
       setMessages([]);
-      setConversations(prev => [{ id: fakeId, title: 'New Conversation' }, ...prev]);
+      refreshConvList();
+    } catch (e) {
+      // Real error, not a silent fake-ID fallback — a fake ID here would just
+      // fail later when brain-engine looks it up and finds no matching row.
+      setMessages([{ role: 'assistant', content: `⚠ Couldn't start a new chat: ${e instanceof Error ? e.message : 'unknown error'}. Check brain-engine logs in Supabase.`, created_at: new Date().toISOString() }]);
     }
   };
 
   const selectConv = async (id: string) => {
     setActiveConvId(id);
     try {
-      const { data } = await supabase.functions.invoke('brain-engine', { body: { action: 'list' } });
-      const conv = (data || []).find((c: any) => c.id === id);
-      setMessages(conv?.messages || []);
+      const { data, error } = await supabase.from('brain_messages').select('*').eq('conversation_id', id).order('created_at', { ascending: true });
+      if (error) throw error;
+      setMessages(data || []);
     } catch { setMessages([]); }
   };
 
@@ -57,10 +58,21 @@ export default function BrainChat() {
     if (!input.trim() || loading) return;
     let convId = activeConvId;
     if (!convId) {
-      const fakeId = 'local-' + Date.now();
-      convId = fakeId;
-      setActiveConvId(convId);
-      setConversations(prev => [{ id: fakeId, title: input.trim().substring(0, 40) }, ...prev]);
+      // Must create a real conversation row first — brain-engine's 'message'
+      // action looks up conversationId in brain_conversations, so a fake
+      // client-side ID here would always 404. This was the bug behind
+      // "Edge Function returned a non-2xx status code" on the very first
+      // message of a session.
+      try {
+        const { data, error } = await supabase.functions.invoke('brain-engine', { body: { action: 'create' } });
+        if (error || !data?.conversation?.id) throw new Error(error?.message || 'no conversation returned');
+        convId = data.conversation.id;
+        setActiveConvId(convId);
+        refreshConvList();
+      } catch (e) {
+        setMessages(prev => [...prev, { role: 'assistant', content: `⚠ Couldn't start a conversation: ${e instanceof Error ? e.message : 'unknown error'}. Message not sent.`, created_at: new Date().toISOString() }]);
+        return;
+      }
     }
     const userMsg = input.trim();
     setInput('');
