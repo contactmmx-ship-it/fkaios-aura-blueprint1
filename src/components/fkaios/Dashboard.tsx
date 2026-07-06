@@ -58,6 +58,7 @@ function Sparkline({ data, color, width = 80, height = 28 }: { data: number[]; c
 interface Lead {
   id: string;
   brand_id: string | null;
+  company_id: string | null;
   company_name: string;
   contact_name: string | null;
   city: string | null;
@@ -68,8 +69,9 @@ interface Lead {
   lead_score: number | null;
   created_at: string;
 }
-interface Brand { id: string; name: string; sector: string | null; investment_range: string | null; royalty: string | null; }
+interface Brand { id: string; name: string; sector: string | null; investment_range: string | null; royalty: string | null; company_id: string | null; }
 interface Invoice { id: string; lead_id: string | null; amount: number | null; status: string; }
+interface Company { id: string; name: string; company_type: string | null; }
 
 export default function Dashboard() {
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -77,11 +79,21 @@ export default function Dashboard() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'pipeline' | 'brands'>('overview');
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('all');
+  const [targets, setTargets] = useState<any[]>([]);
+  const [actuals, setActuals] = useState<any[]>([]);
+
+  useEffect(() => {
+    supabase.from('companies').select('id, name, company_type').then(({ data }) => setCompanies(data || []));
+    supabase.from('company_annual_targets').select('company_id, year, revenue_target_inr').then(({ data }) => setTargets(data || []));
+    supabase.from('company_revenue_actuals').select('company_id, year, month, revenue_inr').then(({ data }) => setActuals(data || []));
+  }, []);
 
   useEffect(() => {
     Promise.all([
-      supabase.from('leads').select('id, brand_id, company_name, contact_name, city, state, lead_source, source, stage, lead_score, created_at'),
-      supabase.from('brands').select('id, name, sector, investment_range, royalty').eq('is_active', true),
+      supabase.from('leads').select('id, brand_id, company_id, company_name, contact_name, city, state, lead_source, source, stage, lead_score, created_at'),
+      supabase.from('brands').select('id, name, sector, investment_range, royalty, company_id').eq('is_active', true),
       supabase.from('invoices').select('id, lead_id, amount, status'),
     ]).then(([l, b, i]) => {
       if (l.data) setLeads(l.data as Lead[]);
@@ -119,24 +131,27 @@ export default function Dashboard() {
   }
   const wonInvoiceTotal = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + (Number(i.amount) || 0), 0);
 
+  const scopedBrands = selectedCompanyId === 'all' ? brands : brands.filter(b => b.company_id === selectedCompanyId);
+  const scopedLeads = selectedCompanyId === 'all' ? leads : leads.filter(l => l.company_id === selectedCompanyId);
+
   const brandById = new Map<string, Brand & { color: string }>(
-    brands.map((b, i) => [b.id, { ...b, color: BRAND_PALETTE[i % BRAND_PALETTE.length] }])
+    scopedBrands.map((b, i) => [b.id, { ...b, color: BRAND_PALETTE[i % BRAND_PALETTE.length] }])
   );
   const brandName = (id: string | null) => (id && brandById.get(id)?.name) || 'Unassigned';
 
-  const activeLeads = leads.filter(l => !['closed', 'lost'].includes(l.stage));
-  const wonLeads = leads.filter(l => l.stage === 'closed');
-  const lostLeads = leads.filter(l => l.stage === 'lost');
+  const activeLeads = scopedLeads.filter(l => !['closed', 'lost'].includes(l.stage));
+  const wonLeads = scopedLeads.filter(l => l.stage === 'closed');
+  const lostLeads = scopedLeads.filter(l => l.stage === 'lost');
   const avgScore = activeLeads.length > 0 ? Math.round(activeLeads.reduce((s, l) => s + (l.lead_score || 0), 0) / activeLeads.length) : 0;
-  const conversionRate = leads.length > 0 ? Math.round((wonLeads.length / leads.length) * 100) : 0;
+  const conversionRate = scopedLeads.length > 0 ? Math.round((wonLeads.length / scopedLeads.length) * 100) : 0;
 
   const funnelData = STAGES.map(stage => ({
     stage, label: STAGE_LABELS[stage],
-    count: leads.filter(l => l.stage === stage).length,
+    count: scopedLeads.filter(l => l.stage === stage).length,
   }));
 
-  const brandData = brands.map((b, i) => {
-    const bLeads = leads.filter(l => l.brand_id === b.id);
+  const brandData = scopedBrands.map((b, i) => {
+    const bLeads = scopedLeads.filter(l => l.brand_id === b.id);
     const bWon = bLeads.filter(l => l.stage === 'closed');
     return {
       ...b,
@@ -148,12 +163,12 @@ export default function Dashboard() {
     };
   });
 
-  const sources = [...new Set(leads.map(l => l.lead_source || l.source).filter(Boolean))].map(src => {
-    const sLeads = leads.filter(l => (l.lead_source || l.source) === src);
+  const sources = [...new Set(scopedLeads.map(l => l.lead_source || l.source).filter(Boolean))].map(src => {
+    const sLeads = scopedLeads.filter(l => (l.lead_source || l.source) === src);
     return { source: src as string, count: sLeads.length, won: sLeads.filter(l => l.stage === 'closed').length };
   }).sort((a, b) => b.count - a.count);
 
-  const recentLeads = [...leads].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 5);
+  const recentLeads = [...scopedLeads].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 5);
   const topLeads = [...activeLeads].sort((a, b) => (b.lead_score || 0) - (a.lead_score || 0)).slice(0, 5);
 
   const revenueSparkline = (() => {
@@ -167,8 +182,37 @@ export default function Dashboard() {
     return keys.map(k => byMonth.get(k) as number);
   })();
 
+  const selectedCompanyName = selectedCompanyId === 'all' ? 'All Companies' : (companies.find(c => c.id === selectedCompanyId)?.name || '—');
+  const groupTarget = targets.find(t => companies.find(c => c.id === t.company_id)?.company_type === 'holding');
+  const relevantTargets = selectedCompanyId === 'all' ? targets : targets.filter(t => t.company_id === selectedCompanyId);
+  const relevantActuals = selectedCompanyId === 'all' ? actuals : actuals.filter(a => a.company_id === selectedCompanyId);
+  const totalActualToDate = relevantActuals.reduce((s, a) => s + (Number(a.revenue_inr) || 0), 0);
+  const displayTarget = selectedCompanyId === 'all' ? groupTarget : relevantTargets[0];
+
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap items-center gap-2">
+        <button onClick={() => setSelectedCompanyId('all')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${selectedCompanyId === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}>
+          All Companies
+        </button>
+        {companies.filter(c => c.company_type !== 'holding').map(c => (
+          <button key={c.id} onClick={() => setSelectedCompanyId(c.id)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${selectedCompanyId === c.id ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}>
+            {c.name}
+          </button>
+        ))}
+      </div>
+
+      <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 flex flex-wrap items-center gap-4 text-xs">
+        <span className="text-slate-300 font-semibold">{selectedCompanyName}</span>
+        <span className="text-slate-500">2030 target: <span className="text-white font-semibold">{displayTarget?.revenue_target_inr ? formatCurrency(Number(displayTarget.revenue_target_inr)) : 'not yet set'}</span></span>
+        <span className="text-slate-500">Recorded actual to date: <span className="text-emerald-400 font-semibold">{formatCurrency(totalActualToDate)}</span></span>
+        {selectedCompanyId !== 'all' && scopedLeads.length === 0 && scopedBrands.length === 0 && (
+          <span className="text-amber-400/80 ml-auto">No CRM/lead data tracked for this company yet</span>
+        )}
+      </div>
+
       <div className="flex gap-1 bg-slate-900 rounded-xl p-1 w-fit">
         {(['overview', 'pipeline', 'brands'] as const).map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
@@ -195,7 +239,7 @@ export default function Dashboard() {
             <KPICard icon={DollarSign} label="Revenue Won (Invoiced)" value={formatCurrency(wonInvoiceTotal)}
               change={`${wonLeads.length} closed deals`} positive sparkline={revenueSparkline} color="#10b981" />
             <KPICard icon={Users} label="Active Leads" value={activeLeads.length.toString()}
-              change={`${leads.length} total`} positive sparkline={[]} color="#3b82f6" />
+              change={`${scopedLeads.length} total`} positive sparkline={[]} color="#3b82f6" />
             <KPICard icon={Target} label="Avg. Lead Score" value={`${avgScore}/100`}
               change={`${activeLeads.length} scored`} positive sparkline={[]} color="#f59e0b" />
             <KPICard icon={Activity} label="Conversion Rate" value={`${conversionRate}%`}
@@ -206,7 +250,7 @@ export default function Dashboard() {
             <div className="lg:col-span-2 bg-slate-900 rounded-xl border border-slate-800 p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-white">Sales Pipeline Funnel</h3>
-                <span className="text-[10px] text-slate-500">{leads.length} total leads</span>
+                <span className="text-[10px] text-slate-500">{scopedLeads.length} total leads</span>
               </div>
               <div className="space-y-2">
                 {funnelData.map(f => {
@@ -301,7 +345,7 @@ export default function Dashboard() {
                         <span className="text-[11px] text-slate-400">{s.count} leads &middot; {s.won} won</span>
                       </div>
                       <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                        <div className="h-full bg-blue-500/60 rounded-full transition-all" style={{ width: `${(s.count / leads.length) * 100}%` }} />
+                        <div className="h-full bg-blue-500/60 rounded-full transition-all" style={{ width: `${(s.count / scopedLeads.length) * 100}%` }} />
                       </div>
                     </div>
                   </div>
@@ -330,11 +374,11 @@ export default function Dashboard() {
       {!loading && activeTab === 'pipeline' && (
         <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-white">All Leads ({leads.length})</h3>
+            <h3 className="text-sm font-semibold text-white">All Leads ({scopedLeads.length})</h3>
             <div className="flex gap-2 flex-wrap">
               {STAGES.concat('lost').map(stage => (
                 <span key={stage} className="text-[10px] px-2 py-1 rounded-full" style={{ backgroundColor: STAGE_COLORS[stage] + '20', color: STAGE_COLORS[stage] }}>
-                  {STAGE_LABELS[stage]}: {leads.filter(l => l.stage === stage).length}
+                  {STAGE_LABELS[stage]}: {scopedLeads.filter(l => l.stage === stage).length}
                 </span>
               ))}
             </div>
@@ -354,7 +398,7 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {leads.map((lead, i) => (
+                {scopedLeads.map((lead, i) => (
                   <tr key={lead.id || i} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
                     <td className="px-5 py-3"><span className="text-white font-medium">{lead.contact_name || lead.company_name}</span></td>
                     <td className="px-3 py-3 text-slate-300">{brandName(lead.brand_id)}</td>

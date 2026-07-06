@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 
 export default function BusinessCreator() {
@@ -41,8 +41,13 @@ export default function BusinessCreator() {
     }
   };
 
+  const submitLock = useRef(false);
+
   const createIdea = async () => {
-    if (!title.trim() || evaluating) return; // guard fixes the double-insert seen in DB (two identical ideas 2s apart)
+    if (!title.trim() || evaluating || submitLock.current) return;
+    submitLock.current = true; // synchronous lock — setEvaluating(true) alone isn't enough
+    // because React batches state updates, and rapid clicks landed 3 duplicate
+    // ideas within under 1 second before the button's `disabled` prop updated.
     setEvaluating(true); setEvalError(null); setLastAnalysis(null);
     try {
       const { data, error: fnError } = await supabase.functions.invoke('business-engine', { body: { title, description: desc } });
@@ -54,10 +59,18 @@ export default function BusinessCreator() {
       setTitle(''); setDesc('');
     } catch (e) {
       setEvalError(e instanceof Error ? e.message : 'Failed to evaluate idea');
-    } finally { setEvaluating(false); }
+    } finally { setEvaluating(false); submitLock.current = false; }
   };
 
-  const statusCfg: Record<string, { label: string; color: string }> = { idea: { label: 'Idea', color: 'bg-slate-500/10 text-slate-400' }, validating: { label: 'Validating', color: 'bg-blue-500/10 text-blue-400' }, planning: { label: 'Planning', color: 'bg-amber-500/10 text-amber-400' }, building: { label: 'Building', color: 'bg-purple-500/10 text-purple-400' }, launched: { label: 'Launched', color: 'bg-emerald-500/10 text-emerald-400' } };
+  // Must match business-engine's real output exactly — it only ever returns
+  // 'idea', 'validated', or 'rejected'. The previous 5-stage set
+  // (validating/planning/building/launched) was never reachable by any real
+  // AI evaluation, so every scored idea silently fell back to the 'Idea'
+  // badge and the stage counters below always read 0 for anything the AI
+  // actually decided. 'planning'/'building'/'launched' are kept as manual
+  // stages you can move an idea into yourself once you act on it — the AI
+  // won't set them on its own.
+  const statusCfg: Record<string, { label: string; color: string }> = { idea: { label: 'Idea', color: 'bg-slate-500/10 text-slate-400' }, validated: { label: 'Validated', color: 'bg-blue-500/10 text-blue-400' }, rejected: { label: 'Rejected', color: 'bg-red-500/10 text-red-400' }, planning: { label: 'Planning', color: 'bg-amber-500/10 text-amber-400' }, building: { label: 'Building', color: 'bg-purple-500/10 text-purple-400' }, launched: { label: 'Launched', color: 'bg-emerald-500/10 text-emerald-400' } };
 
   const autoComponents = [
     { title: 'Business Model Canvas', desc: 'Revenue streams, cost structure, value proposition, and key partnerships.' },
@@ -75,7 +88,7 @@ export default function BusinessCreator() {
         </div>
       </div>
 
-      <div className="grid grid-cols-5 gap-2">
+      <div className="grid grid-cols-6 gap-2">
         {Object.entries(statusCfg).map(([key, cfg]) => (
           <div key={key} className="text-center px-3 py-2 rounded-lg border border-slate-800">
             <p className="text-lg font-bold text-white">{ideas.filter((i: any) => i.status === key).length}</p>

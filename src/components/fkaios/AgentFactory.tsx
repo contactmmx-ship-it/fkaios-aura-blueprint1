@@ -18,8 +18,22 @@ export default function AgentFactory() {
   const [execOutput, setExecOutput] = useState('');
   const [executing, setExecuting] = useState(false);
 
+  // Your real, live agents — 41 agents with actual job descriptions (charters),
+  // each tied to a company and department. These are what actually run your
+  // business. The 6 items below under "Agent Templates" are a separate,
+  // generic sandbox for one-off ad-hoc runs — not connected to any company.
+  const [companyAgents, setCompanyAgents] = useState<any[]>([]);
+  const [companies, setCompanies] = useState<any[]>([]);
+
   useEffect(() => {
     supabase.from('brain_agents').select('*').eq('status', 'active').order('is_prebuilt', { ascending: false }).order('name').then(({ data }) => setAgents(data || []));
+    Promise.all([
+      supabase.from('ai_agents').select('id, name, department, task, status, company_id, total_tasks_completed, success_rate, autonomy_level').eq('is_active', true).order('company_id').order('department'),
+      supabase.from('companies').select('id, name'),
+    ]).then(([a, c]) => {
+      setCompanyAgents(a.data || []);
+      setCompanies(c.data || []);
+    });
   }, []);
 
   const filtered = filter === 'all' ? agents : agents.filter((a: any) => a.category === filter);
@@ -41,11 +55,45 @@ export default function AgentFactory() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <h1 className="text-lg font-bold text-white">Your Company Agents</h1>
+          <span className="text-[10px] px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded-full">{companyAgents.length} active, real</span>
+        </div>
+        {companies.map(co => {
+          const list = companyAgents.filter(a => a.company_id === co.id);
+          if (list.length === 0) return null;
+          return (
+            <div key={co.id} className="mb-4">
+              <h2 className="text-xs font-semibold text-slate-400 mb-2">{co.name} <span className="text-slate-600">({list.length} agents)</span></h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                {list.map(a => (
+                  <div key={a.id} className="bg-slate-900 border border-slate-800 rounded-lg p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-medium text-white truncate">{a.name}</p>
+                      <span className="text-[9px] text-slate-500">L{a.autonomy_level ?? 0}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-0.5">{a.department}</p>
+                    <p className="text-[10px] text-slate-400 mt-1 line-clamp-2">{a.task}</p>
+                    <div className="flex justify-between mt-1.5 text-[9px] text-slate-500">
+                      <span>{a.total_tasks_completed ?? 0} tasks</span>
+                      <span>{a.success_rate != null ? `${a.success_rate}% success` : 'no data yet'}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+        {companyAgents.length === 0 && <p className="text-xs text-slate-500">No live company agents found.</p>}
+      </div>
+
+      <div className="border-t border-slate-800 pt-5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <h1 className="text-lg font-bold text-white">Agent Factory</h1>
-          <span className="text-[10px] px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded-full">{agents.length} Active</span>
+          <h1 className="text-lg font-bold text-white">Agent Templates</h1>
+          <span className="text-[10px] px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded-full">{agents.length} available — sandbox, not tied to a company</span>
         </div>
       </div>
 
@@ -84,6 +132,7 @@ export default function AgentFactory() {
             </div>
           );
         })}
+      </div>
       </div>
 
       {execOpen && selectedAgent && (
