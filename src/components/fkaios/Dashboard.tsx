@@ -2,21 +2,22 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import {
-  TrendingUp, TrendingDown, Users, DollarSign, Activity,
-  ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle,
+  Users, DollarSign, Activity,
+  ArrowUpRight, ArrowDownRight, Clock, CheckCircle,
   Target, BarChart3, PieChart, Zap
 } from 'lucide-react';
 
-
-const BRANDS = [
-  { name: 'Franchisee Kart', color: '#3b82f6', sector: 'Multi-brand Platform', minInvestment: '₹10L', maxInvestment: '₹50L' },
-  { name: 'QuickShelf', color: '#10b981', sector: 'Q-Commerce Retail', minInvestment: '₹8L', maxInvestment: '₹25L' },
-  { name: 'BrandBooster', color: '#f59e0b', sector: 'Marketing Franchise', minInvestment: '₹5L', maxInvestment: '₹20L' },
-];
-
-const STAGES = ['new', 'qualified', 'proposal', 'negotiation', 'won', 'lost'];
-const STAGE_LABELS: Record<string, string> = { new: 'New', qualified: 'Qualified', proposal: 'Proposal', negotiation: 'Negotiation', won: 'Won', lost: 'Lost' };
-const STAGE_COLORS: Record<string, string> = { new: '#6366f1', qualified: '#3b82f6', proposal: '#f59e0b', negotiation: '#f97316', won: '#10b981', lost: '#ef4444' };
+// Real stage values — must match the `leads.stage` check constraint exactly.
+const STAGES = ['new', 'contacted', 'qualified', 'proposal_sent', 'negotiation', 'closed'];
+const STAGE_LABELS: Record<string, string> = {
+  new: 'New', contacted: 'Contacted', qualified: 'Qualified',
+  proposal_sent: 'Proposal Sent', negotiation: 'Negotiation', closed: 'Closed (Won)', lost: 'Lost',
+};
+const STAGE_COLORS: Record<string, string> = {
+  new: '#6366f1', contacted: '#0ea5e9', qualified: '#3b82f6',
+  proposal_sent: '#f59e0b', negotiation: '#f97316', closed: '#10b981', lost: '#ef4444',
+};
+const BRAND_PALETTE = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#6366f1'];
 
 function formatCurrency(val: number) {
   if (val >= 10000000) return `₹${(val / 10000000).toFixed(1)}Cr`;
@@ -41,7 +42,6 @@ function ScoreRing({ score, size = 36 }: { score: number; size?: number }) {
   );
 }
 
-// Mini sparkline using pure SVG
 function Sparkline({ data, color, width = 80, height = 28 }: { data: number[]; color: string; width?: number; height?: number }) {
   if (!data || data.length < 2) return null;
   const min = Math.min(...data);
@@ -55,14 +55,38 @@ function Sparkline({ data, color, width = 80, height = 28 }: { data: number[]; c
   );
 }
 
+interface Lead {
+  id: string;
+  brand_id: string | null;
+  company_name: string;
+  contact_name: string | null;
+  city: string | null;
+  state: string | null;
+  lead_source: string | null;
+  source: string | null;
+  stage: string;
+  lead_score: number | null;
+  created_at: string;
+}
+interface Brand { id: string; name: string; sector: string | null; investment_range: string | null; royalty: string | null; }
+interface Invoice { id: string; lead_id: string | null; amount: number | null; status: string; }
+
 export default function Dashboard() {
-  const [leads, setLeads] = useState<any[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'pipeline' | 'brands'>('overview');
 
   useEffect(() => {
-    supabase.from('leads').select('*').then(({ data }) => {
-      if (data && data.length > 0) setLeads(data);
+    Promise.all([
+      supabase.from('leads').select('id, brand_id, company_name, contact_name, city, state, lead_source, source, stage, lead_score, created_at'),
+      supabase.from('brands').select('id, name, sector, investment_range, royalty').eq('is_active', true),
+      supabase.from('invoices').select('id, lead_id, amount, status'),
+    ]).then(([l, b, i]) => {
+      if (l.data) setLeads(l.data as Lead[]);
+      if (b.data) setBrands(b.data as Brand[]);
+      if (i.data) setInvoices(i.data as Invoice[]);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
@@ -85,55 +109,59 @@ export default function Dashboard() {
       });
   }, []);
 
-  const activeLeads = leads.filter(l => !['won', 'lost'].includes(l.status));
-  const wonLeads = leads.filter(l => l.status === 'won');
-  const lostLeads = leads.filter(l => l.status === 'lost');
-  const totalPipelineValue = activeLeads.reduce((s, l) => s + (l.value || 0), 0);
-  const wonRevenue = wonLeads.reduce((s, l) => s + (l.value || 0), 0);
-  const avgScore = activeLeads.length > 0 ? Math.round(activeLeads.reduce((s, l) => s + (l.score || 0), 0) / activeLeads.length) : 0;
+  // Invoice amount per lead — real deal value only exists once an invoice is drafted.
+  // A lead with no invoice contributes ₹0, and is labeled "no invoice yet" rather than
+  // shown as a fabricated deal size.
+  const invoicedByLead = new Map<string, number>();
+  for (const inv of invoices) {
+    if (!inv.lead_id || inv.status === 'cancelled') continue;
+    invoicedByLead.set(inv.lead_id, (invoicedByLead.get(inv.lead_id) || 0) + (Number(inv.amount) || 0));
+  }
+  const wonInvoiceTotal = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + (Number(i.amount) || 0), 0);
+
+  const brandById = new Map<string, Brand & { color: string }>(
+    brands.map((b, i) => [b.id, { ...b, color: BRAND_PALETTE[i % BRAND_PALETTE.length] }])
+  );
+  const brandName = (id: string | null) => (id && brandById.get(id)?.name) || 'Unassigned';
+
+  const activeLeads = leads.filter(l => !['closed', 'lost'].includes(l.stage));
+  const wonLeads = leads.filter(l => l.stage === 'closed');
+  const lostLeads = leads.filter(l => l.stage === 'lost');
+  const avgScore = activeLeads.length > 0 ? Math.round(activeLeads.reduce((s, l) => s + (l.lead_score || 0), 0) / activeLeads.length) : 0;
   const conversionRate = leads.length > 0 ? Math.round((wonLeads.length / leads.length) * 100) : 0;
 
-  // Pipeline funnel data
-  const funnelData = STAGES.slice(0, 5).map(stage => ({
-    stage,
-    label: STAGE_LABELS[stage],
-    count: leads.filter(l => l.status === stage).length,
-    value: leads.filter(l => l.status === stage).reduce((s, l) => s + (l.value || 0), 0),
-    color: STAGE_COLORS[stage],
+  const funnelData = STAGES.map(stage => ({
+    stage, label: STAGE_LABELS[stage],
+    count: leads.filter(l => l.stage === stage).length,
   }));
 
-  // Brand breakdown
-  const brandData = BRANDS.map(b => {
-    const bLeads = leads.filter(l => l.brand === b.name);
+  const brandData = brands.map((b, i) => {
+    const bLeads = leads.filter(l => l.brand_id === b.id);
+    const bWon = bLeads.filter(l => l.stage === 'closed');
     return {
       ...b,
+      color: BRAND_PALETTE[i % BRAND_PALETTE.length],
       leads: bLeads.length,
-      activeLeads: bLeads.filter(l => !['won', 'lost'].includes(l.status)).length,
-      wonLeads: bLeads.filter(l => l.status === 'won').length,
-      pipelineValue: bLeads.filter(l => !['won', 'lost'].includes(l.status)).reduce((s, l) => s + (l.value || 0), 0),
-      wonRevenue: bLeads.filter(l => l.status === 'won').reduce((s, l) => s + (l.value || 0), 0),
+      activeLeads: bLeads.filter(l => !['closed', 'lost'].includes(l.stage)).length,
+      wonLeads: bWon.length,
+      wonRevenue: bWon.reduce((s, l) => s + (invoicedByLead.get(l.id) || 0), 0),
     };
   });
 
-  // Source performance
-  const sources = [...new Set(leads.map(l => l.source))].map(src => {
-    const sLeads = leads.filter(l => l.source === src);
-    return { source: src, count: sLeads.length, won: sLeads.filter(l => l.status === 'won').length, value: sLeads.reduce((s, l) => s + (l.value || 0), 0) };
+  const sources = [...new Set(leads.map(l => l.lead_source || l.source).filter(Boolean))].map(src => {
+    const sLeads = leads.filter(l => (l.lead_source || l.source) === src);
+    return { source: src as string, count: sLeads.length, won: sLeads.filter(l => l.stage === 'closed').length };
   }).sort((a, b) => b.count - a.count);
 
-  // Recent leads (last 5)
   const recentLeads = [...leads].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 5);
+  const topLeads = [...activeLeads].sort((a, b) => (b.lead_score || 0) - (a.lead_score || 0)).slice(0, 5);
 
-  // Top leads by score
-  const topLeads = [...activeLeads].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 5);
-
-  // Monthly won-revenue sparkline from REAL leads (empty until enough data)
   const revenueSparkline = (() => {
     const byMonth = new Map<string, number>();
     for (const l of wonLeads) {
       if (!l.created_at) continue;
       const k = String(l.created_at).slice(0, 7);
-      byMonth.set(k, (byMonth.get(k) || 0) + (l.value || 0));
+      byMonth.set(k, (byMonth.get(k) || 0) + (invoicedByLead.get(l.id) || 0));
     }
     const keys = [...byMonth.keys()].sort();
     return keys.map(k => byMonth.get(k) as number);
@@ -141,7 +169,6 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Tab bar */}
       <div className="flex gap-1 bg-slate-900 rounded-xl p-1 w-fit">
         {(['overview', 'pipeline', 'brands'] as const).map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
@@ -151,7 +178,6 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Live AI operations — real execution_log data */}
       {ops && (
         <div className="flex flex-wrap gap-4 bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-xs">
           <span className="text-slate-400">AI ops (24h): <span className="text-white font-semibold">{ops.calls} calls</span></span>
@@ -161,12 +187,13 @@ export default function Dashboard() {
         </div>
       )}
 
-      {activeTab === 'overview' && (
+      {loading && <div className="text-xs text-slate-500">Loading real data from Supabase…</div>}
+
+      {!loading && activeTab === 'overview' && (
         <>
-          {/* KPI Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <KPICard icon={DollarSign} label="Total Revenue (Won)" value={formatCurrency(wonRevenue)}
-              change={`${wonLeads.length} won deals`} positive sparkline={revenueSparkline} color="#10b981" />
+            <KPICard icon={DollarSign} label="Revenue Won (Invoiced)" value={formatCurrency(wonInvoiceTotal)}
+              change={`${wonLeads.length} closed deals`} positive sparkline={revenueSparkline} color="#10b981" />
             <KPICard icon={Users} label="Active Leads" value={activeLeads.length.toString()}
               change={`${leads.length} total`} positive sparkline={[]} color="#3b82f6" />
             <KPICard icon={Target} label="Avg. Lead Score" value={`${avgScore}/100`}
@@ -175,58 +202,56 @@ export default function Dashboard() {
               change={`${lostLeads.length} lost`} positive={false} sparkline={[]} color="#8b5cf6" />
           </div>
 
-          {/* Pipeline Funnel + Top Leads */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Pipeline Funnel */}
             <div className="lg:col-span-2 bg-slate-900 rounded-xl border border-slate-800 p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-white">Sales Pipeline Funnel</h3>
                 <span className="text-[10px] text-slate-500">{leads.length} total leads</span>
               </div>
               <div className="space-y-2">
-                {funnelData.map((f, i) => (
-                  <div key={f.stage} className="flex items-center gap-3">
-                    <div className="w-20 text-right">
-                      <span className="text-[11px] text-slate-400">{f.label}</span>
-                    </div>
-                    <div className="flex-1 relative h-7">
-                      <div className="absolute inset-0 bg-slate-800 rounded-md overflow-hidden">
-                        <div className="h-full rounded-md transition-all duration-500 flex items-center pl-3"
-                          style={{ width: `${Math.max(f.count / Math.max(...funnelData.map(d => d.count)) * 100, 15)}%`, backgroundColor: f.color + '30', borderLeft: `3px solid ${f.color}` }}>
-                          <span className="text-[11px] font-semibold text-white">{f.count}</span>
+                {funnelData.map(f => {
+                  const maxCount = Math.max(...funnelData.map(d => d.count), 1);
+                  return (
+                    <div key={f.stage} className="flex items-center gap-3">
+                      <div className="w-24 text-right"><span className="text-[11px] text-slate-400">{f.label}</span></div>
+                      <div className="flex-1 relative h-7">
+                        <div className="absolute inset-0 bg-slate-800 rounded-md overflow-hidden">
+                          <div className="h-full rounded-md transition-all duration-500 flex items-center pl-3"
+                            style={{ width: `${Math.max((f.count / maxCount) * 100, f.count > 0 ? 15 : 0)}%`, backgroundColor: STAGE_COLORS[f.stage] + '30', borderLeft: `3px solid ${STAGE_COLORS[f.stage]}` }}>
+                            <span className="text-[11px] font-semibold text-white">{f.count}</span>
+                          </div>
                         </div>
                       </div>
                     </div>
-                    <div className="w-20 text-right">
-                      <span className="text-[11px] text-slate-300">{formatCurrency(f.value)}</span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               <div className="mt-3 pt-3 border-t border-slate-800 flex justify-between text-[11px]">
-                <span className="text-slate-400">Total Pipeline: <span className="text-white font-semibold">{formatCurrency(totalPipelineValue)}</span></span>
-                <span className="text-slate-400">Won: <span className="text-emerald-400 font-semibold">{formatCurrency(wonRevenue)}</span></span>
+                <span className="text-slate-400">Lost: <span className="text-red-400 font-semibold">{lostLeads.length}</span></span>
+                <span className="text-slate-400">Won (Invoiced): <span className="text-emerald-400 font-semibold">{formatCurrency(wonInvoiceTotal)}</span></span>
               </div>
             </div>
 
-            {/* Top Leads */}
             <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-white">Top Leads</h3>
                 <Target className="w-4 h-4 text-slate-500" />
               </div>
               <div className="space-y-3">
+                {topLeads.length === 0 && <p className="text-[11px] text-slate-500">No active leads yet.</p>}
                 {topLeads.map((lead, i) => (
                   <div key={lead.id || i} className="flex items-center gap-3">
-                    <ScoreRing score={lead.score || 0} size={34} />
+                    <ScoreRing score={lead.lead_score || 0} size={34} />
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-white truncate">{lead.contact_name || lead.name}</p>
-                      <p className="text-[10px] text-slate-500">{lead.brand} &middot; {lead.city}</p>
+                      <p className="text-xs font-medium text-white truncate">{lead.contact_name || lead.company_name}</p>
+                      <p className="text-[10px] text-slate-500">{brandName(lead.brand_id)} &middot; {lead.city || '—'}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-xs font-semibold text-white">{formatCurrency(lead.value || 0)}</p>
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: STAGE_COLORS[lead.status] + '20', color: STAGE_COLORS[lead.status] }}>
-                        {STAGE_LABELS[lead.status]}
+                      <p className="text-xs font-semibold text-white">
+                        {invoicedByLead.has(lead.id) ? formatCurrency(invoicedByLead.get(lead.id)!) : <span className="text-slate-600">no invoice</span>}
+                      </p>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: STAGE_COLORS[lead.stage] + '20', color: STAGE_COLORS[lead.stage] }}>
+                        {STAGE_LABELS[lead.stage] || lead.stage}
                       </span>
                     </div>
                   </div>
@@ -235,23 +260,22 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Brand Cards + Source Performance */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Brand Performance */}
             <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-white">Brand Performance</h3>
                 <PieChart className="w-4 h-4 text-slate-500" />
               </div>
               <div className="space-y-3">
+                {brandData.length === 0 && <p className="text-[11px] text-slate-500">No active brands found.</p>}
                 {brandData.map(b => (
-                  <div key={b.name} className="flex items-center gap-3 p-3 rounded-lg bg-slate-800/50 border border-slate-700/50">
+                  <div key={b.id} className="flex items-center gap-3 p-3 rounded-lg bg-slate-800/50 border border-slate-700/50">
                     <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ backgroundColor: b.color + '20' }}>
                       <BarChart3 className="w-4 h-4" style={{ color: b.color }} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold text-white">{b.name}</p>
-                      <p className="text-[10px] text-slate-500">{b.sector}</p>
+                      <p className="text-[10px] text-slate-500">{b.sector || '—'}</p>
                     </div>
                     <div className="text-right">
                       <p className="text-xs font-semibold text-white">{b.activeLeads} active</p>
@@ -262,13 +286,13 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Source Performance + Recent Activity */}
             <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-white">Lead Sources</h3>
                 <Zap className="w-4 h-4 text-slate-500" />
               </div>
               <div className="space-y-2 mb-5">
+                {sources.length === 0 && <p className="text-[11px] text-slate-500">No source data yet.</p>}
                 {sources.map(s => (
                   <div key={s.source} className="flex items-center gap-3">
                     <div className="flex-1">
@@ -286,13 +310,14 @@ export default function Dashboard() {
               <div className="border-t border-slate-800 pt-4">
                 <h4 className="text-xs font-semibold text-white mb-3">Recent Activity</h4>
                 <div className="space-y-2">
+                  {recentLeads.length === 0 && <p className="text-[11px] text-slate-500">No leads yet.</p>}
                   {recentLeads.map((lead, i) => (
                     <div key={lead.id || i} className="flex items-center gap-2 text-[11px]">
-                      <div className={`w-5 h-5 rounded-full flex items-center justify-center ${lead.status === 'won' ? 'bg-emerald-500/20' : 'bg-blue-500/20'}`}>
-                        {lead.status === 'won' ? <CheckCircle className="w-3 h-3 text-emerald-400" /> : <Clock className="w-3 h-3 text-blue-400" />}
+                      <div className={`w-5 h-5 rounded-full flex items-center justify-center ${lead.stage === 'closed' ? 'bg-emerald-500/20' : 'bg-blue-500/20'}`}>
+                        {lead.stage === 'closed' ? <CheckCircle className="w-3 h-3 text-emerald-400" /> : <Clock className="w-3 h-3 text-blue-400" />}
                       </div>
-                      <span className="text-slate-300 flex-1 truncate"><span className="text-white font-medium">{lead.contact_name || lead.name}</span> — {lead.brand}</span>
-                      <span className="text-slate-500">{lead.created_at}</span>
+                      <span className="text-slate-300 flex-1 truncate"><span className="text-white font-medium">{lead.contact_name || lead.company_name}</span> — {brandName(lead.brand_id)}</span>
+                      <span className="text-slate-500">{String(lead.created_at).slice(0, 10)}</span>
                     </div>
                   ))}
                 </div>
@@ -302,14 +327,14 @@ export default function Dashboard() {
         </>
       )}
 
-      {activeTab === 'pipeline' && (
+      {!loading && activeTab === 'pipeline' && (
         <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-white">All Leads ({leads.length})</h3>
-            <div className="flex gap-2">
-              {STAGES.map(stage => (
+            <div className="flex gap-2 flex-wrap">
+              {STAGES.concat('lost').map(stage => (
                 <span key={stage} className="text-[10px] px-2 py-1 rounded-full" style={{ backgroundColor: STAGE_COLORS[stage] + '20', color: STAGE_COLORS[stage] }}>
-                  {STAGE_LABELS[stage]}: {leads.filter(l => l.status === stage).length}
+                  {STAGE_LABELS[stage]}: {leads.filter(l => l.stage === stage).length}
                 </span>
               ))}
             </div>
@@ -323,7 +348,7 @@ export default function Dashboard() {
                   <th className="text-left px-3 py-3 font-medium">City</th>
                   <th className="text-left px-3 py-3 font-medium">Source</th>
                   <th className="text-center px-3 py-3 font-medium">Score</th>
-                  <th className="text-right px-3 py-3 font-medium">Value</th>
+                  <th className="text-right px-3 py-3 font-medium">Invoiced</th>
                   <th className="text-center px-3 py-3 font-medium">Stage</th>
                   <th className="text-left px-5 py-3 font-medium">Date</th>
                 </tr>
@@ -331,20 +356,20 @@ export default function Dashboard() {
               <tbody>
                 {leads.map((lead, i) => (
                   <tr key={lead.id || i} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
-                    <td className="px-5 py-3">
-                      <span className="text-white font-medium">{lead.contact_name || lead.name}</span>
+                    <td className="px-5 py-3"><span className="text-white font-medium">{lead.contact_name || lead.company_name}</span></td>
+                    <td className="px-3 py-3 text-slate-300">{brandName(lead.brand_id)}</td>
+                    <td className="px-3 py-3 text-slate-400">{lead.city || '—'}</td>
+                    <td className="px-3 py-3 text-slate-400">{lead.lead_source || lead.source || '—'}</td>
+                    <td className="px-3 py-3 text-center"><ScoreRing score={lead.lead_score || 0} size={30} /></td>
+                    <td className="px-3 py-3 text-right text-white font-medium">
+                      {invoicedByLead.has(lead.id) ? formatCurrency(invoicedByLead.get(lead.id)!) : <span className="text-slate-600">—</span>}
                     </td>
-                    <td className="px-3 py-3 text-slate-300">{lead.brand}</td>
-                    <td className="px-3 py-3 text-slate-400">{lead.city}</td>
-                    <td className="px-3 py-3 text-slate-400">{lead.source}</td>
-                    <td className="px-3 py-3 text-center"><ScoreRing score={lead.score || 0} size={30} /></td>
-                    <td className="px-3 py-3 text-right text-white font-medium">{formatCurrency(lead.value || 0)}</td>
                     <td className="px-3 py-3 text-center">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium" style={{ backgroundColor: STAGE_COLORS[lead.status] + '20', color: STAGE_COLORS[lead.status] }}>
-                        {STAGE_LABELS[lead.status]}
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium" style={{ backgroundColor: STAGE_COLORS[lead.stage] + '20', color: STAGE_COLORS[lead.stage] }}>
+                        {STAGE_LABELS[lead.stage] || lead.stage}
                       </span>
                     </td>
-                    <td className="px-5 py-3 text-slate-500">{lead.created_at}</td>
+                    <td className="px-5 py-3 text-slate-500">{String(lead.created_at).slice(0, 10)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -353,17 +378,18 @@ export default function Dashboard() {
         </div>
       )}
 
-      {activeTab === 'brands' && (
+      {!loading && activeTab === 'brands' && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {brandData.length === 0 && <p className="text-[11px] text-slate-500">No active brands found in the database.</p>}
           {brandData.map(b => (
-            <div key={b.name} className="bg-slate-900 rounded-xl border border-slate-800 p-5">
+            <div key={b.id} className="bg-slate-900 rounded-xl border border-slate-800 p-5">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: b.color + '20' }}>
                   <BarChart3 className="w-5 h-5" style={{ color: b.color }} />
                 </div>
                 <div>
                   <h3 className="text-sm font-semibold text-white">{b.name}</h3>
-                  <p className="text-[10px] text-slate-500">{b.sector}</p>
+                  <p className="text-[10px] text-slate-500">{b.sector || '—'}</p>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3 mb-4">
@@ -380,13 +406,13 @@ export default function Dashboard() {
                   <p className="text-[10px] text-slate-500">Revenue Won</p>
                 </div>
                 <div className="bg-slate-800/50 rounded-lg p-3 text-center">
-                  <p className="text-lg font-bold text-blue-400">{formatCurrency(b.pipelineValue)}</p>
-                  <p className="text-[10px] text-slate-500">Pipeline</p>
+                  <p className="text-lg font-bold text-blue-400">{b.wonLeads}</p>
+                  <p className="text-[10px] text-slate-500">Deals Closed</p>
                 </div>
               </div>
               <div className="border-t border-slate-800 pt-3 flex justify-between text-[11px]">
-                <span className="text-slate-500">Investment: <span className="text-white">{b.minInvestment} – {b.maxInvestment}</span></span>
-                <span className="text-slate-500">Won: <span className="text-emerald-400">{b.wonLeads}</span></span>
+                <span className="text-slate-500">Investment: <span className="text-white">{b.investment_range || '—'}</span></span>
+                <span className="text-slate-500">Royalty: <span className="text-white">{b.royalty || '—'}</span></span>
               </div>
             </div>
           ))}
