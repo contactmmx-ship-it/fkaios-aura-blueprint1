@@ -4,14 +4,37 @@
 // same pattern as heartbeat-engine/vault-engine) alongside the original
 // service_role JWT / admin JWT checks.
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-import {
-  correlationId as generateCorrelationId,
-  structuredLog,
-  errorResponse,
-  successResponse,
-  verifyEnvSecrets,
-  verifyJWT,
-} from "../_shared/utils.ts";
+
+// Inlined from ../_shared/utils.ts — the deploy tool does not reliably
+// resolve cross-file relative imports into subdirectories.
+function generateCorrelationId(): string { return crypto.randomUUID().slice(0, 8); }
+function structuredLog(level: string, message: string, data?: Record<string, unknown>, cid?: string): void {
+  console.log(JSON.stringify({ timestamp: new Date().toISOString(), level, correlationId: cid || '', message, ...(data ? { data } : {}) }));
+}
+function errorResponse(message: string, status: number, details?: string, cid?: string): Response {
+  structuredLog('ERROR', message, { status, details }, cid);
+  return new Response(JSON.stringify({ error: message, ...(details ? { details } : {}), ...(cid ? { correlationId: cid } : {}) }), { status, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, PUT, DELETE' } });
+}
+function successResponse(data: unknown, status = 200, cid?: string): Response {
+  return new Response(JSON.stringify({ ...((data as Record<string, unknown>) || {}), ...(cid ? { correlationId: cid } : {}) }), { status, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, PUT, DELETE' } });
+}
+function verifyEnvSecrets(required: Record<string, string | undefined>): string | null {
+  const missing: string[] = [];
+  for (const [name, value] of Object.entries(required)) { if (!value) missing.push(name); }
+  return missing.length > 0 ? `Missing required secrets: ${missing.join(', ')}` : null;
+}
+async function verifyJWT(authHeader: string, supabaseUrl: string, supabaseAnonKey: string): Promise<{ userId: string; role: string } | null> {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  const token = authHeader.slice(7);
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    if (payload.iss !== `${supabaseUrl}/auth/v1`) return null;
+    if (payload.exp && payload.exp < Date.now() / 1000) return null;
+    return { userId: payload.sub as string, role: (payload.user_role as string) || payload.role || 'authenticated' };
+  } catch { return null; }
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -197,7 +220,18 @@ async function handleTick(cid: string): Promise<Response> {
     }
 
     const newRunCount = ((schedule.run_count as number) ?? 0) + 1;
-    const { error: updateErr } = await supabase.from("agent_schedules").update({ run_count: newRunCount, last_run_at: new Date().toISOString() }).eq("id", schedule.id);
+    // FIX: next_run_at was never advanced anywhere in this file — an
+    // interval-based schedule would stay "due" forever and fire on every
+    // 5-min tick regardless of its configured interval_seconds, silently
+    // multiplying real paid Claude calls. Advance it here based on schedule
+    // type; cron_expression schedules are left for a future proper cron
+    // parser and simply re-run next tick (rare in current usage — all
+    // schedules seeded so far are 'interval' type).
+    const intervalSecs = (schedule.interval_seconds as number) ?? null;
+    const nextRunAt = schedule.schedule_type === "interval" && intervalSecs
+      ? new Date(Date.now() + intervalSecs * 1000).toISOString()
+      : null; // cron/event_trigger: left as-is until a real cron parser exists
+    const { error: updateErr } = await supabase.from("agent_schedules").update({ run_count: newRunCount, last_run_at: new Date().toISOString(), ...(nextRunAt ? { next_run_at: nextRunAt } : {}) }).eq("id", schedule.id);
 
     if (updateErr) {
       structuredLog("ERROR", "Failed to update schedule (run_count + last_run_at)", { error: updateErr.message, scheduleId: schedule.id }, cid);

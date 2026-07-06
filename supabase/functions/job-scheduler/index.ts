@@ -1,12 +1,36 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-import {
-  correlationId as generateCorrelationId,
-  structuredLog,
-  errorResponse,
-  successResponse,
-  verifyEnvSecrets,
-  verifyJWT,
-} from "../_shared/utils.ts";
+
+// Inlined from ../_shared/utils.ts — the deploy tool does not reliably
+// resolve cross-file relative imports into subdirectories, so this function
+// is kept self-contained rather than depending on _shared/utils.ts.
+function generateCorrelationId(): string { return crypto.randomUUID().slice(0, 8); }
+function structuredLog(level: string, message: string, data?: Record<string, unknown>, cid?: string): void {
+  console.log(JSON.stringify({ timestamp: new Date().toISOString(), level, correlationId: cid || '', message, ...(data ? { data } : {}) }));
+}
+function errorResponse(message: string, status: number, details?: string, cid?: string): Response {
+  structuredLog('ERROR', message, { status, details }, cid);
+  return new Response(JSON.stringify({ error: message, ...(details ? { details } : {}), ...(cid ? { correlationId: cid } : {}) }), { status, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, PUT, DELETE' } });
+}
+function successResponse(data: unknown, status = 200, cid?: string): Response {
+  return new Response(JSON.stringify({ ...((data as Record<string, unknown>) || {}), ...(cid ? { correlationId: cid } : {}) }), { status, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, PUT, DELETE' } });
+}
+function verifyEnvSecrets(required: Record<string, string | undefined>): string | null {
+  const missing: string[] = [];
+  for (const [name, value] of Object.entries(required)) { if (!value) missing.push(name); }
+  return missing.length > 0 ? `Missing required secrets: ${missing.join(', ')}` : null;
+}
+async function verifyJWT(authHeader: string, supabaseUrl: string, supabaseAnonKey: string): Promise<{ userId: string; role: string } | null> {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  const token = authHeader.slice(7);
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    if (payload.iss !== `${supabaseUrl}/auth/v1`) return null;
+    if (payload.exp && payload.exp < Date.now() / 1000) return null;
+    return { userId: payload.sub as string, role: (payload.user_role as string) || payload.role || 'authenticated' };
+  } catch { return null; }
+}
 
 // ──────────────────────────────────────────────
 // CORS headers
@@ -300,9 +324,18 @@ Deno.serve(async (req: Request) => {
       return errorResponse(envError, 500, "Configuration error", cid);
     }
 
+    // v27: heartbeat-secret bypass so pg_cron can trigger this directly,
+    // matching the same pattern already used in heartbeat-engine/vault-engine/
+    // agent-scheduler. Without this, job-scheduler could only be called with
+    // a real user JWT — meaning the 22 jobs sitting in ai_jobs.status='pending'
+    // had no automated path to ever run.
+    const hbSecret = Deno.env.get("HEARTBEAT_SECRET");
+    const providedSecret = req.headers.get("x-heartbeat-secret") || new URL(req.url).searchParams.get("secret");
+    const isServiceCall = !!(hbSecret && providedSecret === hbSecret);
+
     // JWT required (or service auth)
     const authHeader = req.headers.get("Authorization") || "";
-    const user = await verifyJWT(authHeader, supabaseUrl, supabaseAnonKey);
+    const user = isServiceCall ? { userId: "cron", role: "service_role" } : await verifyJWT(authHeader, supabaseUrl, supabaseAnonKey);
     if (!user) {
       return errorResponse("Unauthorized: valid JWT or service token required", 401, undefined, cid);
     }

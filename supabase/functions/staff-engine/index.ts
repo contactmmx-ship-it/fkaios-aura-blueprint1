@@ -79,14 +79,33 @@ Deno.serve(async (req) => {
   const id = cid();
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   const authHeader = req.headers.get('Authorization');
-  // FIX: forward the caller's real JWT so PostgREST evaluates RLS as `authenticated`, not `anon`.
-  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: authHeader ? { Authorization: authHeader } : {} },
-  });
+
+  // v26: heartbeat-secret path uses a real service-role client. The earlier
+  // idea of forwarding a structurally-valid-but-unsigned JWT for internal
+  // callers doesn't work: this function's own iss/exp check is naive, but
+  // the actual database calls below go through PostgREST, which DOES verify
+  // JWT signatures for real — a forged token 401s there even after passing
+  // this function's own check. Service role bypasses that correctly.
+  const hbSecret = Deno.env.get('HEARTBEAT_SECRET');
+  const providedSecret = req.headers.get('x-heartbeat-secret') ?? new URL(req.url).searchParams.get('secret');
+  const isServiceCall = !!(hbSecret && providedSecret === hbSecret && serviceRoleKey);
+
+  const supabase = isServiceCall
+    ? createClient(supabaseUrl, serviceRoleKey!)
+    : createClient(supabaseUrl, supabaseAnonKey, { global: { headers: authHeader ? { Authorization: authHeader } : {} } });
+
   try {
-    const user = await verifyJWT(authHeader, supabaseUrl);
-    if (!user) return errRes('Unauthorized', 401, id);
+    let userId: string;
+    if (isServiceCall) {
+      const body0 = await req.clone().json().catch(() => ({}));
+      userId = body0.on_behalf_of || 'a59c27d8-5934-4edc-80c5-03284204f35d'; // founder account — the only real user in this project
+    } else {
+      const user = await verifyJWT(authHeader, supabaseUrl);
+      if (!user) return errRes('Unauthorized', 401, id);
+      userId = user.userId;
+    }
     if (req.method !== 'POST') return errRes('Method not allowed', 405, id);
 
     const body = await req.json() as { action?: string; brandId?: string; type?: string };
@@ -121,7 +140,7 @@ Deno.serve(async (req) => {
 
     const { data: report, error: repErr } = await supabase
       .from('brain_staff_reports')
-      .insert({ user_id: user.userId, brand_id: body.brandId || null, type: reportType, content: result.content, priorities: result.priorities })
+      .insert({ user_id: userId, brand_id: body.brandId || null, type: reportType, content: result.content, priorities: result.priorities })
       .select('*, brand:brain_brands(name, color, icon)')
       .single();
     if (repErr) throw repErr;
