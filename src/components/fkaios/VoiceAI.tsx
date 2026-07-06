@@ -58,6 +58,7 @@ export default function VoiceAI() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
@@ -67,9 +68,7 @@ export default function VoiceAI() {
     return () => clearInterval(interval);
   }, [isCallActive]);
 
-  const speak = useCallback((text: string) => {
-    if (muted) return;
-    const clean = text.replace(/\*\*/g, '').replace(/[•|]/g, '');
+  const browserSpeak = useCallback((clean: string) => {
     const utterance = new SpeechSynthesisUtterance(clean);
     utterance.rate = 1.0;
     utterance.pitch = tone === 'friendly' ? 1.2 : tone === 'persuasive' ? 0.9 : 1.0;
@@ -80,10 +79,30 @@ export default function VoiceAI() {
     utterance.onend = () => setIsSpeaking(false);
     synthRef.current = utterance;
     window.speechSynthesis.speak(utterance);
-  }, [tone, muted]);
+  }, [tone]);
+
+  const speak = useCallback(async (text: string) => {
+    if (muted) return;
+    const clean = text.replace(/\*\*/g, '').replace(/[•|]/g, '');
+    // Try real ElevenLabs voice first; fall back to browser speech synthesis
+    // if the key isn't configured or the call fails — never fail silently.
+    try {
+      const { data, error } = await supabase.functions.invoke('sales-engine', { body: { action: 'speak', text: clean, tone } });
+      if (error || !data?.audioBase64) throw new Error(error?.message || 'no audio returned');
+      const audio = new Audio(`data:${data.contentType || 'audio/mpeg'};base64,${data.audioBase64}`);
+      audioRef.current = audio;
+      setIsSpeaking(true);
+      audio.onended = () => setIsSpeaking(false);
+      audio.onerror = () => { setIsSpeaking(false); browserSpeak(clean); };
+      await audio.play();
+    } catch {
+      browserSpeak(clean);
+    }
+  }, [tone, muted, browserSpeak]);
 
   const stopSpeaking = () => {
     window.speechSynthesis.cancel();
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     setIsSpeaking(false);
   };
 

@@ -37,6 +37,10 @@ export default function BuilderAI() {
   const [error, setError] = useState<string | null>(null);
   const [deploying, setDeploying] = useState(false);
   const [deployError, setDeployError] = useState<string | null>(null);
+  const [imagePrompt, setImagePrompt] = useState('');
+  const [generatingImage, setGeneratingImage] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [generatedImage, setGeneratedImage] = useState<{ base64: string; mimeType: string } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -111,6 +115,28 @@ export default function BuilderAI() {
     } finally {
       setDeploying(false);
     }
+  }
+
+  async function generateBrandImage() {
+    if (!imagePrompt.trim()) return;
+    setGeneratingImage(true); setImageError(null); setGeneratedImage(null);
+    try {
+      const { data, error: fnErr } = await supabase.functions.invoke('builder-engine', { body: { action: 'generate_image', prompt: imagePrompt } });
+      if (fnErr || data?.error) throw new Error(data?.error || fnErr?.message || 'Image generation failed');
+      setGeneratedImage({ base64: data.imageBase64, mimeType: data.mimeType });
+    } catch (e) {
+      setImageError(e instanceof Error ? e.message : 'Image generation failed');
+    } finally {
+      setGeneratingImage(false);
+    }
+  }
+
+  function downloadImage() {
+    if (!generatedImage) return;
+    const a = document.createElement('a');
+    a.href = `data:${generatedImage.mimeType};base64,${generatedImage.base64}`;
+    a.download = `brand-image-${Date.now()}.png`;
+    a.click();
   }
 
   return (
@@ -243,6 +269,34 @@ export default function BuilderAI() {
             </div>
           )}
         </div>
+      </div>
+
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+        <div>
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Generate Brand Image</p>
+          <p className="text-[11px] text-slate-500 mt-1">Real image generation via Gemini's native image model — describe a hero image, icon, or product shot.</p>
+        </div>
+        <div className="flex gap-2">
+          <input value={imagePrompt} onChange={e => setImagePrompt(e.target.value)} placeholder="e.g. minimalist hero illustration of a modern chicken restaurant storefront, warm orange palette"
+            className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-violet-500" />
+          <button onClick={generateBrandImage} disabled={!imagePrompt.trim() || generatingImage}
+            className="px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-sm font-semibold rounded-lg transition-all whitespace-nowrap">
+            {generatingImage ? <Loader2 className="w-4 h-4 animate-spin inline" /> : 'Generate'}
+          </button>
+        </div>
+        {imageError && (
+          <div className="flex items-center gap-2 text-rose-400 text-sm bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2">
+            <XCircle className="w-4 h-4 shrink-0" />{imageError}
+          </div>
+        )}
+        {generatedImage && (
+          <div className="space-y-2">
+            <img src={`data:${generatedImage.mimeType};base64,${generatedImage.base64}`} alt="Generated brand image" className="max-w-md rounded-xl border border-slate-700" />
+            <button onClick={downloadImage} className="flex items-center gap-2 px-3 py-1.5 bg-violet-600/20 border border-violet-500/30 text-violet-400 text-xs font-medium rounded-lg hover:bg-violet-600/30 transition-all w-fit">
+              <Download className="w-3 h-3" />Download
+            </button>
+          </div>
+        )}
       </div>
 
       {history.length > 0 && (
