@@ -19,6 +19,8 @@ export default function SelfLearning() {
   const [newType, setNewType] = useState('win');
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [companies, setCompanies] = useState<any[]>([]);
+  const [forCompanyId, setForCompanyId] = useState<string>('');
 
   const refresh = () => {
     const q = filter === 'all' ? supabase.from('brain_learning_insights').select('*').order('created_at', { ascending: false }).limit(50) : supabase.from('brain_learning_insights').select('*').eq('type', filter).order('created_at', { ascending: false }).limit(50);
@@ -26,10 +28,13 @@ export default function SelfLearning() {
   };
 
   useEffect(() => { refresh(); }, [filter]);
+  useEffect(() => {
+    supabase.from('companies').select('id, name').then(({ data }) => { setCompanies(data || []); if (data && data[0]) setForCompanyId(data[0].id); });
+  }, []);
 
   const logInsight = async () => {
     if (!newTitle.trim()) return;
-    await supabase.from('brain_learning_insights').insert({ type: newType, title: newTitle, description: newDesc });
+    await supabase.from('brain_learning_insights').insert({ type: newType, title: newTitle, description: newDesc, company_id: forCompanyId || null });
     setNewTitle(''); setNewDesc('');
     refresh();
   };
@@ -52,16 +57,22 @@ export default function SelfLearning() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-2">
-          <h1 className="text-lg font-bold text-white">Self-Learning System</h1>
-          <span className="text-[10px] px-2 py-0.5 bg-lime-500/10 text-lime-400 rounded-full">Phase 5</span>
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-lg font-bold text-white">Self-Learning System</h1>
+            <span className="text-[10px] px-2 py-0.5 bg-lime-500/10 text-lime-400 rounded-full">Phase 5</span>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1">A running log of what's actually working or not — wins, losses, campaign results — so future decisions and agent behavior can learn from real outcomes instead of repeating mistakes.</p>
         </div>
-        <div className="flex gap-2 items-end">
+        <div className="flex gap-2 items-end flex-wrap">
           <button onClick={analyzeWithAI} disabled={analyzing} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-medium cursor-pointer">
             {analyzing ? 'Analyzing...' : 'AI Analyze Last 14 Days'}
           </button>
           <select value={newType} onChange={e => setNewType(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
             <option value="win">Win</option><option value="loss">Loss</option><option value="campaign">Campaign</option>
+          </select>
+          <select value={forCompanyId} onChange={e => setForCompanyId(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
+            {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
           <input value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="Insight title" className="w-48 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500" />
           <button onClick={logInsight} disabled={!newTitle.trim()} className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-medium cursor-pointer">Log</button>
@@ -104,7 +115,10 @@ export default function SelfLearning() {
                     <span className={`text-[10px] ${ic.color} shrink-0`}>{ic.label}</span>
                   </div>
                   <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">{insight.description}</p>
-                  <p className="text-[9px] text-slate-600 mt-2">{new Date(insight.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <p className="text-[9px] text-slate-600">{new Date(insight.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                    {companies.find(c => c.id === insight.company_id) && <p className="text-[9px] text-slate-500">· {companies.find(c => c.id === insight.company_id)?.name}</p>}
+                  </div>
                 </div>
               </div>
             </div>

@@ -7,6 +7,8 @@ export default function ChiefOfStaff() {
   const [selected, setSelected] = useState<any>(null);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [companies, setCompanies] = useState<any[]>([]);
+  const [forCompanyId, setForCompanyId] = useState<string>('');
 
   const refresh = () => {
     supabase.from('brain_staff_reports').select('*, brand:brain_brands(name, color, icon)').order('created_at', { ascending: false }).limit(50).then(({ data }) => {
@@ -15,7 +17,10 @@ export default function ChiefOfStaff() {
     });
   };
 
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => {
+    refresh();
+    supabase.from('companies').select('id, name').then(({ data }) => { setCompanies(data || []); if (data && data[0]) setForCompanyId(data[0].id); });
+  }, []);
 
   const generateReport = async (type: 'daily' | 'weekly') => {
     setGenerating(true);
@@ -24,6 +29,10 @@ export default function ChiefOfStaff() {
       const { data, error: fnError } = await supabase.functions.invoke('staff-engine', { body: { action: 'generate_report', type } });
       if (fnError) throw fnError;
       if (data?.error) throw new Error(data.error);
+      // staff-engine doesn't accept a company param yet, so tag the new
+      // report client-side right after creation.
+      const newId = data?.report?.id;
+      if (newId && forCompanyId) await supabase.from('brain_staff_reports').update({ company_id: forCompanyId }).eq('id', newId);
       refresh();
     } catch (e: any) {
       setError(e?.message || 'Failed to generate report');
@@ -35,11 +44,17 @@ export default function ChiefOfStaff() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-2">
-          <h1 className="text-lg font-bold text-white">Chief of Staff</h1>
-          <span className="text-[10px] px-2 py-0.5 bg-teal-500/10 text-teal-400 rounded-full">Phase 4 - Autonomous Reviews</span>
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-lg font-bold text-white">Chief of Staff</h1>
+            <span className="text-[10px] px-2 py-0.5 bg-teal-500/10 text-teal-400 rounded-full">Phase 4 - Autonomous Reviews</span>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1">Real Claude-written founder briefings grounded in your actual leads, decisions, ideas, and agent activity from the last 1 or 7 days — not a template.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <select value={forCompanyId} onChange={e => setForCompanyId(e.target.value)} className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-white">
+            {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
           <button onClick={() => generateReport('daily')} disabled={generating} className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-xs font-medium cursor-pointer">
             {generating ? 'Generating...' : 'Generate Daily Briefing'}
           </button>
@@ -60,6 +75,7 @@ export default function ChiefOfStaff() {
                   {r.brand && <div className="w-5 h-5 rounded text-[8px] font-bold text-white flex items-center justify-center" style={{ backgroundColor: r.brand.color }}>{r.brand.name.charAt(0)}</div>}
                   <div className="min-w-0"><p className="text-xs font-medium text-white">{r.brand?.name || 'System-Wide'}</p>
                     <div className="flex items-center gap-1.5 mt-0.5"><span className="text-[8px] px-1 py-0 bg-slate-800 text-slate-400 rounded">{r.type}</span><span className="text-[9px] text-slate-500">{new Date(r.created_at).toLocaleDateString()}</span></div>
+                    {companies.find(c => c.id === r.company_id) && <p className="text-[9px] text-slate-600 mt-0.5">{companies.find(c => c.id === r.company_id)?.name}</p>}
                   </div>
                 </div>
               </button>
