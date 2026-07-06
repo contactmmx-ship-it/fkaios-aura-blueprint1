@@ -15,6 +15,7 @@ import BusinessCreator from '@/components/fkaios/BusinessCreator';
 import ChiefOfStaff from '@/components/fkaios/ChiefOfStaff';
 import SelfLearning from '@/components/fkaios/SelfLearning';
 import AuraBlueprint from '@/components/fkaios/AuraBlueprint';
+import AgentWorkday from '@/components/fkaios/AgentWorkday';
 import LoginPage from './LoginPage';
 import Dashboard from '@/components/fkaios/Dashboard';
 import VoiceAI from '@/components/fkaios/VoiceAI';
@@ -53,6 +54,7 @@ const brainNav = [
   { id: 'voice-ai', label: 'Voice AI', icon: Phone },
   { id: 'builder-ai', label: 'Builder AI', icon: Hammer },
   { id: 'ai-company', label: 'AI Company', icon: Network },
+  { id: 'agent-workday', label: 'Agent Workday', icon: CalendarDays },
   { id: 'research', label: 'Research', icon: Search },
 ];
 
@@ -147,6 +149,7 @@ export default function AppShell() {
       case 'voice-ai': return <VoiceAI />;
       case 'builder-ai': return <BuilderAI />;
       case 'ai-company': return <OrchestratorAI />;
+      case 'agent-workday': return <AgentWorkday />;
       case 'research': return <ResearchOS />;
     }
     return <PlaceholderPage title={fkaioNav.find(n => n.id === activePage)?.label || 'Dashboard'} description={pageDescriptions[activePage] || 'Not yet built.'} />;

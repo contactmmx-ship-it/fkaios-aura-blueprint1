@@ -1,24 +1,21 @@
 // ============================================================
-// orchestrator-engine v10 — AI Company pipeline (CEO → specialists → manager → CPO)
-// v9 failure mode (root cause of "delegates to 4 agents, no result"):
-//   each 'advance' made ONE synchronous Claude call with max_tokens up to
-//   16000 (specialist) / 24000 (merge). Full-site generations run 3-6 min,
-//   blowing past the edge-function gateway timeout → the frontend advance
-//   loop died on the FIRST step → projects stuck at status='working' with
-//   all tasks 'pending' forever (no resume path). Every run after Jul 3
-//   midday also hit Anthropic credit exhaustion with no fallback.
-// v10 fixes:
-//   1. callLLM(): Anthropic claude-sonnet-4-6 primary → gemini-2.5-flash
-//      fallback on any Anthropic failure. Actual model logged per step.
-//   2. Token caps tuned to fit the gateway window: specialist/rework 8000,
-//      review 2000, merge 8000 — CPO now REUSES the frontend specialist's
-//      HTML as the base instead of regenerating everything from scratch.
-//   3. Service path: x-heartbeat-secret (or ?secret=) auth → service-role
-//      client, so heartbeat/auto-pilot/ops can drive or resume pipelines
-//      server-side. Browser path (user JWT + RLS) unchanged.
-//   4. Every step writes execution_log (model, tokens, cost INR, latency).
-//   5. 'advance' is naturally resumable — stuck projects continue from the
-//      next pending task. Frontend v2 adds the Resume button.
+// orchestrator-engine v13 — AI Company pipeline (CEO → specialists → manager → CPO)
+//
+// v11's in-call continuation (looping the SAME edge-function invocation up to
+// 4x on truncation) caused a NEW failure: verified live, two consecutive
+// 'advance' calls each hit the 55s test timeout and the underlying edge
+// function never wrote anything to the DB — a single 8000-token call already
+// took 90-150s in earlier verified runs, so doubling it via continuation
+// blew past the platform's execution window entirely. Net effect: pipeline
+// hangs with zero progress, worse than the plain-truncation bug it fixed.
+//
+// v13 fix: continuation now happens ACROSS 'advance' calls, not within one.
+// Each invocation makes exactly ONE Claude call (the latency profile already
+// proven safe). If that call is truncated, the partial text is saved to a
+// new `draft_output` column and the task STAYS in its current status so the
+// next 'advance' call (the frontend already polls in a loop) picks it back
+// up, sends the draft as continuation context, and appends the next chunk.
+// Same pattern applied to the CPO merge step via `draft_final_output`.
 // ============================================================
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -39,6 +36,7 @@ const RATES: Record<string, { inp: number; out: number }> = {
 };
 const PASS_SCORE = 70;
 const MAX_ATTEMPTS = 2;
+const MAX_CONTINUATIONS = 4; // hard ceiling per task/merge across calls, avoids infinite loop
 
 const PERSONAS: Record<string, string> = {
   frontend: 'You are a Senior Frontend Developer. You produce complete, production-quality HTML/CSS/JS or React code. No placeholders, no TODOs. All content fully visible without JavaScript. No iframes or external embeds.',
@@ -50,7 +48,7 @@ const PERSONAS: Record<string, string> = {
   general: 'You are a Senior Specialist. You produce complete, high-quality deliverables with no placeholders.',
 };
 
-interface LLMResult { text: string; inputTokens: number; outputTokens: number; model: string; fellBack: boolean; }
+interface LLMResult { text: string; inputTokens: number; outputTokens: number; model: string; fellBack: boolean; truncated: boolean; }
 
 async function callAnthropic(key: string, system: string, user: string, maxTokens: number): Promise<LLMResult> {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -60,7 +58,7 @@ async function callAnthropic(key: string, system: string, user: string, maxToken
   });
   if (!res.ok) { const t = await res.text(); throw new Error(`Anthropic ${res.status}: ${t.slice(0, 300)}`); }
   const d = await res.json() as any;
-  return { text: d.content?.[0]?.text ?? '', inputTokens: d.usage?.input_tokens ?? 0, outputTokens: d.usage?.output_tokens ?? 0, model: ANTHROPIC_MODEL, fellBack: false };
+  return { text: d.content?.[0]?.text ?? '', inputTokens: d.usage?.input_tokens ?? 0, outputTokens: d.usage?.output_tokens ?? 0, model: ANTHROPIC_MODEL, fellBack: false, truncated: d.stop_reason === 'max_tokens' };
 }
 
 async function callGemini(key: string, system: string, user: string, maxTokens: number): Promise<LLMResult> {
@@ -76,7 +74,7 @@ async function callGemini(key: string, system: string, user: string, maxTokens: 
   if (!res.ok) { const t = await res.text(); throw new Error(`Gemini ${res.status}: ${t.slice(0, 300)}`); }
   const d = await res.json() as any;
   const text = (d.candidates?.[0]?.content?.parts ?? []).map((p: any) => p.text ?? '').join('');
-  return { text, inputTokens: d.usageMetadata?.promptTokenCount ?? 0, outputTokens: d.usageMetadata?.candidatesTokenCount ?? 0, model: GEMINI_MODEL, fellBack: false };
+  return { text, inputTokens: d.usageMetadata?.promptTokenCount ?? 0, outputTokens: d.usageMetadata?.candidatesTokenCount ?? 0, model: GEMINI_MODEL, fellBack: false, truncated: d.candidates?.[0]?.finishReason === 'MAX_TOKENS' };
 }
 
 function makeLLM(anthropicKey: string | undefined, geminiKey: string | undefined) {
@@ -102,6 +100,13 @@ function parseJson(raw: string): any {
   const s = fenced ? fenced[1].trim() : raw.trim();
   const start = s.indexOf('{');
   return JSON.parse(start > 0 ? s.slice(start) : s);
+}
+
+// Builds the continuation-aware user prompt: fresh instructions on the first
+// call, or "continue from here" using the accumulated draft on later calls.
+function buildPrompt(baseInstruction: string, draft: string | null): string {
+  if (!draft) return baseInstruction;
+  return `${baseInstruction}\n\n[Your output was cut off. Here is everything you have written so far — continue EXACTLY from the end, no repetition, no commentary, output only the remainder:]\n${draft.slice(-4000)}`;
 }
 
 Deno.serve(async (req) => {
@@ -196,17 +201,29 @@ Deno.serve(async (req) => {
       const { data: tasks } = await db.from('orchestration_tasks').select('*').eq('project_id', projectId).order('created_at');
       const all = tasks ?? [];
 
-      // 1. WORKING: execute one pending task (8000-token cap fits gateway window)
+      // 1. WORKING: execute (or continue) one pending task — ONE Claude call
+      // per advance, matching the latency profile already proven safe.
       const pending = all.find((t: any) => t.status === 'pending');
       if (project.status === 'working' && pending) {
         const t0 = Date.now();
         const persona = PERSONAS[pending.role] ?? PERSONAS.general;
-        const r = await callLLM(persona,
-          `Overall project: ${project.request}\n\nYour task: ${pending.title}\n\n${pending.description}\n\nProduce the complete deliverable now. Be thorough but efficient — quality over length.`, 8000);
-        await db.from('orchestration_tasks').update({ output: r.text, status: 'done', attempts: pending.attempts + 1 }).eq('id', pending.id);
+        const baseInstruction = `Overall project: ${project.request}\n\nYour task: ${pending.title}\n\n${pending.description}\n\nProduce the complete deliverable now. Be thorough but efficient — quality over length.`;
+        const draft: string | null = pending.draft_output ?? null;
+        const r = await callLLM(persona, buildPrompt(baseInstruction, draft), 8000);
+        const combined = (draft ?? '') + r.text;
+        const priorContinuations = pending.attempts ?? 0;
+
+        if (r.truncated && priorContinuations < MAX_CONTINUATIONS) {
+          // Save progress, stay 'pending' so the NEXT advance call continues it.
+          await db.from('orchestration_tasks').update({ draft_output: combined, attempts: priorContinuations + 1 }).eq('id', pending.id);
+          await logStep('specialist_execute', 'continuing', pending.title, `truncated, ${combined.length} chars so far`, r, Date.now() - t0);
+          return ok({ status: 'working', step: `Still writing: ${pending.title} (${priorContinuations + 1}/${MAX_CONTINUATIONS})…`, done: false, model: r.model });
+        }
+
+        await db.from('orchestration_tasks').update({ output: combined, draft_output: null, status: 'done', attempts: priorContinuations + 1 }).eq('id', pending.id);
         const remaining = all.filter((t: any) => t.status === 'pending' && t.id !== pending.id).length;
         if (remaining === 0) await db.from('orchestration_projects').update({ status: 'reviewing' }).eq('id', projectId);
-        await logStep('specialist_execute', r.fellBack ? 'success_fallback' : 'success', pending.title, r.text.slice(0, 200), r, Date.now() - t0);
+        await logStep('specialist_execute', r.fellBack ? 'success_fallback' : 'success', pending.title, combined.slice(0, 200), r, Date.now() - t0);
         return ok({ status: remaining === 0 ? 'reviewing' : 'working', step: `Completed: ${pending.title}${r.fellBack ? ' (via Gemini fallback)' : ''}`, done: false, model: r.model });
       }
 
@@ -225,7 +242,7 @@ Deno.serve(async (req) => {
             const task = toReview.find((t: any) => t.id === rv.id);
             if (!task) continue;
             const score = Math.max(0, Math.min(100, Number(rv.score) || 0));
-            const needsRework = score < PASS_SCORE && task.attempts < MAX_ATTEMPTS;
+            const needsRework = score < PASS_SCORE && task.attempts < MAX_ATTEMPTS + MAX_CONTINUATIONS;
             if (needsRework) anyRework = true;
             await db.from('orchestration_tasks').update({
               review_score: score, review_notes: String(rv.notes ?? '').slice(0, 1000),
@@ -240,48 +257,69 @@ Deno.serve(async (req) => {
         return ok({ status: 'merging', step: 'Nothing to review', done: false });
       }
 
-      // 3. REWORKING: fix one rework task
+      // 3. REWORKING: fix (or continue fixing) one rework task
       const reworkTask = all.find((t: any) => t.status === 'rework');
       if (project.status === 'reworking' && reworkTask) {
         const t0 = Date.now();
         const persona = PERSONAS[reworkTask.role] ?? PERSONAS.general;
-        const r = await callLLM(persona,
-          `Overall project: ${project.request}\n\nYour task: ${reworkTask.title}\n${reworkTask.description}\n\nYour previous attempt was REJECTED by the manager with these notes:\n${reworkTask.review_notes}\n\nPrevious attempt:\n${(reworkTask.output ?? '').slice(0, 6000)}\n\nProduce a corrected, complete deliverable now.`, 8000);
-        await db.from('orchestration_tasks').update({ output: r.text, status: 'approved', attempts: reworkTask.attempts + 1, review_notes: (reworkTask.review_notes ?? '') + ' [Reworked]' }).eq('id', reworkTask.id);
+        // draft_output here means "in-progress corrected attempt"; output still
+        // holds the REJECTED prior version used as context below.
+        const isContinuingFix = !!reworkTask.draft_output;
+        const baseInstruction = `Overall project: ${project.request}\n\nYour task: ${reworkTask.title}\n${reworkTask.description}\n\nYour previous attempt was REJECTED by the manager with these notes:\n${reworkTask.review_notes}\n\nPrevious attempt:\n${(reworkTask.output ?? '').slice(0, 6000)}\n\nProduce a corrected, complete deliverable now.`;
+        const r = await callLLM(persona, buildPrompt(baseInstruction, isContinuingFix ? reworkTask.draft_output : null), 8000);
+        const combined = (isContinuingFix ? reworkTask.draft_output : '') + r.text;
+        const priorContinuations = isContinuingFix ? (reworkTask.attempts ?? 0) : 0;
+
+        if (r.truncated && priorContinuations < MAX_CONTINUATIONS) {
+          await db.from('orchestration_tasks').update({ draft_output: combined, attempts: (reworkTask.attempts ?? 0) + 1 }).eq('id', reworkTask.id);
+          await logStep('specialist_rework', 'continuing', reworkTask.title, `truncated, ${combined.length} chars so far`, r, Date.now() - t0);
+          return ok({ status: 'reworking', step: `Still fixing: ${reworkTask.title}…`, done: false, model: r.model });
+        }
+
+        await db.from('orchestration_tasks').update({ output: combined, draft_output: null, status: 'approved', attempts: (reworkTask.attempts ?? 0) + 1, review_notes: (reworkTask.review_notes ?? '') + ' [Reworked]' }).eq('id', reworkTask.id);
         const remainingRework = all.filter((t: any) => t.status === 'rework' && t.id !== reworkTask.id).length;
         if (remainingRework === 0) await db.from('orchestration_projects').update({ status: 'merging' }).eq('id', projectId);
-        await logStep('specialist_rework', r.fellBack ? 'success_fallback' : 'success', reworkTask.title, r.text.slice(0, 200), r, Date.now() - t0);
+        await logStep('specialist_rework', r.fellBack ? 'success_fallback' : 'success', reworkTask.title, combined.slice(0, 200), r, Date.now() - t0);
         return ok({ status: remainingRework === 0 ? 'merging' : 'reworking', step: `Reworked: ${reworkTask.title}`, done: false, model: r.model });
       }
 
-      // 4. MERGING: CPO compiles final deliverable.
-      // v10: for HTML projects the CPO REUSES the frontend specialist's HTML as
-      // the base and integrates the other deliverables into it — instead of
-      // regenerating an entire site from scratch (the 24k-token step that
-      // caused the v9 gateway timeouts).
+      // 4. MERGING: CPO compiles (or continues compiling) the final deliverable.
+      // Same cross-call continuation pattern via draft_final_output — this is
+      // the step that was producing BLANK previews (final_output ending
+      // mid-<style>, no closing </html>, so the iframe had nothing to render).
       if (project.status === 'merging' || project.status === 'reworking') {
         const t0 = Date.now();
         const approved = all.filter((t: any) => t.status === 'approved' || t.status === 'done');
         const isHtml = project.output_type === 'html';
         const frontendTask = approved.find((t: any) => t.role === 'frontend');
-        let final: string;
-        let mergeResult: LLMResult | null = null;
+        const isContinuingMerge = !!project.draft_final_output;
 
+        let baseInstruction: string;
+        let cpoSystem: string;
         if (isHtml && frontendTask?.output && /<html|<!DOCTYPE/i.test(frontendTask.output)) {
           const others = approved.filter((t: any) => t.id !== frontendTask.id);
-          const cpoSystem = 'You are the Chief Project Officer AI. You are given a BASE HTML file produced by the frontend specialist, plus supporting deliverables (content, design notes, QA findings). EDIT the base HTML: apply the copy from the content deliverable, honor the design specification, and fix every defect the QA deliverable identifies. Return ONLY the final complete HTML file starting with <!DOCTYPE html> — no markdown fences, no explanation. Keep it self-contained (CSS in <style>, JS in <script>), no iframes, no opacity-0 animations. Never invent financial figures — keep [To be confirmed] markers as-is.';
+          cpoSystem = 'You are the Chief Project Officer AI. You are given a BASE HTML file produced by the frontend specialist, plus supporting deliverables (content, design notes, QA findings). EDIT the base HTML: apply the copy from the content deliverable, honor the design specification, and fix every defect the QA deliverable identifies. Return ONLY the final complete HTML file starting with <!DOCTYPE html> — no markdown fences, no explanation. Keep it self-contained (CSS in <style>, JS in <script>), no iframes, no opacity-0 animations. Never invent financial figures — keep [To be confirmed] markers as-is.';
           const supportInput = others.map((t: any) => `## ${t.title} (${t.role})\n${(t.output ?? '').slice(0, 5000)}`).join('\n\n');
-          mergeResult = await callLLM(cpoSystem, `Project: ${project.request}\n\nBASE HTML:\n${frontendTask.output.slice(0, 40000)}\n\nSUPPORTING DELIVERABLES:\n${supportInput}\n\nProduce the final HTML now.`, 8000);
-          final = mergeResult.text;
+          baseInstruction = `Project: ${project.request}\n\nBASE HTML:\n${frontendTask.output.slice(0, 40000)}\n\nSUPPORTING DELIVERABLES:\n${supportInput}\n\nProduce the final HTML now.`;
         } else {
-          const cpoSystem = isHtml
+          cpoSystem = isHtml
             ? 'You are the Chief Project Officer AI. Merge the specialist deliverables into ONE complete, final, self-contained HTML file starting with <!DOCTYPE html>. No markdown fences, no explanation. All CSS in <style>, all JS in <script>. No iframes, no external embeds, no opacity-0 animations — content fully visible without JS. Never invent financial figures — keep [To be confirmed] markers as-is.'
             : 'You are the Chief Project Officer AI. Merge the specialist deliverables into ONE complete, final, well-structured document (markdown). Incorporate everything faithfully, resolve overlaps, no placeholders. Never invent financial figures.';
           const mergeInput = approved.map((t: any) => `## ${t.title} (${t.role}, score ${t.review_score ?? 'n/a'})\n${(t.output ?? '').slice(0, 12000)}`).join('\n\n');
-          mergeResult = await callLLM(cpoSystem, `Project: ${project.request}\n\nSpecialist deliverables:\n\n${mergeInput}\n\nProduce the final merged deliverable now.`, 8000);
-          final = mergeResult.text;
+          baseInstruction = `Project: ${project.request}\n\nSpecialist deliverables:\n\n${mergeInput}\n\nProduce the final merged deliverable now.`;
         }
 
+        const r = await callLLM(cpoSystem, buildPrompt(baseInstruction, isContinuingMerge ? project.draft_final_output : null), 8000);
+        const combined = (isContinuingMerge ? project.draft_final_output : '') + r.text;
+        const priorContinuations = project.merge_continuations ?? 0;
+
+        if (r.truncated && priorContinuations < MAX_CONTINUATIONS) {
+          await db.from('orchestration_projects').update({ draft_final_output: combined, merge_continuations: priorContinuations + 1 }).eq('id', projectId);
+          await logStep('cpo_merge', 'continuing', project.request, `truncated, ${combined.length} chars so far`, r, Date.now() - t0);
+          return ok({ status: project.status, step: `CPO still merging (${priorContinuations + 1}/${MAX_CONTINUATIONS})…`, done: false, model: r.model });
+        }
+
+        let final = combined;
         if (isHtml) {
           const docIdx = final.indexOf('<!DOCTYPE'); const htmlIdx = final.indexOf('<html');
           const start = docIdx >= 0 ? docIdx : htmlIdx;
@@ -289,10 +327,13 @@ Deno.serve(async (req) => {
           const endIdx = final.lastIndexOf('</html>');
           if (endIdx >= 0) final = final.slice(0, endIdx + 7);
           final = final.replace(/opacity:\s*0(?![.\d])/g, 'opacity: 1');
+          // Safety net: if still no closing tag after MAX_CONTINUATIONS, force one
+          // rather than ship literally-broken markup that renders blank.
+          if (!/<\/html>/i.test(final)) final += '\n</body>\n</html>';
         }
-        await db.from('orchestration_projects').update({ status: 'complete', final_output: final }).eq('id', projectId);
-        await logStep('cpo_merge', mergeResult.fellBack ? 'success_fallback' : 'success', project.request, `final ${final.length} chars`, mergeResult, Date.now() - t0);
-        return ok({ status: 'complete', step: 'CPO merged final deliverable', done: true, model: mergeResult.model });
+        await db.from('orchestration_projects').update({ status: 'complete', final_output: final, draft_final_output: null }).eq('id', projectId);
+        await logStep('cpo_merge', r.fellBack ? 'success_fallback' : 'success', project.request, `final ${final.length} chars`, r, Date.now() - t0);
+        return ok({ status: 'complete', step: 'CPO merged final deliverable', done: true, model: r.model });
       }
 
       return ok({ status: project.status, step: 'No action taken', done: false });

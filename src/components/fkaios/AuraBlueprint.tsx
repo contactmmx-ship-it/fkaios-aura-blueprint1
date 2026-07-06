@@ -92,6 +92,19 @@ export default function AuraBlueprint() {
   const [toolResult, setToolResult] = useState('');
   const [toolLoading, setToolLoading] = useState(false);
   const [timeRange, setTimeRange] = useState('30d');
+  const [brainConvId, setBrainConvId] = useState<string | null>(null);
+  // brain-engine's 'message' action requires a conversationId (was never sent
+  // before -> every call 400'd -> UI silently fell back to a keyword-matched
+  // canned-template reply using fake DEMO data, which is why every question
+  // got a near-identical templated answer). This lazily creates one real
+  // conversation and reuses it.
+  const ensureBrainConversation = useCallback(async (): Promise<string | null> => {
+    if (brainConvId) return brainConvId;
+    const { data, error } = await supabase.functions.invoke('brain-engine', { body: { action: 'create' } });
+    if (error || !data?.id) return null;
+    setBrainConvId(data.id);
+    return data.id;
+  }, [brainConvId]);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Fetch live data on mount
@@ -149,9 +162,12 @@ export default function AuraBlueprint() {
     setToolResult('');
     setToolLoading(true);
     try {
-      const { data } = await supabase.functions.invoke('brain-engine', {
-        body: { action: 'message', message: tool.prompt }
+      const convId = await ensureBrainConversation();
+      if (!convId) throw new Error('Could not start a brain conversation');
+      const { data, error } = await supabase.functions.invoke('brain-engine', {
+        body: { action: 'message', conversationId: convId, message: tool.prompt }
       });
+      if (error || data?.error) throw new Error(data?.error || error?.message || 'brain-engine call failed');
       if (data?.message?.content) {
         setToolResult(data.message.content);
       } else if (data?.output) {
@@ -177,13 +193,21 @@ export default function AuraBlueprint() {
     setChatLoading(true);
     setChatMessages(prev => [...prev, { role: 'user', content: msg }]);
     try {
-      const { data } = await supabase.functions.invoke('brain-engine', {
-        body: { action: 'message', message: msg }
+      const convId = await ensureBrainConversation();
+      if (!convId) throw new Error('Could not start a brain conversation');
+      const { data, error } = await supabase.functions.invoke('brain-engine', {
+        body: { action: 'message', conversationId: convId, message: msg }
       });
-      const reply = data?.message?.content || data?.output || 'I analyzed your request. Based on current pipeline data, I recommend focusing on qualified leads with scores above 70 for immediate follow-up.';
+      if (error || data?.error) throw new Error(data?.error || error?.message || 'brain-engine call failed');
+      const reply = data?.message?.content || data?.output;
+      if (!reply) throw new Error('brain-engine returned no content');
       setChatMessages(prev => [...prev, { role: 'assistant', content: reply }]);
-    } catch {
-      setChatMessages(prev => [...prev, { role: 'assistant', content: generateSmartReply(msg, leads) }]);
+    } catch (e) {
+      // HONESTY FIX: this used to silently show generateSmartReply(), a
+      // keyword-matched template over fake DEMO_LEADS/DEMO_AGENTS data — the
+      // literal cause of "every question gets the same wrong answer". A real
+      // failure now says so.
+      setChatMessages(prev => [...prev, { role: 'assistant', content: `⚠ AI engine error: ${e instanceof Error ? e.message : 'unknown error'}. Please retry.` }]);
     }
     setChatLoading(false);
   };
@@ -1268,6 +1292,9 @@ NET RECOMMENDATION: Apply targeted 5% discount to ${leads.filter(l => l.status =
 }
 
 // ─── Smart reply fallback for chat ───
+// DEAD CODE (2026-07-06): no longer called — was the fake-data canned-reply
+// fallback described above. Kept only for reference, safe to delete.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function generateSmartReply(msg: string, leads: any[]): string {
   const lower = msg.toLowerCase();
   const totalPipeline = leads.filter(l => !['won', 'lost'].includes(l.status)).reduce((s, l) => s + (l.value || 0), 0);

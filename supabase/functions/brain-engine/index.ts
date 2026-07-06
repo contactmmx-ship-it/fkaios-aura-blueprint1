@@ -2,14 +2,9 @@
 // brain-engine — FK AIOS Brain Chat: list/create conversations,
 // send messages with real Claude + lightweight RAG over real tables.
 //
-// KNOWN GAP (found during repo-sync read-through, not yet fixed): unlike
-// agent-engine v24 and business-engine v24 (which forward the caller's JWT
-// to the Supabase client so RLS evaluates as `authenticated`), this function
-// is still on v23 and creates its client with the anon key only. If
-// brain_conversations / brain_messages have a `TO authenticated` RLS policy
-// like the tables those other two functions fixed, inserts here may be
-// silently failing the same way agent-engine's did before its v24 fix.
-// Not re-verified live — flagging as inferred from the pattern, not confirmed.
+// v24: RLS bug FIXED — client now forwards the caller's JWT (was anon-only,
+// same pattern already fixed in agent-engine/business-engine v24). Also
+// carries the llmFetch Claude→Gemini fallback.
 // ============================================================
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -99,7 +94,9 @@ Deno.serve(async (req) => {
   const id = cid();
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  // RLS FIX: forward the caller's JWT so conversation/message inserts run as
+  // the authenticated user instead of anon (which was silently RLS-blocked).
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, { global: { headers: { Authorization: req.headers.get('Authorization') || '' } } });
 
   try {
     const user = await verifyJWT(req.headers.get('Authorization'), supabaseUrl);
