@@ -8,12 +8,39 @@ export default function BusinessCreator() {
   const [desc, setDesc] = useState('');
 
   useEffect(() => {
-    supabase.from('brain_business_ideas').select('*, brand:brain_brands(name, color)').order('created_at', { ascending: false }).then(({ data }) => setIdeas(data || []));
+    supabase.from('brain_business_ideas').select('*, brand:brain_brands(name, color)').order('created_at', { ascending: false }).then(({ data }) => {
+      setIdeas(data || []);
+      if (data && data.length > 0) setSelectedIdea(data[0]);
+    });
   }, []);
 
   const [evaluating, setEvaluating] = useState(false);
   const [evalError, setEvalError] = useState<string | null>(null);
   const [lastAnalysis, setLastAnalysis] = useState<string | null>(null);
+  const [selectedIdea, setSelectedIdea] = useState<any>(null);
+  const [genDoc, setGenDoc] = useState<{ type: string; loading: boolean; content: string | null; error: string | null } | null>(null);
+
+  const generateDocument = async (documentType: string) => {
+    if (!selectedIdea) return;
+    setGenDoc({ type: documentType, loading: true, content: selectedIdea.generated_docs?.[documentType] ?? null, error: null });
+    // If already generated for this idea, show cached version instead of re-billing Claude.
+    if (selectedIdea.generated_docs?.[documentType]) {
+      setGenDoc({ type: documentType, loading: false, content: selectedIdea.generated_docs[documentType], error: null });
+      return;
+    }
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke('business-engine', {
+        body: { action: 'generate_document', idea_id: selectedIdea.id, document_type: documentType },
+      });
+      if (fnError || data?.error) throw new Error(data?.error || fnError?.message || 'Document generation failed');
+      setGenDoc({ type: documentType, loading: false, content: data.content, error: null });
+      setSelectedIdea((prev: any) => prev ? { ...prev, generated_docs: { ...(prev.generated_docs ?? {}), [documentType]: data.content } } : prev);
+      setIdeas((prev) => prev.map((i) => i.id === selectedIdea.id ? { ...i, generated_docs: { ...(i.generated_docs ?? {}), [documentType]: data.content } } : i));
+    } catch (e) {
+      setGenDoc({ type: documentType, loading: false, content: null, error: e instanceof Error ? e.message : 'Failed to generate document' });
+    }
+  };
+
   const createIdea = async () => {
     if (!title.trim() || evaluating) return; // guard fixes the double-insert seen in DB (two identical ideas 2s apart)
     setEvaluating(true); setEvalError(null); setLastAnalysis(null);
@@ -23,7 +50,7 @@ export default function BusinessCreator() {
       const analysisText = data?.idea?.description || data?.description || data?.analysis || null;
       if (analysisText) setLastAnalysis(analysisText);
       const { data: fresh } = await supabase.from('brain_business_ideas').select('*, brand:brain_brands(name, color)').order('created_at', { ascending: false });
-      if (fresh) setIdeas(fresh);
+      if (fresh) { setIdeas(fresh); setSelectedIdea(fresh[0] ?? null); }
       setTitle(''); setDesc('');
     } catch (e) {
       setEvalError(e instanceof Error ? e.message : 'Failed to evaluate idea');
@@ -75,35 +102,60 @@ export default function BusinessCreator() {
           {ideas.map((idea: any) => {
             const sc = statusCfg[idea.status] || statusCfg.idea;
             return (
-              <div key={idea.id} className="p-3 bg-slate-900 border border-slate-800 rounded-xl">
+              <button key={idea.id} onClick={() => setSelectedIdea(idea)} className={`w-full text-left p-3 bg-slate-900 border rounded-xl transition-colors ${selectedIdea?.id === idea.id ? 'border-blue-500/50' : 'border-slate-800 hover:border-slate-700'}`}>
                 <div className="flex items-start justify-between">
                   <p className="text-xs font-medium text-white truncate flex-1">{idea.title}</p>
                   <span className={`text-[9px] px-1.5 py-0.5 rounded shrink-0 ml-2 ${sc.color}`}>{sc.label}</span>
                 </div>
                 <p className="text-[10px] text-slate-500 mt-1 truncate">{idea.description}</p>
                 <div className="flex items-center justify-between mt-1"><span className="text-[9px] text-slate-500">{idea.industry || 'General'}</span><span className="text-xs font-bold text-amber-400">{idea.score?.toFixed(1)}</span></div>
-              </div>
+              </button>
             );
           })}
         </div>
 
         <div className="flex-1">
-          {ideas.length > 0 ? (
-            <div className="grid grid-cols-2 gap-3">
-              {autoComponents.map(item => (
-                <div key={item.title} className="bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors cursor-pointer">
-                  <div className="flex items-start gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400 shrink-0 text-xs font-bold">{item.title.charAt(0)}</div>
-                    <div><h3 className="text-xs font-semibold text-white">{item.title}</h3><p className="text-[11px] text-slate-400 mt-0.5">{item.desc}</p></div>
-                  </div>
-                </div>
-              ))}
+          {selectedIdea ? (
+            <div>
+              <p className="text-[10px] text-slate-500 mb-2">Generate real, AI-written documents for <span className="text-slate-300">{selectedIdea.title}</span> — grounded in its investment-committee analysis above, not templates.</p>
+              <div className="grid grid-cols-2 gap-3">
+                {autoComponents.map(item => {
+                  const cached = selectedIdea.generated_docs?.[item.title];
+                  return (
+                    <button key={item.title} onClick={() => generateDocument(item.title)}
+                      className="text-left bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-blue-500/40 transition-colors cursor-pointer">
+                      <div className="flex items-start gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400 shrink-0 text-xs font-bold">{item.title.charAt(0)}</div>
+                        <div>
+                          <h3 className="text-xs font-semibold text-white">{item.title}</h3>
+                          <p className="text-[11px] text-slate-400 mt-0.5">{item.desc}</p>
+                          <p className="text-[10px] mt-1.5 font-medium">{cached ? <span className="text-emerald-400">✓ Generated — click to view</span> : <span className="text-blue-400">Click to generate with AI</span>}</p>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           ) : (
-            <div className="flex items-center justify-center h-48 text-slate-500"><p className="text-sm">Submit a business idea to get started</p></div>
+            <div className="flex items-center justify-center h-48 text-slate-500"><p className="text-sm">Submit or select a business idea to generate real documents for it</p></div>
           )}
         </div>
       </div>
+
+      {genDoc && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setGenDoc(null)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-2xl max-h-[80vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-bold text-white">{genDoc.type}</h2>
+              <button onClick={() => setGenDoc(null)} className="text-slate-400 hover:text-white text-lg">✕</button>
+            </div>
+            {genDoc.loading && <p className="text-sm text-slate-400">Generating with Claude — grounded in this idea's real analysis…</p>}
+            {genDoc.error && <p className="text-sm text-rose-400">⚠ {genDoc.error}</p>}
+            {genDoc.content && <p className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">{genDoc.content}</p>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

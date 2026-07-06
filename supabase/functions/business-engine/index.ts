@@ -87,6 +87,15 @@ async function callClaudeJSON<T>(system: string, userMessage: string, maxTokens 
   try { return JSON.parse(cleaned) as T; } catch { throw new Error(`Claude returned non-JSON output: ${cleaned.slice(0, 300)}`); }
 }
 
+async function callClaudeText(system: string, userMessage: string, maxTokens = 1200): Promise<string> {
+  const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not configured as a Supabase secret');
+  const res = await llmFetch(apiKey, { model: 'claude-sonnet-4-6', max_tokens: maxTokens, system, messages: [{ role: 'user', content: userMessage }] });
+  if (!res.ok) { const t = await res.text(); throw new Error(`Anthropic API error ${res.status}: ${t.slice(0, 500)}`); }
+  const data = await res.json() as { content: { type: string; text?: string }[] };
+  return data.content.filter((b) => b.type === 'text').map((b) => b.text || '').join('\n').trim();
+}
+
 const SYSTEM_PROMPT = `You are the Business Creator engine inside Franchise Kart's FK AIOS, evaluating new business/brand ideas for a franchise consulting and multi-brand holding company (existing brands: Mr. Chick'n, GoMax, Gio Paints, Arofur, Chaat Masters, Chawla Lab, Turning Point).
 
 Given an idea title and description, evaluate it like a franchise investment committee would: market size in India, franchisability, capital intensity, competitive landscape, fit with the existing brand portfolio.
@@ -110,7 +119,43 @@ Deno.serve(async (req) => {
     if (!user) return errRes('Unauthorized', 401, id);
     if (req.method !== 'POST') return errRes('Method not allowed', 405, id);
 
-    const { title, description } = await req.json() as { title?: string; description?: string };
+    const body = await req.json() as { action?: string; title?: string; description?: string; idea_id?: string; document_type?: string };
+
+    // v25: generate_document — turns the previously-static "Business Model
+    // Canvas / Franchise Model / SOPs / Marketing Plan" cards into real,
+    // idea-grounded Claude output instead of four hardcoded do-nothing tiles.
+    if (body.action === 'generate_document') {
+      const { idea_id, document_type } = body;
+      if (!idea_id || !document_type) return errRes('idea_id and document_type are required', 400, id);
+      const DOC_PROMPTS: Record<string, string> = {
+        'Business Model Canvas': 'Produce a Business Model Canvas for this idea: key partners, key activities, value proposition, customer relationships, customer segments, key resources, channels, cost structure, revenue streams. One or two concrete sentences per block, grounded in the idea and analysis given — no generic filler.',
+        'Franchise Model': 'Produce a franchise model outline for this idea: franchise fee range, royalty structure, territory rights approach, support package contents, and total investment range. If a real number cannot be justified from the idea context, write [To be confirmed] rather than inventing one.',
+        'Standard Operating Procedures': 'Produce a Standard Operating Procedures outline for this idea: setup phase steps, daily operations checklist, and quality control checkpoints. Concrete and actionable, not generic advice.',
+        'Marketing Plan': 'Produce a marketing plan for this idea: primary channels, a 4-week content calendar theme outline, customer acquisition funnel stages, and core brand positioning statement.',
+      };
+      const promptBody = DOC_PROMPTS[document_type];
+      if (!promptBody) return errRes(`Unknown document_type: ${document_type}`, 400, id);
+
+      const { data: idea, error: ideaFetchErr } = await supabase.from('brain_business_ideas').select('title, description, industry, score, status').eq('id', idea_id).single();
+      if (ideaFetchErr || !idea) return errRes('Idea not found', 404, id);
+
+      const docText = await callClaudeText(
+        `You are a franchise business consultant producing a real working document. ${promptBody} Write in clear prose/short sections, not JSON. Never invent financial figures you cannot justify — write [To be confirmed] instead.`,
+        `Idea: ${idea.title}\nIndustry: ${idea.industry}\nScore: ${idea.score}/100 (${idea.status})\nAnalysis: ${idea.description}`
+      );
+
+      const { data: updated, error: updateErr } = await supabase.from('brain_business_ideas')
+        .select('generated_docs').eq('id', idea_id).single();
+      const existingDocs = (updated?.generated_docs as Record<string, string>) ?? {};
+      const newDocs = { ...existingDocs, [document_type]: docText };
+      const { error: saveErr } = await supabase.from('brain_business_ideas').update({ generated_docs: newDocs }).eq('id', idea_id);
+      if (saveErr) throw saveErr;
+
+      log('info', 'Document generated', { ideaId: idea_id, documentType: document_type }, id);
+      return okRes({ document_type, content: docText }, id);
+    }
+
+    const { title, description } = body;
     if (!title || typeof title !== 'string' || title.trim().length === 0) return errRes('title is required', 400, id);
 
     log('info', 'Evaluating business idea', { title }, id);

@@ -121,7 +121,17 @@ Deno.serve(async (req) => {
 
     const isHtml = build_type === 'website' || build_type === 'landing_page';
     const systemPrompt = isHtml
-      ?'You are an expert frontend developer. Return ONLY a complete self-contained HTML file starting with <!DOCTYPE html>. No markdown fences, no explanation. All CSS in a <style> tag, all JS in a <script> tag. STRICT RULES: no iframes, no external embeds, no opacity-0 fade-in animations - all content must be fully visible even if JavaScript fails. Use CSS gradients or inline SVG instead of images. Mobile responsive. Professional modern design. Sections: Hero, About, Investment Details, Contact Form, FAQ. Never invent financial figures not given to you - write "[To be confirmed]" for missing data.'
+      ? `You are an award-winning frontend designer-developer, the kind whose work gets featured on Awwwards and Land-book — not a template generator. Return ONLY a complete self-contained HTML file starting with <!DOCTYPE html>. No markdown fences, no explanation. All CSS in a <style> tag, all JS in a <script> tag.
+
+DESIGN DIRECTION (this is the difference between premium and generic — follow it precisely):
+- Pick ONE distinctive typographic identity per build: import 2 real Google Fonts (a display face for headings, a workhorse for body) via <link> from fonts.googleapis.com, and actually vary weight/size/tracking with intent. Never default to system-ui/Arial/Segoe UI-only stacks.
+- Pick a genuine color identity grounded in the brand/industry given — not the reflexive blue-to-purple gradient every AI-generated site uses. Commit to it: a dominant hue plus one sharp accent, used consistently.
+- Break the "centered hero, 3-column feature grid, centered CTA" template. Use asymmetric layouts, offset grids, generous negative space, or an unconventional hero composition at least once on the page.
+- Add real, purposeful micro-interactions (hover states with actual transform/shadow changes, scroll-triggered reveals via CSS or minimal JS, a sticky nav that responds to scroll) — not decoration, but enough that the page feels alive.
+- Vary section rhythm: not every section is a padded card grid. Mix a full-bleed statement section, a data/stat strip, a layered visual section, and a conventional content section.
+- Write real, specific copy grounded in the brand and requirements given — never generic filler like "We provide the best solutions for your needs."
+
+STRICT RULES: no iframes, no external embeds, no opacity-0 fade-in animations that leave content invisible if JS fails — everything must render fully without JavaScript. Use CSS gradients, CSS shapes, or inline SVG instead of raster images. Fully mobile responsive. Never invent financial figures not given to you — write "[To be confirmed]" for missing data.`
       : 'You are an expert developer. Return a JSON object only (no markdown fences). For CRM: keys migration_sql, component_tsx, description. For SaaS: keys files (array of {path, content}), setup_instructions, description. Never invent financial figures.';
 
     const brandContext = Object.keys(brandData).length > 0

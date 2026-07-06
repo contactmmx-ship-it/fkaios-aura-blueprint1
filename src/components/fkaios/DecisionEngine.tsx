@@ -3,15 +3,19 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 
 function ScoreBar({ score, label, weight, assessment, recommendation }: { score: number; label: string; weight: number; assessment: string; recommendation: string }) {
-  const color = score >= 8 ? 'bg-emerald-500' : score >= 6 ? 'bg-amber-500' : 'bg-red-500';
-  const textColor = score >= 8 ? 'text-emerald-400' : score >= 6 ? 'text-amber-400' : 'text-red-400';
+  // Backend scores dimensions 0-100 (see decision-engine SYSTEM_PROMPT). This
+  // component used to assume a 0-10 scale (>=8 threshold, score*10 width),
+  // which made every real 0-100 score render as an overflowing bar stuck at
+  // "always green" — the literal cause of "Decision Engine doesn't work".
+  const color = score >= 80 ? 'bg-emerald-500' : score >= 60 ? 'bg-amber-500' : 'bg-red-500';
+  const textColor = score >= 80 ? 'text-emerald-400' : score >= 60 ? 'text-amber-400' : 'text-red-400';
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-slate-300">{label} <span className="text-slate-500">({(weight * 100).toFixed(0)}%)</span></span>
         <span className={`text-sm font-bold ${textColor}`}>{score.toFixed(1)}</span>
       </div>
-      <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden"><div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${score * 10}%` }} /></div>
+      <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden"><div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${Math.min(100, score)}%` }} /></div>
       <p className="text-[11px] text-slate-400">{assessment}</p>
       {recommendation && <p className="text-[11px] text-blue-400 pl-3 border-l-2 border-blue-500/20">{recommendation}</p>}
     </div>
@@ -45,8 +49,9 @@ export default function DecisionEngine() {
     } finally { setScoring(false); }
   };
 
-  const verdict = (s: number) => s >= 8 ? { label: 'Strongly Recommended', color: 'text-emerald-400 bg-emerald-500/10' } : s >= 6 ? { label: 'Recommended with Conditions', color: 'text-amber-400 bg-amber-500/10' } : { label: 'Not Recommended', color: 'text-red-400 bg-red-500/10' };
-  const scoreColor = (s: number) => s >= 8 ? 'text-emerald-400' : s >= 6 ? 'text-amber-400' : 'text-red-400';
+  // Same 0-100 scale fix as ScoreBar above.
+  const verdict = (s: number) => s >= 80 ? { label: 'Strongly Recommended', color: 'text-emerald-400 bg-emerald-500/10' } : s >= 60 ? { label: 'Recommended with Conditions', color: 'text-amber-400 bg-amber-500/10' } : { label: 'Not Recommended', color: 'text-red-400 bg-red-500/10' };
+  const scoreColor = (s: number) => s >= 80 ? 'text-emerald-400' : s >= 60 ? 'text-amber-400' : 'text-red-400';
 
   return (
     <div className="space-y-4">
@@ -87,7 +92,7 @@ export default function DecisionEngine() {
               <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-base font-bold text-white">{selected.title}</h2>
-                  <div className="text-center"><p className={`text-3xl font-bold ${scoreColor(selected.overall_score)}`}>{selected.overall_score?.toFixed(1) || '0'}</p><p className="text-[10px] text-slate-500">/10</p></div>
+                  <div className="text-center"><p className={`text-3xl font-bold ${scoreColor(selected.overall_score)}`}>{selected.overall_score?.toFixed(1) || '0'}</p><p className="text-[10px] text-slate-500">/100</p></div>
                 </div>
                 {(() => { const v = verdict(selected.overall_score); return <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg ${v.color} text-sm font-medium`}>{v.label}</div>; })()}
               </div>
