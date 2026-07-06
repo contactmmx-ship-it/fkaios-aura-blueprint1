@@ -5,7 +5,7 @@ import {
   Bell, Settings, Menu, X, ChevronRight, Radio, Tag, UserCog,
   UserCircle, Database, GitBranch, TrendingUp, BookOpen, DollarSign,
   ShieldCheck, Sparkles, MessageSquare, Factory, Vault, Scale, Rocket,
-  UserCheck, GraduationCap, Zap, Compass, Phone, Hammer, Network, Search
+  UserCheck, GraduationCap, Zap, Compass, Phone, Hammer, Network, Search, Building2
 } from 'lucide-react';
 import BrainChat from '@/components/fkaios/BrainChat';
 import AgentFactory from '@/components/fkaios/AgentFactory';
@@ -16,6 +16,7 @@ import ChiefOfStaff from '@/components/fkaios/ChiefOfStaff';
 import SelfLearning from '@/components/fkaios/SelfLearning';
 import AuraBlueprint from '@/components/fkaios/AuraBlueprint';
 import AgentWorkday from '@/components/fkaios/AgentWorkday';
+import CompaniesAdmin from '@/components/fkaios/CompaniesAdmin';
 import LoginPage from './LoginPage';
 import Dashboard from '@/components/fkaios/Dashboard';
 import VoiceAI from '@/components/fkaios/VoiceAI';
@@ -55,6 +56,7 @@ const brainNav = [
   { id: 'builder-ai', label: 'Builder AI', icon: Hammer },
   { id: 'ai-company', label: 'AI Company', icon: Network },
   { id: 'agent-workday', label: 'Agent Workday', icon: CalendarDays },
+  { id: 'companies', label: 'Companies', icon: Building2 },
   { id: 'research', label: 'Research', icon: Search },
 ];
 
@@ -150,6 +152,7 @@ export default function AppShell() {
       case 'builder-ai': return <BuilderAI />;
       case 'ai-company': return <OrchestratorAI />;
       case 'agent-workday': return <AgentWorkday />;
+      case 'companies': return <CompaniesAdmin />;
       case 'research': return <ResearchOS />;
     }
     return <PlaceholderPage title={fkaioNav.find(n => n.id === activePage)?.label || 'Dashboard'} description={pageDescriptions[activePage] || 'Not yet built.'} />;
