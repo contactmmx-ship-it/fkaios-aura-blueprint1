@@ -26,6 +26,7 @@ import SettingsPage from '@/components/fkaios/SettingsPage';
 import LeadsCRM from '@/components/fkaios/LeadsCRM';
 import ResearchOS from '@/components/fkaios/ResearchOS';
 import ApprovalsPage from '@/components/fkaios/ApprovalsPage';
+import ProjectReview from '@/components/fkaios/ProjectReview';
 import { supabase } from '@/lib/supabase';
 
 // ---- Navigation definition matching original FKAIO + Brain pages ----
@@ -44,6 +45,7 @@ const fkaioNav = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'leads-crm', label: 'Leads CRM', icon: Users },
   { id: 'approvals', label: 'Approvals', icon: ShieldCheck },
+  { id: 'project-review', label: 'Project Review', icon: Users },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -144,6 +146,7 @@ export default function AppShell() {
     if (activePage === 'settings') return <SettingsPage />;
     if (activePage === 'leads-crm') return <LeadsCRM />;
     if (activePage === 'approvals') return <ApprovalsPage />;
+    if (activePage === 'project-review') return <ProjectReview />;
     switch (activePage) {
       case 'brain-chat': return <BrainChat />;
       case 'agent-factory': return <AgentFactory />;

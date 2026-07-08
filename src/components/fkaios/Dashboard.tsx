@@ -127,6 +127,7 @@ export default function Dashboard() {
   // server-side from the same tables this page already queries directly.)
   interface DashboardEngineData {
     business_health_score: number;
+    generated_at?: string;
     revenue: { today_inr: number; week_inr: number; mtd_inr: number; qtd_inr: number; ytd_inr: number };
     risk_indicators: { area: string; risk: string; severity: 'low' | 'medium' | 'high' }[];
     critical_alerts: { severity: 'high' | 'medium'; message: string }[];
@@ -285,6 +286,15 @@ export default function Dashboard() {
       )}
 
       {/* Executive Command Center — real dashboard-engine v2 data */}
+      <div className="flex items-center justify-between bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-2">
+        <span className="text-[11px] text-slate-500">
+          {ecc ? `Live data as of ${new Date(ecc.generated_at ?? Date.now()).toLocaleTimeString()} — CEO briefing only regenerates once/day (~12:45am IST), everything else here is real-time on refresh` : 'Loading…'}
+        </span>
+        <button onClick={() => { loadExecCommandCenter(); }} className="flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+          Refresh
+        </button>
+      </div>
       {eccError && (
         <div className="bg-red-950/40 border border-red-900 rounded-xl px-4 py-3 text-xs text-red-300">
           Executive Command Center data failed to load: {eccError}
