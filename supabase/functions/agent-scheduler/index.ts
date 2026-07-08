@@ -176,42 +176,28 @@ async function dispatchSchedule(
   const dispatchId = dispatch.id;
   await supabase.from("agent_dispatch_log").update({ status: "running" }).eq("id", dispatchId);
 
+  // FIXED 2026-07-08 (part 2): the direct-call branch that used to live here
+  // sent action=`scheduled_run_${type}` to ai-engine/reporting-engine —
+  // neither function has ever had a handler for that action name (verified
+  // by reading both files' real action switches). Every dispatch that took
+  // this path failed, silently, for as long as it existed. Rather than
+  // hand-verify and hardcode the correct action + payload shape for each of
+  // resolveEdgeFunctionName's 7 target functions (several of which, like
+  // document-engine for GENERATE_PROPOSAL, turn out to be the wrong function
+  // entirely — document-engine only does file upload/delete, not proposal
+  // generation), every scheduled dispatch now goes through the ai_jobs
+  // queue: the SAME generic path this file already used as a fallback,
+  // already correctly agent-agnostic (ai-engine's executeJob builds a real
+  // system prompt from the agent's own `prompt` field + real grounded
+  // lead/brand data and calls Claude for real — genuinely tested, not new
+  // code). A schedule that names a task with a real dedicated function
+  // (e.g. GENERATE_INVOICE -> invoice-pdf) can still be wired to call that
+  // function directly once its exact contract is verified — this is the
+  // safe default for everything until each of those is checked individually.
   const task = (agent.task as string) ?? "";
-  const functionName = resolveEdgeFunctionName(task);
-
-  if (functionName) {
-    try {
-      const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
-      const response = await fetch(functionUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseServiceRoleKey}`, "X-Correlation-ID": cid },
-        body: JSON.stringify({ action: `scheduled_run_${schedule.schedule_type}`, agent_id: agent.id, schedule_id: schedule.id, brand_id: schedule.brand_id ?? null, ...(schedule.conditions as Record<string, unknown> ?? {}) }),
-      });
-
-      const durationMs = Date.now() - startTime;
-
-      if (response.ok) {
-        const responseData = await response.json() as Record<string, unknown>;
-        await supabase.from("agent_dispatch_log").update({ status: "completed", output_data: responseData, duration_ms: durationMs, tokens_used: responseData.tokens_used ? Number(responseData.tokens_used) : null, cost_usd: responseData.cost_usd ? Number(responseData.cost_usd) : null }).eq("id", dispatchId);
-        structuredLog("INFO", `Tick dispatch completed via ${functionName}`, { scheduleId: schedule.id, agentName: agent.name, durationMs }, cid);
-        return { scheduleId: schedule.id as string, agentName: (agent.name as string) ?? "unknown", dispatchId, status: "completed", durationMs };
-      } else {
-        const errorText = await response.text();
-        await supabase.from("agent_dispatch_log").update({ status: "failed", error_message: `Edge function ${functionName} returned ${response.status}: ${errorText.slice(0, 500)}`, duration_ms: durationMs }).eq("id", dispatchId);
-        structuredLog("ERROR", `Tick dispatch failed: ${functionName} returned ${response.status}`, { scheduleId: schedule.id, error: errorText.slice(0, 200) }, cid);
-        return { scheduleId: schedule.id as string, agentName: (agent.name as string) ?? "unknown", dispatchId, status: "failed", error: `${functionName} returned ${response.status}`, durationMs };
-      }
-    } catch (err) {
-      const durationMs = Date.now() - startTime;
-      const errorMsg = err instanceof Error ? err.message : "Unknown error";
-      await supabase.from("agent_dispatch_log").update({ status: "failed", error_message: errorMsg, duration_ms: durationMs }).eq("id", dispatchId);
-      structuredLog("ERROR", `Tick dispatch exception for schedule ${schedule.id}`, { error: errorMsg }, cid);
-      return { scheduleId: schedule.id as string, agentName: (agent.name as string) ?? "unknown", dispatchId, status: "failed", error: errorMsg, durationMs };
-    }
-  }
 
   try {
-    const { data: job, error: jobErr } = await supabase.from("ai_jobs").insert({ agent_id: agent.id, type: `scheduled_${schedule.schedule_type}`, payload: { schedule_id: schedule.id, brand_id: schedule.brand_id ?? null, ...(schedule.conditions as Record<string, unknown> ?? {}) }, status: "pending" }).select("id").single();
+    const { data: job, error: jobErr } = await supabase.from("ai_jobs").insert({ agent_id: agent.id, type: task || `scheduled_${schedule.schedule_type}`, payload: { schedule_id: schedule.id, brand_id: schedule.brand_id ?? null, ...(schedule.conditions as Record<string, unknown> ?? {}) }, status: "pending" }).select("id").single();
     const durationMs = Date.now() - startTime;
     if (jobErr || !job) {
       await supabase.from("agent_dispatch_log").update({ status: "failed", error_message: `Failed to create ai_job: ${jobErr?.message}`, duration_ms: durationMs }).eq("id", dispatchId);
