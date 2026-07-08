@@ -10,6 +10,14 @@ interface PendingInvoice {
   status: string;
   created_at: string;
 }
+interface SentInvoice {
+  id: string;
+  client_name: string;
+  total_inr: number | null;
+  delivery_channel: string | null;
+  delivery_status: string | null;
+  sent_at: string | null;
+}
 interface GenericApproval {
   id: string;
   department_code: string;
@@ -38,21 +46,28 @@ function formatCurrency(val: number | null) {
 
 export default function ApprovalsPage() {
   const [invoices, setInvoices] = useState<PendingInvoice[]>([]);
+  const [approvedInvoices, setApprovedInvoices] = useState<PendingInvoice[]>([]);
+  const [sentInvoices, setSentInvoices] = useState<SentInvoice[]>([]);
   const [approvals, setApprovals] = useState<GenericApproval[]>([]);
   const [notifications, setNotifications] = useState<FounderNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [decidingId, setDecidingId] = useState<string | null>(null);
+  const [sendingId, setSendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function loadAll() {
     setLoading(true);
     setError(null);
-    const [invRes, apRes, notifRes] = await Promise.all([
+    const [invRes, approvedRes, sentRes, apRes, notifRes] = await Promise.all([
       supabase.from('company_invoices').select('id, client_name, total_inr, status, created_at').eq('status', 'pending_approval').order('created_at', { ascending: true }),
+      supabase.from('company_invoices').select('id, client_name, total_inr, status, created_at').eq('status', 'approved').order('approved_at', { ascending: true }),
+      supabase.from('company_invoices').select('id, client_name, total_inr, delivery_channel, delivery_status, sent_at').in('status', ['sent', 'paid']).order('sent_at', { ascending: false }).limit(15),
       supabase.from('approvals').select('id, department_code, action_type, amount_inr, risk_level, reason, created_at').is('decided_at', null).order('created_at', { ascending: true }),
       supabase.from('founder_notifications').select('id, type, title, detail, amount_inr, is_read, created_at').order('created_at', { ascending: false }).limit(20),
     ]);
     setInvoices((invRes.data as PendingInvoice[]) || []);
+    setApprovedInvoices((approvedRes.data as PendingInvoice[]) || []);
+    setSentInvoices((sentRes.data as SentInvoice[]) || []);
     setApprovals((apRes.data as GenericApproval[]) || []);
     setNotifications((notifRes.data as FounderNotification[]) || []);
     setLoading(false);
@@ -78,6 +93,26 @@ export default function ApprovalsPage() {
     }
     await loadAll();
     setDecidingId(null);
+  }
+
+  async function sendInvoice(invoiceId: string) {
+    setSendingId(invoiceId);
+    setError(null);
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    const res = await fetch('https://nrlsqshkjuuwiovthrnb.supabase.co/functions/v1/finance-engine', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action: 'send_invoice', invoice_id: invoiceId }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error || 'Failed to send invoice');
+      setSendingId(null);
+      return;
+    }
+    await loadAll();
+    setSendingId(null);
   }
 
   async function markNotificationRead(id: string) {
@@ -139,6 +174,56 @@ export default function ApprovalsPage() {
                         <XCircle className="w-3 h-3" /> Reject
                       </button>
                     </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-800">
+              <h3 className="text-sm font-semibold text-white">Approved — Ready to Send ({approvedInvoices.length})</h3>
+            </div>
+            {approvedInvoices.length === 0 ? (
+              <p className="text-xs text-slate-500 p-5">Nothing waiting to be sent.</p>
+            ) : (
+              <div className="divide-y divide-slate-800">
+                {approvedInvoices.map((inv) => (
+                  <div key={inv.id} className="flex items-center justify-between p-4">
+                    <div>
+                      <p className="text-sm font-medium text-white">{inv.client_name}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">{formatCurrency(inv.total_inr)}</p>
+                    </div>
+                    <button
+                      onClick={() => sendInvoice(inv.id)}
+                      disabled={sendingId === inv.id}
+                      className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg disabled:opacity-50"
+                    >
+                      {sendingId === inv.id ? 'Sending…' : 'Send to Client'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-800">
+              <h3 className="text-sm font-semibold text-white">Recently Sent ({sentInvoices.length})</h3>
+            </div>
+            {sentInvoices.length === 0 ? (
+              <p className="text-xs text-slate-500 p-5">No invoices sent yet.</p>
+            ) : (
+              <div className="divide-y divide-slate-800">
+                {sentInvoices.map((inv) => (
+                  <div key={inv.id} className="p-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-white">{inv.client_name}</p>
+                      <p className="text-xs text-slate-400">{formatCurrency(inv.total_inr)}</p>
+                    </div>
+                    <p className={`text-[11px] mt-1 ${inv.delivery_status === 'whatsapp_sent' ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {inv.delivery_status === 'whatsapp_sent' ? '✓ Delivered via WhatsApp' : `Not actually delivered — ${inv.delivery_status || 'unknown reason'}. Follow up manually.`}
+                    </p>
                   </div>
                 ))}
               </div>

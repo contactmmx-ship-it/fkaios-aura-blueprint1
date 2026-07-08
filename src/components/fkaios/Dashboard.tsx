@@ -121,6 +121,48 @@ export default function Dashboard() {
       });
   }, []);
 
+  // ---- Executive Command Center panel — real dashboard-engine v2 data ----
+  // (Founder Vision Audit Phase A: health score, risk indicators, milestone
+  // tracker, invoice breakdown, agent activity feed — all real, computed
+  // server-side from the same tables this page already queries directly.)
+  interface DashboardEngineData {
+    business_health_score: number;
+    risk_indicators: { area: string; risk: string; severity: 'low' | 'medium' | 'high' }[];
+    critical_alerts: { severity: 'high' | 'medium'; message: string }[];
+    milestone_tracker: { company_id: string; year: number; quarter: number; target_inr: number; actual_inr: number; status: string }[];
+    invoice_status_breakdown: Record<string, { count: number; total_inr: number }>;
+    agent_activity_feed: { agent_id: string | null; action: string; status: string; created_at: string }[];
+    pending_invoice_approvals: unknown[];
+  }
+  const [ecc, setEcc] = useState<DashboardEngineData | null>(null);
+  const [eccError, setEccError] = useState<string | null>(null);
+  const [eccLoading, setEccLoading] = useState(true);
+
+  async function loadExecCommandCenter() {
+    setEccLoading(true);
+    setEccError(null);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      const res = await fetch('https://nrlsqshkjuuwiovthrnb.supabase.co/functions/v1/dashboard-engine', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'get_dashboard' }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'dashboard-engine failed');
+      setEcc(data as DashboardEngineData);
+    } catch (e) {
+      setEccError(e instanceof Error ? e.message : 'Failed to load Executive Command Center data');
+    }
+    setEccLoading(false);
+  }
+  useEffect(() => { loadExecCommandCenter(); }, []);
+
+  const healthColor = (score: number) => (score >= 70 ? '#10b981' : score >= 40 ? '#f59e0b' : '#ef4444');
+  const currentYearMilestones = (ecc?.milestone_tracker || []).filter((m) => m.year === new Date().getFullYear());
+
+
   // Invoice amount per lead — real deal value only exists once an invoice is drafted.
   // A lead with no invoice contributes ₹0, and is labeled "no invoice yet" rather than
   // shown as a fabricated deal size.
@@ -228,6 +270,98 @@ export default function Dashboard() {
           <span className="text-slate-400">Cost: <span className="text-emerald-400 font-semibold">₹{ops.costInr.toFixed(2)}</span></span>
           <span className="text-slate-400">Gemini fallbacks: <span className={ops.fallbacks > 0 ? 'text-amber-400 font-semibold' : 'text-white font-semibold'}>{ops.fallbacks}</span></span>
           <span className="text-slate-500 ml-auto">Last: {ops.lastAction}</span>
+        </div>
+      )}
+
+      {/* Executive Command Center — real dashboard-engine v2 data */}
+      {eccError && (
+        <div className="bg-red-950/40 border border-red-900 rounded-xl px-4 py-3 text-xs text-red-300">
+          Executive Command Center data failed to load: {eccError}
+        </div>
+      )}
+      {!eccLoading && ecc && (
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+          <div className="bg-slate-900 rounded-xl border border-slate-800 p-4 flex flex-col items-center justify-center">
+            <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">Business Health</p>
+            <div className="relative w-16 h-16">
+              <svg width="64" height="64">
+                <circle cx="32" cy="32" r="27" fill="none" stroke="#1e293b" strokeWidth="5" />
+                <circle cx="32" cy="32" r="27" fill="none" stroke={healthColor(ecc.business_health_score)} strokeWidth="5"
+                  strokeDasharray={2 * Math.PI * 27} strokeDashoffset={2 * Math.PI * 27 * (1 - ecc.business_health_score / 100)}
+                  strokeLinecap="round" transform="rotate(-90 32 32)" />
+              </svg>
+              <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-white">{ecc.business_health_score}</span>
+            </div>
+          </div>
+
+          <div className="lg:col-span-2 bg-slate-900 rounded-xl border border-slate-800 p-4">
+            <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">Risk Indicators</p>
+            {ecc.risk_indicators.length === 0 ? (
+              <p className="text-xs text-slate-500">No risks flagged right now.</p>
+            ) : (
+              <div className="space-y-1.5 max-h-28 overflow-y-auto">
+                {ecc.risk_indicators.map((r, i) => (
+                  <div key={i} className="flex items-center justify-between text-xs">
+                    <span className="text-slate-300 truncate">{r.area}: {r.risk}</span>
+                    <span className={`text-[9px] uppercase font-semibold px-1.5 py-0.5 rounded-full shrink-0 ml-2 ${r.severity === 'high' ? 'bg-red-500/20 text-red-400' : r.severity === 'medium' ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-700 text-slate-400'}`}>{r.severity}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-slate-900 rounded-xl border border-slate-800 p-4">
+            <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">Invoices by Status</p>
+            <div className="space-y-1">
+              {Object.entries(ecc.invoice_status_breakdown).length === 0 ? (
+                <p className="text-xs text-slate-500">No invoices yet.</p>
+              ) : (
+                Object.entries(ecc.invoice_status_breakdown).map(([status, v]) => (
+                  <div key={status} className="flex items-center justify-between text-xs">
+                    <span className="text-slate-400 capitalize">{status.replace('_', ' ')}</span>
+                    <span className="text-white font-medium">{v.count} · {formatCurrency(v.total_inr)}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!eccLoading && ecc && currentYearMilestones.length > 0 && (
+        <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-white">₹1,100 Cr Milestone Tracker — {new Date().getFullYear()}</h3>
+            <span className="text-[10px] text-slate-500">Computed pacing from annual target, not a founder-set checkpoint</span>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {currentYearMilestones.map((m, i) => {
+              const pct = m.target_inr > 0 ? Math.min(100, Math.round((m.actual_inr / m.target_inr) * 100)) : 0;
+              return (
+                <div key={i} className="bg-slate-800/50 rounded-lg p-3">
+                  <p className="text-[10px] text-slate-500">Q{m.quarter} {m.year}</p>
+                  <p className="text-sm font-bold text-white mt-1">{formatCurrency(m.actual_inr)} <span className="text-slate-500 font-normal">/ {formatCurrency(m.target_inr)}</span></p>
+                  <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden mt-2">
+                    <div className="h-full bg-blue-500/70 rounded-full" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {!eccLoading && ecc && ecc.agent_activity_feed.length > 0 && (
+        <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
+          <h3 className="text-sm font-semibold text-white mb-3">Recent Agent Activity</h3>
+          <div className="space-y-1.5 max-h-48 overflow-y-auto">
+            {ecc.agent_activity_feed.slice(0, 10).map((a, i) => (
+              <div key={i} className="flex items-center justify-between text-xs">
+                <span className="text-slate-300">{a.action}</span>
+                <span className={`${a.status === 'failed' || a.status === 'error' ? 'text-red-400' : 'text-slate-500'}`}>{a.status} · {new Date(a.created_at).toLocaleTimeString()}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
