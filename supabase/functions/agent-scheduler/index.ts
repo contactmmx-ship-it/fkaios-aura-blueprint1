@@ -53,6 +53,60 @@ const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
 
 const MAX_DISPATCHES_PER_TICK = 20;
 
+// FIXED 2026-07-08: agent_schedules rows created with a cron_expression
+// (e.g. "0 9,14,19 * * *") but no next_run_at were NEVER being picked up —
+// the due-schedules query requires next_run_at to be non-null. Nothing in
+// this system ever converted cron_expression into next_run_at, so every
+// schedule using it (most of the 41 agents populated in the workforce-depth
+// pass) has never fired, ever. This isn't a one-day blip — confirmed via
+// agent_schedules.created_at vs agent_dispatch_log activity. Supports the
+// exact pattern actually in use: "M H1,H2,H3 * * *" (minute, comma-separated
+// hour list, every day) — the only shape these schedules use. Fails loudly
+// (returns null, logged) rather than silently guessing for anything else.
+function computeNextRunFromCron(cronExpr: string, from: Date): Date | null {
+  const parts = cronExpr.trim().split(/\s+/);
+  if (parts.length !== 5) return null;
+  const [minStr, hourStr, dom, mon, dow] = parts;
+  if (dom !== "*" || mon !== "*" || dow !== "*") return null; // unsupported shape, fail loudly not silently
+  const minute = parseInt(minStr, 10);
+  const hours = hourStr.split(",").map((h) => parseInt(h, 10)).filter((h) => !Number.isNaN(h)).sort((a, b) => a - b);
+  if (Number.isNaN(minute) || hours.length === 0) return null;
+
+  const candidates: Date[] = [];
+  for (const h of hours) {
+    const todayRun = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate(), h, minute, 0));
+    candidates.push(todayRun);
+    const tomorrowRun = new Date(todayRun.getTime() + 86400000);
+    candidates.push(tomorrowRun);
+  }
+  const future = candidates.filter((d) => d.getTime() > from.getTime()).sort((a, b) => a.getTime() - b.getTime());
+  return future[0] ?? null;
+}
+
+async function backfillCronNextRunAt(cid: string): Promise<number> {
+  const { data: unset, error } = await supabase
+    .from("agent_schedules")
+    .select("id, cron_expression, next_run_at")
+    .eq("is_active", true)
+    .not("cron_expression", "is", null)
+    .is("next_run_at", null);
+  if (error || !unset || unset.length === 0) return 0;
+
+  let fixed = 0;
+  const now = new Date();
+  for (const s of unset) {
+    const next = computeNextRunFromCron(s.cron_expression as string, now);
+    if (!next) {
+      structuredLog("WARN", "Could not parse cron_expression, leaving next_run_at null", { scheduleId: s.id, cronExpr: s.cron_expression }, cid);
+      continue;
+    }
+    const { error: updErr } = await supabase.from("agent_schedules").update({ next_run_at: next.toISOString() }).eq("id", s.id);
+    if (!updErr) fixed++;
+  }
+  if (fixed > 0) structuredLog("INFO", `Backfilled next_run_at for ${fixed} cron_expression schedule(s) that were never able to fire`, {}, cid);
+  return fixed;
+}
+
 function resolveEdgeFunctionName(task: string): string | null {
   const taskToFunction: Record<string, string> = {
     QUALIFY_LEAD: "ai-engine",
@@ -177,6 +231,8 @@ async function dispatchSchedule(
 async function handleTick(cid: string): Promise<Response> {
   structuredLog("INFO", "Agent scheduler tick: starting", {}, cid);
 
+  const backfilled = await backfillCronNextRunAt(cid);
+
   const { data: dueSchedules, error: schedErr } = await supabase
     .from("agent_schedules")
     .select(`id, agent_id, agent:ai_agents(id, name, task, dept, is_active), schedule_type, cron_expression, interval_seconds, event_trigger, lifecycle_stage_id, brand_id, conditions, max_retries, failure_count, run_count`)
@@ -220,17 +276,17 @@ async function handleTick(cid: string): Promise<Response> {
     }
 
     const newRunCount = ((schedule.run_count as number) ?? 0) + 1;
-    // FIX: next_run_at was never advanced anywhere in this file — an
-    // interval-based schedule would stay "due" forever and fire on every
-    // 5-min tick regardless of its configured interval_seconds, silently
-    // multiplying real paid Claude calls. Advance it here based on schedule
-    // type; cron_expression schedules are left for a future proper cron
-    // parser and simply re-run next tick (rare in current usage — all
-    // schedules seeded so far are 'interval' type).
+    // FIX (continued): the cron parser deferred above now exists — use it
+    // here too so cron_expression schedules advance correctly after firing,
+    // not just get a one-time backfill.
     const intervalSecs = (schedule.interval_seconds as number) ?? null;
-    const nextRunAt = schedule.schedule_type === "interval" && intervalSecs
-      ? new Date(Date.now() + intervalSecs * 1000).toISOString()
-      : null; // cron/event_trigger: left as-is until a real cron parser exists
+    let nextRunAt: string | null = null;
+    if (schedule.schedule_type === "interval" && intervalSecs) {
+      nextRunAt = new Date(Date.now() + intervalSecs * 1000).toISOString();
+    } else if (schedule.cron_expression) {
+      const computed = computeNextRunFromCron(schedule.cron_expression as string, new Date());
+      nextRunAt = computed ? computed.toISOString() : null;
+    }
     const { error: updateErr } = await supabase.from("agent_schedules").update({ run_count: newRunCount, last_run_at: new Date().toISOString(), ...(nextRunAt ? { next_run_at: nextRunAt } : {}) }).eq("id", schedule.id);
 
     if (updateErr) {
@@ -266,7 +322,7 @@ async function handleTick(cid: string): Promise<Response> {
 
   structuredLog("INFO", `Agent scheduler tick complete`, { processed, dispatched, failed, deactivated, total_due: dueSchedules.length }, cid);
 
-  return successResponse({ success: true, processed, dispatched, failed, deactivated, tick_completed_at: new Date().toISOString(), results }, 200, cid);
+  return successResponse({ success: true, processed, dispatched, failed, deactivated, cron_schedules_backfilled: backfilled, tick_completed_at: new Date().toISOString(), results }, 200, cid);
 }
 
 Deno.serve(async (req: Request) => {
