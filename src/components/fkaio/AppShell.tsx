@@ -25,6 +25,7 @@ import OrchestratorAI from '@/components/fkaios/OrchestratorAI';
 import SettingsPage from '@/components/fkaios/SettingsPage';
 import LeadsCRM from '@/components/fkaios/LeadsCRM';
 import ResearchOS from '@/components/fkaios/ResearchOS';
+import ApprovalsPage from '@/components/fkaios/ApprovalsPage';
 import { supabase } from '@/lib/supabase';
 
 // ---- Navigation definition matching original FKAIO + Brain pages ----
@@ -37,9 +38,12 @@ import { supabase } from '@/lib/supabase';
 // rule, they are removed from the sidebar rather than left visible and
 // non-functional. Each can be added back individually once it is genuinely
 // built and wired to real data — see AEOS_STATUS.md for the honest roadmap.
+// UPDATE (Founder Vision Audit Phase 3/6): Approvals is back — wired for
+// real this time to finance-engine + company_invoices + founder_notifications.
 const fkaioNav = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'leads-crm', label: 'Leads CRM', icon: Users },
+  { id: 'approvals', label: 'Approvals', icon: ShieldCheck },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -139,6 +143,7 @@ export default function AppShell() {
     if (activePage === 'dashboard') return <Dashboard />;
     if (activePage === 'settings') return <SettingsPage />;
     if (activePage === 'leads-crm') return <LeadsCRM />;
+    if (activePage === 'approvals') return <ApprovalsPage />;
     switch (activePage) {
       case 'brain-chat': return <BrainChat />;
       case 'agent-factory': return <AgentFactory />;
