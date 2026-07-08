@@ -59,6 +59,7 @@ export default function MyBrain() {
   const [iterations, setIterations] = useState<Iteration[]>([]);
   const [iterationLoading, setIterationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const [title, setTitle] = useState('');
   const [clientName, setClientName] = useState('');
@@ -192,6 +193,23 @@ export default function MyBrain() {
             </div>
 
             {error && <p className="text-xs text-red-400">{error}</p>}
+
+            {selected.final_output && (
+              <div className="bg-emerald-950/20 border border-emerald-900/50 rounded-2xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-semibold text-white flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Final Result — This is the deliverable
+                  </p>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(selected.final_output ?? ''); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+                    className="text-[11px] bg-emerald-700 hover:bg-emerald-600 text-white px-2.5 py-1 rounded-lg"
+                  >
+                    {copied ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-200 whitespace-pre-wrap max-h-96 overflow-y-auto">{selected.final_output}</p>
+              </div>
+            )}
 
             {(selected.status === 'making' || selected.status === 'reviewing') && (
               <button onClick={runIteration} disabled={iterationLoading} className="flex items-center gap-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg disabled:opacity-50">
