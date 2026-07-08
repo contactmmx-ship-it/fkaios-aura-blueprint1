@@ -28,6 +28,7 @@ import ResearchOS from '@/components/fkaios/ResearchOS';
 import ApprovalsPage from '@/components/fkaios/ApprovalsPage';
 import ProjectReview from '@/components/fkaios/ProjectReview';
 import MyBrain from '@/components/fkaios/MyBrain';
+import ProductVideoGenerator from '@/components/fkaios/ProductVideoGenerator';
 import { supabase } from '@/lib/supabase';
 
 // ---- Navigation definition matching original FKAIO + Brain pages ----
@@ -45,6 +46,7 @@ import { supabase } from '@/lib/supabase';
 const fkaioNav = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'my-brain', label: 'My Brain', icon: ShieldCheck },
+  { id: 'product-video', label: 'Product Video Gen', icon: Users },
   { id: 'leads-crm', label: 'Leads CRM', icon: Users },
   { id: 'approvals', label: 'Approvals', icon: ShieldCheck },
   { id: 'project-review', label: 'Project Review', icon: Users },
@@ -150,6 +152,7 @@ export default function AppShell() {
     if (activePage === 'approvals') return <ApprovalsPage />;
     if (activePage === 'project-review') return <ProjectReview />;
     if (activePage === 'my-brain') return <MyBrain />;
+    if (activePage === 'product-video') return <ProductVideoGenerator />;
     switch (activePage) {
       case 'brain-chat': return <BrainChat />;
       case 'agent-factory': return <AgentFactory />;
