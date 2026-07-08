@@ -29,6 +29,7 @@ import ApprovalsPage from '@/components/fkaios/ApprovalsPage';
 import ProjectReview from '@/components/fkaios/ProjectReview';
 import MyBrain from '@/components/fkaios/MyBrain';
 import ProductVideoGenerator from '@/components/fkaios/ProductVideoGenerator';
+import FounderAvatar from '@/components/fkaios/FounderAvatar';
 import { supabase } from '@/lib/supabase';
 
 // ---- Navigation definition matching original FKAIO + Brain pages ----
@@ -44,6 +45,7 @@ import { supabase } from '@/lib/supabase';
 // UPDATE (Founder Vision Audit Phase 3/6): Approvals is back — wired for
 // real this time to finance-engine + company_invoices + founder_notifications.
 const fkaioNav = [
+  { id: 'founder-avatar', label: 'Founder Avatar', icon: Radio },
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'my-brain', label: 'My Brain', icon: ShieldCheck },
   { id: 'product-video', label: 'Product Video Gen', icon: Users },
@@ -112,7 +114,7 @@ const pageDescriptions: Record<string, string> = {
 };
 
 export default function AppShell() {
-  const [activePage, setActivePage] = useState('dashboard');
+  const [activePage, setActivePage] = useState('founder-avatar');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userEmail, setUserEmail] = useState('');
   const [authChecked, setAuthChecked] = useState(false);
@@ -146,6 +148,7 @@ export default function AppShell() {
   }
 
   const renderPage = () => {
+    if (activePage === 'founder-avatar') return <FounderAvatar />;
     if (activePage === 'dashboard') return <Dashboard />;
     if (activePage === 'settings') return <SettingsPage />;
     if (activePage === 'leads-crm') return <LeadsCRM />;
