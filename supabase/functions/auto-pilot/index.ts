@@ -71,7 +71,15 @@ serve(async (req) => {
     structuredLog("INFO", "Auto-pilot V4 started", undefined, cid);
     const results = { qualified: 0, nurtured: 0, proposed: 0, marketed: 0 };
 
-    const { data: newLeads, error: newErr } = await supabase.from("leads").select("*").eq("stage", "new").eq("is_active", true);
+    const { data: newLeads, error: newErr } = await supabase.from("leads").select("*").eq("stage", "new").eq("is_active", true).neq("lead_source", "ai_discovery");
+    // FIXED 2026-07-08: was scoring every 'new' lead including ai_discovery
+    // ones. auto-pilot runs every 5 min on a cron; auto-agents-engine's real
+    // Claude BANT qualifier only runs every 30 min and only picks up leads
+    // where lead_score IS NULL. Since auto-pilot ran 6x more often, it always
+    // won the race and overwrote null with its own crude deterministic score
+    // before the real AI qualifier ever saw the lead — so no AI-discovered
+    // lead was ever actually AI-qualified. AI-discovered leads are now left
+    // alone here; the real qualifier in auto-agents-engine handles them.
     if (!newErr && newLeads && newLeads.length > 0) {
       for (let i = 0; i < newLeads.length; i++) {
         const lead = newLeads[i];
