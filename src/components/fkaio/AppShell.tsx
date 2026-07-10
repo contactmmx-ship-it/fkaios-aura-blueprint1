@@ -52,7 +52,7 @@ const fkaioNav = [
   { id: 'product-video', label: 'Product Video Gen', icon: Users },
   { id: 'leads-crm', label: 'Leads CRM', icon: Users },
   { id: 'approvals', label: 'Approvals', icon: ShieldCheck },
-  { id: 'governance', label: 'Governance', icon: Scale },
+  { id: 'governance', label: 'Command Center', icon: Scale },
   { id: 'project-review', label: 'Project Review', icon: Users },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];

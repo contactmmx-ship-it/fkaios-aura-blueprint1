@@ -27,6 +27,16 @@ interface GovData {
   audit_timeline: { action: string; resource_type: string | null; actor_type: string | null; decision_reasoning: string | null; requires_human_review: boolean; created_at: string }[];
   violations: { created_at: string; actor: string; attempted_action: string; violation_message: string; kind: string }[];
   approval_queue: { action_type: string; risk_level: string; amount_inr: number | null; reason: string; created_at: string }[];
+  board: { seat: string; holder_type: string; holder_name: string; authority: string; accountability: string }[];
+  executive_committee: { role: string; holder_agent: string; scope: string; measurable_objective: string; reports_to: string }[];
+  org_units: { unit_name: string; unit_type: string; company: string }[];
+  subsidiaries: { id: string; name: string; company_type: string; sector: string | null; status: string | null }[];
+  market_intelligence: { signal_type: string; industry: string | null; headline: string; detail: string | null; source_url: string | null; confidence: number; relevance_to_founder_vision: string | null; captured_at: string }[];
+  competitor_intelligence: { competitor_name: string; category: string | null; observation: string; implication_for_us: string | null; source_url: string | null; confidence: number; captured_at: string }[];
+  knowledge_curve: { day: string; cumulative: number }[];
+  knowledge_total: number;
+  department_activity: { dept: string; total: number; pending: number }[];
+  recent_activity: { from_agent: string; to_agent: string; task_description: string; status: string; created_at: string }[];
 }
 
 const trustColor: Record<string, string> = { constitutional: 'text-purple-400 bg-purple-950/40 border-purple-800', veteran: 'text-cyan-400 bg-cyan-950/40 border-cyan-800', trusted: 'text-emerald-400 bg-emerald-950/40 border-emerald-800', probation: 'text-amber-400 bg-amber-950/40 border-amber-800' };
@@ -96,12 +106,110 @@ export default function GovernanceDashboard() {
       <div className="flex items-center justify-between bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-2">
         <div className="flex items-center gap-2">
           <Scale className="w-4 h-4 text-purple-400" />
-          <h2 className="text-sm font-semibold text-white">Founder Governance Dashboard</h2>
-          <span className="text-[10px] text-slate-500">Supreme Constitutional Authority · live from governance tables</span>
+          <h2 className="text-sm font-semibold text-white">Chairman's Command Center</h2>
+          <span className="text-[10px] text-slate-500">Bhavishya Associates Artificial Enterprise · live enterprise intelligence</span>
         </div>
         <div className="flex items-center gap-3 text-[10px] text-slate-500">
           <span>Updated {lastUpdated} · auto-refresh 30s</span>
           <button onClick={load} className="flex items-center gap-1 text-cyan-400 hover:text-cyan-300"><RefreshCw className="w-3 h-3" />Refresh</button>
+        </div>
+      </div>
+
+      {/* ENTERPRISE: Board & Executive Committee */}
+      <div>
+        <p className="text-[9px] font-semibold text-cyan-500 uppercase tracking-wider mb-2">Enterprise Leadership (board_of_directors · executive_committee)</p>
+        <div className="grid md:grid-cols-2 gap-3">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3">
+            <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">Board of Directors ({data.board.length} seats)</p>
+            {data.board.length === 0 ? <p className="text-xs text-slate-500">No board seats yet</p> : data.board.map((b, i) => (
+              <div key={i} className="py-1.5 border-b border-slate-800/60 last:border-0">
+                <p className="text-xs text-white">{b.seat} <span className={`text-[9px] px-1.5 py-0.5 rounded ml-1 ${b.holder_type === 'human' ? 'bg-amber-950/50 text-amber-400' : 'bg-cyan-950/50 text-cyan-400'}`}>{b.holder_name}</span></p>
+                <p className="text-[10px] text-slate-500 truncate">{b.authority}</p>
+              </div>
+            ))}
+          </div>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3">
+            <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">Executive Committee ({data.executive_committee.length} officers)</p>
+            {data.executive_committee.map((e, i) => (
+              <div key={i} className="py-1.5 border-b border-slate-800/60 last:border-0">
+                <p className="text-xs text-white">{e.role} <span className="text-cyan-400 text-[10px]">· {e.holder_agent}</span></p>
+                <p className="text-[10px] text-slate-500 truncate">Target: {e.measurable_objective}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ENTERPRISE: Subsidiaries & Org Structure */}
+      <div>
+        <p className="text-[9px] font-semibold text-cyan-500 uppercase tracking-wider mb-2">Holding Structure (companies · org_units)</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {data.subsidiaries.map(c => (
+            <div key={c.id} className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3">
+              <p className="text-sm font-semibold text-white">{c.name}</p>
+              <p className="text-[10px] text-cyan-400 uppercase">{c.company_type}</p>
+              <p className="text-[10px] text-slate-500">{c.sector || '—'}</p>
+              <p className="text-[10px] text-slate-600 mt-1">{data.org_units.filter(u => u.company === c.name).length} departments</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ENTERPRISE: Live Activity — what the org is doing right now */}
+      <div>
+        <p className="text-[9px] font-semibold text-cyan-500 uppercase tracking-wider mb-2">Real-Time Enterprise Activity (agent_task_delegations)</p>
+        <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 max-h-48 overflow-y-auto">
+          {data.recent_activity.length === 0 ? <p className="text-xs text-slate-500">No enterprise activity yet</p> : data.recent_activity.map((a, i) => (
+            <div key={i} className="flex items-center justify-between py-1 border-b border-slate-800/60 last:border-0 text-xs">
+              <span className="text-slate-300 truncate"><span className="text-cyan-400">{a.from_agent}</span> → <span className="text-purple-400">{a.to_agent}</span>: {a.task_description}</span>
+              <span className={`ml-2 shrink-0 text-[10px] uppercase ${a.status === 'pending' ? 'text-amber-400' : a.status === 'in_progress' ? 'text-cyan-400' : 'text-emerald-400'}`}>{a.status}</span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 grid grid-cols-3 md:grid-cols-6 gap-2">
+          {data.department_activity.slice(0, 6).map(d => (
+            <div key={d.dept} className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1.5">
+              <p className="text-sm font-bold text-white">{d.total}</p>
+              <p className="text-[9px] text-slate-500 truncate">{d.dept}</p>
+              {d.pending > 0 && <p className="text-[9px] text-amber-400">{d.pending} active</p>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ENTERPRISE: Market & Competitor Intelligence */}
+      <div>
+        <p className="text-[9px] font-semibold text-cyan-500 uppercase tracking-wider mb-2">Market &amp; Competitor Intelligence (market_intelligence · competitor_intelligence)</p>
+        <div className="grid md:grid-cols-2 gap-3">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 max-h-64 overflow-y-auto">
+            <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Market Signals ({data.market_intelligence.length})</p>
+            {data.market_intelligence.length === 0 ? <p className="text-xs text-slate-500">No market signals captured yet</p> : data.market_intelligence.map((m, i) => (
+              <div key={i} className="py-1.5 border-b border-slate-800/60 last:border-0">
+                <p className="text-xs text-white">{m.headline} <span className="text-[9px] text-slate-500">[{m.signal_type}] conf {m.confidence}</span></p>
+                {m.relevance_to_founder_vision && <p className="text-[10px] text-emerald-400/70 truncate">↳ {m.relevance_to_founder_vision}</p>}
+                {m.source_url && <a href={m.source_url} target="_blank" rel="noreferrer" className="text-[9px] text-cyan-500 hover:underline">source</a>}
+              </div>
+            ))}
+          </div>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 max-h-64 overflow-y-auto">
+            <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Competitor Landscape ({data.competitor_intelligence.length})</p>
+            {data.competitor_intelligence.length === 0 ? <p className="text-xs text-slate-500">No competitor intelligence yet</p> : data.competitor_intelligence.map((c, i) => (
+              <div key={i} className="py-1.5 border-b border-slate-800/60 last:border-0">
+                <p className="text-xs text-white">{c.competitor_name} <span className="text-[9px] text-slate-500">conf {c.confidence}</span></p>
+                <p className="text-[10px] text-slate-400 truncate">{c.observation}</p>
+                {c.implication_for_us && <p className="text-[10px] text-amber-400/70 truncate">↳ us: {c.implication_for_us}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ENTERPRISE: Knowledge Growth */}
+      <div>
+        <p className="text-[9px] font-semibold text-cyan-500 uppercase tracking-wider mb-2">Enterprise Knowledge Network (fleet_memory)</p>
+        <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 flex items-center gap-4">
+          <div><p className="text-2xl font-bold text-white">{data.knowledge_total}</p><p className="text-[10px] text-slate-500 uppercase tracking-wider">Organizational memories</p></div>
+          <div className="flex-1"><Sparkline points={data.knowledge_curve.map(k => k.cumulative)} /><p className="text-[9px] text-slate-600 mt-0.5">cumulative knowledge growth · compounds every cycle</p></div>
         </div>
       </div>
 
