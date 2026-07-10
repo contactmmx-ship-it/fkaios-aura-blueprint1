@@ -26,6 +26,7 @@ import SettingsPage from '@/components/fkaios/SettingsPage';
 import LeadsCRM from '@/components/fkaios/LeadsCRM';
 import ResearchOS from '@/components/fkaios/ResearchOS';
 import ApprovalsPage from '@/components/fkaios/ApprovalsPage';
+import GovernanceDashboard from '@/components/fkaios/GovernanceDashboard';
 import ProjectReview from '@/components/fkaios/ProjectReview';
 import MyBrain from '@/components/fkaios/MyBrain';
 import ProductVideoGenerator from '@/components/fkaios/ProductVideoGenerator';
@@ -51,6 +52,7 @@ const fkaioNav = [
   { id: 'product-video', label: 'Product Video Gen', icon: Users },
   { id: 'leads-crm', label: 'Leads CRM', icon: Users },
   { id: 'approvals', label: 'Approvals', icon: ShieldCheck },
+  { id: 'governance', label: 'Governance', icon: Scale },
   { id: 'project-review', label: 'Project Review', icon: Users },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
@@ -106,6 +108,7 @@ const pageDescriptions: Record<string, string> = {
   'knowledge': 'Knowledge base management — upload, parse, chunk, and embed documents for AI retrieval.',
   'accounting': 'Financial management — transactions, bank statements, revenue snapshots, and reconciliation.',
   'approvals': 'Governance approval queue — review and approve/refuse AI actions, payments, and contracts.',
+  'governance': 'Founder Governance Dashboard — constitution health, governed decisions, agent trust, KPIs, executive intelligence, audit and violations. All live data.',
   'executive': 'Executive AI assistant — strategic milestones, founder memory, and business intelligence.',
   'invoices': 'Invoice generation and tracking — create, send, and manage payment collection.',
   'notifications': 'Real-time notifications for lead updates, AI task completions, and system alerts.',
@@ -153,6 +156,7 @@ export default function AppShell() {
     if (activePage === 'settings') return <SettingsPage />;
     if (activePage === 'leads-crm') return <LeadsCRM />;
     if (activePage === 'approvals') return <ApprovalsPage />;
+    if (activePage === 'governance') return <GovernanceDashboard />;
     if (activePage === 'project-review') return <ProjectReview />;
     if (activePage === 'my-brain') return <MyBrain />;
     if (activePage === 'product-video') return <ProductVideoGenerator />;
