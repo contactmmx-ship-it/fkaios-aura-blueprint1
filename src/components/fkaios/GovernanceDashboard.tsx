@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Scale, ShieldCheck, Brain, Activity, AlertTriangle, RefreshCw } from 'lucide-react';
 import ChairmanHero from './ChairmanHero';
+import WorkforcePanel, { WorkforceMember } from './WorkforcePanel';
 
 // Founder Governance Dashboard — every widget reads LIVE data from the
 // governance-dashboard edge function (service-role reads over the real
@@ -38,6 +39,8 @@ interface GovData {
   knowledge_total: number;
   department_activity: { dept: string; total: number; pending: number }[];
   recent_activity: { from_agent: string; to_agent: string; task_description: string; status: string; created_at: string }[];
+  workforce?: WorkforceMember[];
+  departments?: { code: string; name: string; company: string | null; automation_level: number | null; agent_count: number }[];
 }
 
 const trustColor: Record<string, string> = { constitutional: 'text-purple-400 bg-purple-950/40 border-purple-800', veteran: 'text-cyan-400 bg-cyan-950/40 border-cyan-800', trusted: 'text-emerald-400 bg-emerald-950/40 border-emerald-800', probation: 'text-amber-400 bg-amber-950/40 border-amber-800' };
@@ -292,9 +295,18 @@ export default function GovernanceDashboard() {
         ) : <p className="mt-3 text-xs text-slate-500">No executive cycles yet</p>}
       </div>
 
+      {/* SECTION 3.5: Living AI Workforce — each employee as an expandable executive */}
+      <div>
+        <p className="text-[9px] font-semibold text-emerald-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          AI Workforce — Living Executives (ai_agents · agent_intelligence_profiles · agent_workday)
+        </p>
+        <WorkforcePanel workforce={data.workforce ?? []} />
+      </div>
+
       {/* SECTION 4: Agent Intelligence */}
       <div>
-        <p className="text-[9px] font-semibold text-purple-500 uppercase tracking-wider mb-2">Agent Intelligence (agent_intelligence_profiles · Law 13: autonomy is earned)</p>
+        <p className="text-[9px] font-semibold text-purple-500 uppercase tracking-wider mb-2">Agent Governance Grid — compact trust &amp; autonomy ledger (agent_intelligence_profiles · Law 13: autonomy is earned)</p>
         <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 max-h-64 overflow-y-auto">
           <table className="w-full text-xs">
             <thead><tr className="text-[10px] text-slate-500 uppercase tracking-wider text-left"><th className="py-1">Agent</th><th>Trust Level</th><th>Autonomy</th><th>Governance Score</th><th>Reliability</th><th>Learning Progress</th><th>Collaboration</th></tr></thead>

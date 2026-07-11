@@ -161,15 +161,8 @@ export default function Dashboard() {
   }
   useEffect(() => { loadExecCommandCenter(); }, []);
 
-  // Real CEO Daily Briefing — direct query, same pattern as the rest of this
-  // page's real-data queries. Shows the actual latest briefing, honestly,
-  // including when it reports a bad day rather than inventing a good one.
-  interface CeoBriefing { work_date: string; summary: string; blockers: string | null; company_kpi_snapshot: { leads_today?: number; agents_total?: number; agents_reporting?: number } | null; }
-  const [ceoBriefing, setCeoBriefing] = useState<CeoBriefing | null>(null);
-  useEffect(() => {
-    supabase.from('ceo_daily_briefing').select('work_date, summary, blockers, company_kpi_snapshot').order('work_date', { ascending: false }).limit(1).maybeSingle()
-      .then(({ data }) => setCeoBriefing(data as CeoBriefing | null));
-  }, []);
+  // CEO Daily Briefing moved to the Chairman's Command Center (de-duplicated).
+
 
   const healthColor = (score: number) => (score >= 70 ? '#10b981' : score >= 40 ? '#f59e0b' : '#ef4444');
   const currentYearMilestones = (ecc?.milestone_tracker || []).filter((m) => m.year === new Date().getFullYear());
@@ -319,25 +312,9 @@ export default function Dashboard() {
         </div>
       )}
 
-      {ceoBriefing && (
-        <div className="bg-slate-900 rounded-xl border border-slate-800 p-5">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold text-white">CEO Daily Briefing — {ceoBriefing.work_date}</h3>
-            {ceoBriefing.company_kpi_snapshot && (
-              <span className="text-[10px] text-slate-500">
-                {ceoBriefing.company_kpi_snapshot.agents_reporting ?? '—'}/{ceoBriefing.company_kpi_snapshot.agents_total ?? '—'} agents reported · {ceoBriefing.company_kpi_snapshot.leads_today ?? 0} leads today
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-slate-300 leading-relaxed">{ceoBriefing.summary}</p>
-          {ceoBriefing.blockers && (
-            <div className="mt-3 pt-3 border-t border-slate-800">
-              <p className="text-[10px] text-amber-500 uppercase tracking-wider font-semibold mb-1">Blockers</p>
-              <p className="text-xs text-slate-400 leading-relaxed">{ceoBriefing.blockers}</p>
-            </div>
-          )}
-        </div>
-      )}
+      {/* CEO Daily Briefing intentionally lives in the Chairman's Command Center
+          (strategic/enterprise intelligence), not here. This Dashboard is the
+          operational-execution surface — no duplicated strategic widgets. */}
 
       {!eccLoading && ecc && (
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
