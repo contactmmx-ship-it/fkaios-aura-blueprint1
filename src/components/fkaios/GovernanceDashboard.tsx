@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Scale, ShieldCheck, Brain, Activity, AlertTriangle, RefreshCw } from 'lucide-react';
+import ChairmanHero from './ChairmanHero';
 
 // Founder Governance Dashboard — every widget reads LIVE data from the
 // governance-dashboard edge function (service-role reads over the real
@@ -114,6 +115,10 @@ export default function GovernanceDashboard() {
           <button onClick={load} className="flex items-center gap-1 text-cyan-400 hover:text-cyan-300"><RefreshCw className="w-3 h-3" />Refresh</button>
         </div>
       </div>
+
+      {/* LIVING COMMAND CENTER HERO — Enterprise Pulse, Health, Mission 2030,
+          AI Workforce, Capital, CEO Briefing, Organization Map (all live). */}
+      <ChairmanHero data={data} />
 
       {/* ENTERPRISE: Board & Executive Committee */}
       <div>

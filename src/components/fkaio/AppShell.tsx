@@ -52,7 +52,7 @@ const fkaioNav = [
   { id: 'product-video', label: 'Product Video Gen', icon: Users },
   { id: 'leads-crm', label: 'Leads CRM', icon: Users },
   { id: 'approvals', label: 'Approvals', icon: ShieldCheck },
-  { id: 'governance', label: 'Command Center', icon: Scale },
+  { id: 'governance', label: "Chairman's Command Center", icon: Scale },
   { id: 'project-review', label: 'Project Review', icon: Users },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
@@ -117,7 +117,10 @@ const pageDescriptions: Record<string, string> = {
 };
 
 export default function AppShell() {
-  const [activePage, setActivePage] = useState('founder-avatar');
+  // Land directly in the Chairman's Command Center on login — the Founder
+  // enters the enterprise headquarters immediately (Founder Avatar remains
+  // one click away in the nav).
+  const [activePage, setActivePage] = useState('governance');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userEmail, setUserEmail] = useState('');
   const [authChecked, setAuthChecked] = useState(false);
