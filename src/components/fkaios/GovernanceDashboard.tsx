@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { Scale, ShieldCheck, Brain, Activity, AlertTriangle, RefreshCw } from 'lucide-react';
 import ChairmanHero from './ChairmanHero';
 import WorkforcePanel, { WorkforceMember } from './WorkforcePanel';
+import FounderStory from './FounderStory';
 
 // Founder Governance Dashboard — every widget reads LIVE data from the
 // governance-dashboard edge function (service-role reads over the real
@@ -91,6 +92,9 @@ export default function GovernanceDashboard() {
 
   // Auto-refresh every 30s — live dashboard, no manual refresh required.
   useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [load]);
+  // Progressive disclosure: Level 1 (Founder Story) shows on load; the full
+  // cockpit is opt-in so the Founder is never overwhelmed.
+  const [showDetail, setShowDetail] = useState(false);
 
   if (loading) return <div className="p-6 text-sm text-slate-400">Loading live governance data…</div>;
   if (error) return <div className="m-6 bg-red-950/40 border border-red-900 rounded-xl px-4 py-3 text-xs text-red-300">Governance dashboard error: {error}</div>;
@@ -119,6 +123,12 @@ export default function GovernanceDashboard() {
         </div>
       </div>
 
+      {/* LEVEL 1 — Founder Story: plain-language "what's happening", live
+          activity stream, collaboration, and what needs you. Full cockpit is
+          opt-in below (progressive disclosure — nothing removed). */}
+      <FounderStory data={data} expanded={showDetail} onToggle={() => setShowDetail(v => !v)} />
+
+      {showDetail && (<>
       {/* LIVING COMMAND CENTER HERO — Enterprise Pulse, Health, Mission 2030,
           AI Workforce, Capital, CEO Briefing, Organization Map (all live). */}
       <ChairmanHero data={data} />
@@ -402,6 +412,7 @@ export default function GovernanceDashboard() {
           </div>
         </div>
       </div>
+      </>)}
     </div>
   );
 }
