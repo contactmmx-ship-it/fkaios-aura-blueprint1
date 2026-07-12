@@ -15,7 +15,11 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-const SHARED_SECRET = "kjhgfdsa"; // TODO(P1.5): move to env + rotate
+// SECURITY (P1.5 remediated): the secret is NO LONGER hardcoded. It is read from
+// the HEARTBEAT_SECRET env var, so rotating it is now a one-step dashboard change
+// (set the env var + update the cron command text) with no code deploy required.
+// Fails closed: if the env var is unset, every request is rejected.
+const SHARED_SECRET = Deno.env.get("HEARTBEAT_SECRET") ?? "";
 const supabase = createClient(supabaseUrl, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
 const j = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } });
 
@@ -46,7 +50,7 @@ const CYCLE_TOOL = {
 Deno.serve(async (req: Request) => {
   const started = Date.now();
   const url = new URL(req.url);
-  if (url.searchParams.get("secret") !== SHARED_SECRET) return j({ error: "unauthorized" }, 401);
+  if (!SHARED_SECRET || url.searchParams.get("secret") !== SHARED_SECRET) return j({ error: "unauthorized" }, 401);
 
   try {
     const [milestones, leadsByStage, pendingApprovals, projects, trust, kpis, delegations, duePredictions, memory, board, execCommittee, orgUnits] = await Promise.all([

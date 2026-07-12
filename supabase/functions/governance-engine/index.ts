@@ -16,7 +16,11 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-const SHARED_SECRET = "kjhgfdsa"; // TODO(P1.5): move to env + rotate
+// SECURITY (P1.5 remediated): the secret is NO LONGER hardcoded. It is read from
+// the HEARTBEAT_SECRET env var, so rotating it is now a one-step dashboard change
+// (set the env var + update the cron command text) with no code deploy required.
+// Fails closed: if the env var is unset, every request is rejected.
+const SHARED_SECRET = Deno.env.get("HEARTBEAT_SECRET") ?? "";
 const supabase = createClient(supabaseUrl, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
 
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization" };
@@ -59,7 +63,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 200, headers: cors });
   if (req.method !== "POST") return j({ error: "Method not allowed" }, 405);
   const url = new URL(req.url);
-  if (url.searchParams.get("secret") !== SHARED_SECRET) return j({ error: "unauthorized" }, 401);
+  if (!SHARED_SECRET || url.searchParams.get("secret") !== SHARED_SECRET) return j({ error: "unauthorized" }, 401);
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return j({ error: "Invalid JSON" }, 400); }
 

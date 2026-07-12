@@ -70,8 +70,17 @@ const HTML = `<!DOCTYPE html>
 </div>
 
 <script>
-  const SECRET = 'kjhgfdsa';
-  const ENDPOINT = 'https://nrlsqshkjuuwiovthrnb.supabase.co/functions/v1/orchestrator-brain?secret=' + SECRET;
+  // SECURITY (P1.5): the shared secret was previously HARDCODED here and shipped
+  // to every browser that loaded this page (verify_jwt=false => publicly readable).
+  // It authorized the constitutional reviewer and the executive cognition loop.
+  // It is no longer embedded. The operator supplies it at runtime; it is kept only
+  // in this browser tab (sessionStorage) and never persisted server-side.
+  const SECRET = sessionStorage.getItem('fkaios_secret') || (function () {
+    const v = window.prompt('Enter the FKAIOS operator secret to use this console:') || '';
+    if (v) sessionStorage.setItem('fkaios_secret', v);
+    return v;
+  })();
+  const ENDPOINT = 'https://nrlsqshkjuuwiovthrnb.supabase.co/functions/v1/orchestrator-brain?secret=' + encodeURIComponent(SECRET);
 
   document.querySelectorAll('.ex').forEach(el => {
     el.addEventListener('click', () => { document.getElementById('input').value = el.textContent; });
