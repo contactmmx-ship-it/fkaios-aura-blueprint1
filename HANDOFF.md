@@ -77,7 +77,7 @@ The blueprint's own §23 names the top risk: *the planning loop replacing the bu
 ## 7. ▶️ NEXT ACTIONS (free, autonomous — just continue)
 1. ✅ DONE 2026-07-12 — all 4 drifted functions recovered into git (drift now 0; see `supabase/DRIFT.md`). `market-intelligence` v2 removed the last hardcoded secret fallback and fails closed (verified 401/503 paths).
 2. ✅ DONE 2026-07-12 — 3 debug functions NEUTERED (410 Gone + verify_jwt TRUE; no MCP tool can delete a function — Founder deletes the inert slugs from dashboard). `verify-voice` also JWT-gated (was an anonymous ElevenLabs credit burner). All verified 401 via pg_net.
-3. **P2 — Lineage:** every number on TODAY clicks through to its source row (Palantir principle)
+3. ✅ DONE 2026-07-12 — **P2 Lineage** shipped (`LineagePanel.tsx`, commit `550131f`, Vercel `dpl_5TXTyTUgMEuY1QWVS2uiSnYz9wHv` READY). Every number on TODAY (revenue hero, ops 24h, producing/total agents, discovery, qualification, failures, each GO/NO-GO dept chip, approvals callout) opens a drawer showing source table + derivation + the ACTUAL rows + a reconciliation footer. Derived from the payload already on the page — zero new queries. **Truth fix found while wiring: the narrative's revenue figure was a HARDCODED `₹0` literal, not read from the payload. Now bound to `revenue.received_inr`.** Sweep the rest of the app for the same class of bug.
 4. **P2 — Ontology navigation:** the object graph already exists in the schema (companies→departments→agents→tasks→leads); the UI flattens it. Expose it as drillable objects+links.
 5. **P2 — Proposal/Invoice/Payment screens** (only meaningful once real leads exist)
 
