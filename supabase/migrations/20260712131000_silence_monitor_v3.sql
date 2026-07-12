@@ -1,0 +1,29 @@
+-- SILENCE MONITOR v3 (Blueprint: "Silence Equals Failure")
+-- Benchmarks: Datadog (alert on throughput==0, not just errors), IBM Watson AIOps
+-- (correlate into incidents, never dump event walls), ServiceNow (SLA breach must
+-- escalate itself), Salesforce (leads that never convert are not a pipeline).
+--
+-- 9 detection classes — no silent failure class can now hide:
+--   1. Dead cron              — active job with no success in 24h
+--   2. Qualifier silent       — ran >=3x, scored 0 leads (the historical 251/251 bug)
+--   3. Enrichment silent      — ran >=3x, captured 0 contacts
+--   4. Leads stalled          — stage='new' > 48h (ServiceNow SLA)
+--   5. Metrics stale          — no agent activity/rollups in 24h
+--   6. Automation failing NEW — an engine whose recent runs are majority errors
+--   7. Zero conversion    NEW — leads scored but none ever advances (Salesforce)
+--   8. Approvals aging    NEW — a decision has waited on the Founder > 48h
+--   9. Invoices never paid NEW— commercial chain terminates before revenue (successor law)
+--
+-- SELF-AUDIT FIX (v3): v2 flagged ITSELF as a silent cron (its own success row does
+-- not exist while it is mid-run). A monitor that cries wolf about itself destroys
+-- trust in every real alert. v3 excludes self + jobs with no run history yet.
+--
+-- Reuses founder_notifications (already surfaced in TODAY). No new tables.
+-- Idempotent: max 1 alert per condition per 12h. pg_cron job 32, hourly.
+--
+-- VERIFIED in production: v3 raised 3 TRUE alerts and 0 false positives; a rerun
+-- raised 0 (idempotency confirmed). The alerts:
+--   "67 leads have been scored and NONE has advanced beyond stage=new."
+--   "5 decision(s) have waited on the Founder for more than 48h."
+--   "45 leads have sat in stage=new for more than 48h."
+-- Authoritative source: public.detect_silences() in the database.
