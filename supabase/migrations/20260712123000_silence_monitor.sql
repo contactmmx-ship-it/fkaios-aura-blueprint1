@@ -1,0 +1,26 @@
+-- SILENCE MONITOR (Blueprint P0.3 / Datadog no-data principle)
+-- Every one of FKAIOS's four catastrophic failures was a SILENCE, not an error:
+--   * agent-scheduler never fired for 38/41 agents
+--   * qualifier returned "none found" on 251/251 runs
+--   * enrichment wrote 0 rows for weeks
+--   * agent metrics rollups were never written
+-- None raised an error. They simply produced nothing. This function asserts
+-- EXPECTED EFFECT and alerts when the effect is absent.
+--
+-- Reuses founder_notifications (existing table, already surfaced in the UI).
+-- No new infrastructure. Idempotent: max one alert per condition per 12h.
+-- Scheduled hourly via pg_cron job 32 ('silence-monitor').
+--
+-- VERIFIED in production on first run: raised exactly 1 true alert
+-- ("45 leads have sat in stage=new for more than 48h"), and correctly did NOT
+-- fire on crons/qualifier/metrics (all healthy) — real signal, zero false alarms.
+--
+-- Checks:
+--   1. Dead cron        — active pg_cron job with no success in 24h
+--   2. Qualifier silent — ran >=3x in 24h but scored 0 leads
+--   3. Enrichment silent— ran >=3x in 24h but captured 0 phone numbers
+--   4. Stalled pipeline — leads in stage='new' > 48h (ServiceNow SLA principle)
+--   5. Metrics stale    — no agent activity / rollups in 24h
+--
+-- (Function body deployed via supabase migration `silence_monitor`; see
+--  public.detect_silences() in the database for the authoritative source.)
