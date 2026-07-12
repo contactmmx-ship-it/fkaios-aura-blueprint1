@@ -1,6 +1,7 @@
 'use client';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Radio, ArrowRight, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Clock, Sparkles, Activity, IndianRupee, ShieldAlert } from 'lucide-react';
+import LineagePanel, { LineageSpec, LineageRow } from './LineagePanel';
 
 // LEVEL 1 — The Founder Story. Replaces "cockpit syndrome" with a plain-language
 // account of what the enterprise is doing right now, a live "watch it think"
@@ -18,7 +19,7 @@ interface StoryData {
   revenue?: Revenue;
   department_status?: DeptStatus[];
   alerts?: SilenceAlert[];
-  workforce?: { is_active: boolean; status: string; total_tasks_completed: number | null; tasks_completed: number; name: string; success_rate: number | null }[];
+  workforce?: { is_active: boolean; status: string; total_tasks_completed: number | null; tasks_completed: number; name: string; success_rate: number | null; department?: string | null }[];
   activity_stream?: StreamEvent[];
   collaboration?: Collab[];
   approval_queue?: { action_type: string; risk_level: string; amount_inr: number | null; reason: string }[];
@@ -38,6 +39,18 @@ function greeting() { const h = new Date().getHours(); return h < 12 ? 'Good mor
 
 const statusTone: Record<string, string> = { completed: 'text-emerald-400', success: 'text-emerald-400', failed: 'text-red-400', error: 'text-red-400', dispatched: 'text-slate-400', running: 'text-cyan-400' };
 
+// Hoisted (never created during render): a number that carries its own lineage.
+// Clicking it opens the source rows that produced it — Palantir's rule that a
+// figure on a screen is a claim until you can walk it back to the row.
+function NumBtn({ value, tone, onOpen }: { value: string | number; tone?: string; onOpen: () => void }) {
+  return (
+    <button onClick={onOpen} title="Click to see the source rows behind this number"
+      className={`font-bold ${tone ?? 'text-white'} underline decoration-dotted decoration-slate-500 underline-offset-4 hover:decoration-cyan-400 cursor-pointer`}>
+      {value}
+    </button>
+  );
+}
+
 export default function FounderStory({ data, expanded, onToggle }: { data: StoryData; expanded: boolean; onToggle: () => void }) {
   const wf = data.workforce ?? [];
   const stream = data.activity_stream ?? [];
@@ -56,16 +69,65 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
     const last24 = stream.filter(e => new Date(e.ts).getTime() > dayAgo);
     const producing = wf.filter(a => (a.total_tasks_completed ?? 0) > 0 || a.tasks_completed > 0);
     const active = wf.filter(a => a.is_active && a.status === 'active');
-    const countAction = (needle: string) => last24.filter(e => (e.action || '').toLowerCase().includes(needle)).length;
-    const failures = last24.filter(e => e.status === 'failed' || e.status === 'error').length;
+    const matchAction = (needle: string) => last24.filter(e => (e.action || '').toLowerCase().includes(needle));
+    const discoveredEvents = [...matchAction('hunt'), ...matchAction('discover')];
+    const qualifiedEvents = matchAction('qualify');
+    const failureEvents = last24.filter(e => e.status === 'failed' || e.status === 'error');
     const topWorker = [...wf].sort((a, b) => (b.total_tasks_completed ?? 0) - (a.total_tasks_completed ?? 0))[0];
-    const pendingApprovals = approvals.length + collab.filter(c => c.requires_founder_approval && c.status !== 'completed').length;
+    const approvalRows = [
+      ...approvals.map(a => ({ primary: a.action_type, secondary: a.reason, status: a.risk_level, meta: a.amount_inr != null ? `₹${Number(a.amount_inr).toLocaleString('en-IN')}` : undefined } as LineageRow)),
+      ...collab.filter(c => c.requires_founder_approval && c.status !== 'completed').map(c => ({ primary: `${c.from_agent} → ${c.to_agent}`, secondary: c.task, status: c.status, ts: c.created_at } as LineageRow)),
+    ];
     return {
       ops24: last24.length, producing: producing.length, total: wf.length, active: active.length,
-      discovered: countAction('hunt') + countAction('discover'), qualified: countAction('qualify'),
-      failures, topWorker, pendingApprovals,
+      discovered: discoveredEvents.length, qualified: qualifiedEvents.length,
+      failures: failureEvents.length, topWorker, pendingApprovals: approvalRows.length,
+      last24, producingList: producing, discoveredEvents, qualifiedEvents, failureEvents, approvalRows,
     };
   }, [wf, stream, collab, approvals]);
+
+  // ── P2 LINEAGE (Palantir principle): every number clicks through to its
+  // source rows, built from the SAME live payload — zero extra queries, zero
+  // fabrication. A generic panel shows source, derivation, rows, reconciliation.
+  const [lineage, setLineage] = useState<LineageSpec | null>(null);
+  const evRow = (e: StreamEvent): LineageRow => ({ primary: e.actor, secondary: `${e.action}${e.outcome ? ` — ${e.outcome}` : ''}`, status: e.status, ts: e.ts });
+  const streamCaveat = 'Computed over the live activity_stream payload (agent_dispatch_log joined to agent names + execution_log), capped at the 60 most recent events by the server, filtered to the last 24 hours client-side.';
+
+  // Revenue is THE number. Its lineage is the most important one in the system:
+  // it must be impossible to believe ₹0 is a rendering bug rather than reality.
+  const revenueLineage = (): LineageSpec => ({
+    title: 'Revenue received (all time)',
+    value: inr(rev.received_inr),
+    source: 'company_invoices (via governance-dashboard → revenue)',
+    derivation: 'SUM(amount_received_inr) across every row in company_invoices — no date filter, all time. Invoiced total is SUM(total_inr). An invoice counts as paid when amount_received_inr > 0.',
+    reconciles: false,
+    rows: rev.invoices_total === 0 ? [] : [
+      { primary: 'Invoices on record', secondary: `${rev.invoices_total} total · ${rev.paid_invoices} with money received`, meta: `Invoiced ${inr(rev.invoiced_inr)} · Received ${inr(rev.received_inr)}` },
+    ],
+    emptyTruth: 'company_invoices is EMPTY. Zero invoices have ever been created, so zero rupees have ever been received. This is not a display error and not a loading state — the enterprise has never billed a customer. ₹0 is the true and current state.',
+  });
+
+  // A NO-GO chip is an accusation against a department. It must carry its evidence:
+  // who is staffed there, and what (if anything) they actually shipped in 24h.
+  const deptLineage = (d: DeptStatus): LineageSpec => {
+    const roster = wf.filter(a => (a.department ?? '') === d.code);
+    return {
+      title: `${d.name} — reporting ${d.status.replace('_', '-')}`,
+      value: `${d.output_24h} outcomes / 24h`,
+      source: 'departments × ai_agents × agent_dispatch_log (via governance-dashboard → department_status)',
+      derivation: `Staffed = agents whose department = '${d.code}'. Output = agent_dispatch_log rows from those agents in the last 24h with status 'completed' or 'success'. A staffed department with 0 outcomes reports NO-GO — silence is never consent (Mission Control rule). ${d.reason}.`,
+      reconciles: false,
+      rows: roster.length === 0
+        ? []
+        : roster.map(a => ({
+            primary: a.name,
+            secondary: a.status === 'active' ? 'on duty' : `status: ${a.status}`,
+            status: (a.total_tasks_completed ?? 0) > 0 ? 'completed' : 'pending',
+            meta: `${a.total_tasks_completed ?? 0} lifetime tasks · ${a.tasks_completed} today`,
+          } as LineageRow)),
+      emptyTruth: `No agents are assigned to ${d.name}. It is an org-chart entry with nobody in it — the console reports UNSTAFFED rather than pretending coverage exists.`,
+    };
+  };
 
   const recommendation = cycle?.founder_briefing
     || (Array.isArray(cycle?.opportunities) && cycle!.opportunities[0]
@@ -74,6 +136,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
 
   return (
     <div className="space-y-4">
+      {lineage && <LineagePanel spec={lineage} onClose={() => setLineage(null)} />}
       {/* ─── THE STORY ─────────────────────────────────────────────── */}
       <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-900 to-blue-950/30 px-6 py-5">
         <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ background: 'radial-gradient(700px 160px at 12% -10%, rgba(59,130,246,0.25), transparent)' }} />
@@ -82,21 +145,63 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
             <span className="relative flex h-2.5 w-2.5"><span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" /><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" /></span>
             <h2 className="text-lg font-bold text-white">{greeting()}, Chairman.</h2>
             <span className="text-[11px] text-slate-500">Here is your enterprise right now</span>
+            <span className="ml-auto text-[10px] text-slate-600 border border-slate-800 rounded-full px-2 py-0.5">every underlined number opens its source rows</span>
           </div>
 
           <div className="space-y-2 text-sm text-slate-300 leading-relaxed max-w-3xl">
             <p>
-              In the last 24 hours your AI workforce ran <b className="text-white">{s.ops24}</b> operations.{' '}
-              <b className={s.producing > 0 ? 'text-emerald-300' : 'text-amber-300'}>{s.producing}</b> of <b className="text-white">{s.total}</b> employees produced real work
+              In the last 24 hours your AI workforce ran{' '}
+              <NumBtn value={s.ops24} onOpen={() => setLineage({
+                title: 'Operations in the last 24 hours', value: String(s.ops24),
+                source: 'agent_dispatch_log + execution_log (via governance-dashboard → activity_stream)',
+                derivation: streamCaveat,
+                rows: s.last24.map(evRow),
+                emptyTruth: 'No agent dispatches or engine executions were recorded in the last 24h. The workforce did nothing measurable.',
+              })} /> operations.{' '}
+              <NumBtn value={s.producing} tone={s.producing > 0 ? 'text-emerald-300' : 'text-amber-300'} onOpen={() => setLineage({
+                title: 'Employees that produced real work', value: String(s.producing),
+                source: 'ai_agents.total_tasks_completed + agent_workday.tasks_completed (via governance-dashboard → workforce)',
+                derivation: 'An agent counts as producing when total_tasks_completed > 0 OR today\'s agent_workday.tasks_completed > 0. Lifetime output, not a 24h window.',
+                rows: s.producingList.map(a => ({ primary: a.name, secondary: a.department ? `dept: ${a.department}` : undefined, status: a.status, meta: `${a.total_tasks_completed ?? 0} lifetime tasks${a.success_rate != null ? ` · ${Math.round(Number(a.success_rate))}% success` : ''}` } as LineageRow)),
+                emptyTruth: 'Not one agent has ever completed a task. The workforce is nameplates only.',
+              })} /> of{' '}
+              <NumBtn value={s.total} onOpen={() => setLineage({
+                title: 'Total AI employees on the roster', value: String(s.total),
+                source: 'ai_agents (via governance-dashboard → workforce)',
+                derivation: 'Every row in ai_agents returned by the governance payload — active and idle alike. Being on the roster is not evidence of output; see the producing count.',
+                rows: [...wf].sort((a, b) => (b.total_tasks_completed ?? 0) - (a.total_tasks_completed ?? 0)).map(a => ({ primary: a.name, secondary: a.department ? `dept: ${a.department}` : undefined, status: a.status, meta: `${a.total_tasks_completed ?? 0} lifetime tasks` } as LineageRow)),
+              })} /> employees produced real work
               {s.producing < s.total && <span className="text-slate-400"> — the other {s.total - s.producing} were scheduled but idle</span>}.
               {s.topWorker && (s.topWorker.total_tasks_completed ?? 0) > 0 && <> Your hardest worker is <b className="text-white">{s.topWorker.name}</b> ({s.topWorker.total_tasks_completed} tasks{s.topWorker.success_rate != null ? `, ${Math.round(Number(s.topWorker.success_rate))}% success` : ''}).</>}
             </p>
             <p>
-              Commercially, the enterprise {s.discovered > 0 ? <>discovered/hunted <b className="text-white">{s.discovered}</b> lead batches</> : <>ran no new lead discovery</>}
-              {' '}and the qualifier {s.qualified > 0 ? <>ran <b className="text-white">{s.qualified}</b> scoring passes</> : <>was idle</>}.
-              {' '}Revenue recorded so far: <b className="text-white">₹0</b> — no invoices or payments exist in production yet.
+              Commercially, the enterprise {s.discovered > 0 ? <>discovered/hunted{' '}
+                <NumBtn value={s.discovered} onOpen={() => setLineage({
+                  title: 'Lead discovery / hunt operations (24h)', value: String(s.discovered),
+                  source: 'agent_dispatch_log + execution_log (activity_stream)',
+                  derivation: `Events in the last 24h whose action contains "hunt" or "discover". ${streamCaveat}`,
+                  rows: s.discoveredEvents.map(evRow),
+                })} /> lead batches</> : <>ran no new lead discovery</>}
+              {' '}and the qualifier {s.qualified > 0 ? <>ran{' '}
+                <NumBtn value={s.qualified} onOpen={() => setLineage({
+                  title: 'Lead qualification passes (24h)', value: String(s.qualified),
+                  source: 'agent_dispatch_log + execution_log (activity_stream)',
+                  derivation: `Events in the last 24h whose action contains "qualify". ${streamCaveat} NOTE: a qualification pass is not a qualified lead — 0 leads have ever scored ≥40 and advanced past stage='new'.`,
+                  rows: s.qualifiedEvents.map(evRow),
+                })} /> scoring passes</> : <>was idle</>}.
+              {' '}Revenue recorded so far:{' '}
+              <NumBtn value={inr(rev.received_inr)} onOpen={() => setLineage(revenueLineage())} /> — {rev.invoices_total === 0 ? 'no invoices or payments exist in production yet.' : `${rev.paid_invoices} of ${rev.invoices_total} invoices paid.`}
             </p>
-            {s.failures > 0 && <p className="text-amber-300/90"><AlertTriangle className="w-3.5 h-3.5 inline mr-1" />{s.failures} operations failed in the last 24h — worth a look in the activity stream below.</p>}
+            {s.failures > 0 && (
+              <p className="text-amber-300/90"><AlertTriangle className="w-3.5 h-3.5 inline mr-1" />
+                <NumBtn value={s.failures} tone="text-amber-300" onOpen={() => setLineage({
+                  title: 'Failed operations (24h)', value: String(s.failures),
+                  source: 'agent_dispatch_log + execution_log (activity_stream)',
+                  derivation: `Events in the last 24h with status 'failed' or 'error'. ${streamCaveat}`,
+                  rows: s.failureEvents.map(evRow),
+                })} /> operations failed in the last 24h — worth a look in the activity stream below.
+              </p>
+            )}
             {recommendation && <p className="text-slate-300"><Sparkles className="w-3.5 h-3.5 inline mr-1 text-purple-400" /><span className="text-purple-300">CEO AI recommends: </span>{String(recommendation).slice(0, 220)}</p>}
           </div>
 
@@ -106,9 +211,10 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
               <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1">
                 <IndianRupee className="w-3 h-3" /> Revenue received
               </p>
-              <p className={`text-5xl font-bold tabular-nums leading-none ${rev.received_inr > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+              <button onClick={() => setLineage(revenueLineage())} title="Click to see exactly why this number is what it is"
+                className={`text-5xl font-bold tabular-nums leading-none block text-left underline decoration-dotted decoration-slate-700 underline-offset-8 hover:decoration-cyan-500 cursor-pointer ${rev.received_inr > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
                 {inr(rev.received_inr)}
-              </p>
+              </button>
               <p className="text-[11px] text-slate-500 mt-1.5">
                 {rev.invoices_total === 0
                   ? 'No invoices exist yet — the enterprise has never billed a customer.'
@@ -127,20 +233,22 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
               <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">Department consoles — reporting now</p>
               <div className="flex flex-wrap gap-1.5">
                 {noGo.map(d => (
-                  <span key={d.code} title={d.reason}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-red-950/40 border border-red-900 px-2.5 py-1">
+                  <button key={d.code} title={`${d.reason} — click for evidence`}
+                    onClick={() => setLineage(deptLineage(d))}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-red-950/40 border border-red-900 px-2.5 py-1 hover:border-red-600 cursor-pointer">
                     <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
                     <span className="text-[11px] font-semibold text-red-300">{d.name}</span>
                     <span className="text-[9px] text-red-400/70">NO-GO</span>
-                  </span>
+                  </button>
                 ))}
                 {going.map(d => (
-                  <span key={d.code} title={d.reason}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-950/30 border border-emerald-900/60 px-2.5 py-1">
+                  <button key={d.code} title={`${d.reason} — click for evidence`}
+                    onClick={() => setLineage(deptLineage(d))}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-950/30 border border-emerald-900/60 px-2.5 py-1 hover:border-emerald-600 cursor-pointer">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                     <span className="text-[11px] font-medium text-emerald-300">{d.name}</span>
                     <span className="text-[9px] text-emerald-500/70">GO · {d.output_24h}</span>
-                  </span>
+                  </button>
                 ))}
               </div>
               {noGo.length > 0 && (
@@ -169,10 +277,16 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
           {/* the one thing that matters: what needs you */}
           <div className="mt-4 flex flex-wrap items-center gap-3">
             {s.pendingApprovals > 0 ? (
-              <div className="flex items-center gap-2 rounded-lg bg-amber-950/40 border border-amber-800 px-3 py-1.5">
+              <button onClick={() => setLineage({
+                title: 'Decisions waiting on the Chairman',
+                value: String(s.pendingApprovals),
+                source: 'approvals (status=pending) + agent_task_delegations (requires_founder_approval)',
+                derivation: 'Every open item in the approval queue, plus every agent-to-agent delegation flagged requires_founder_approval that has not completed. These are the items the enterprise cannot proceed past without you.',
+                rows: s.approvalRows,
+              })} className="flex items-center gap-2 rounded-lg bg-amber-950/40 border border-amber-800 px-3 py-1.5 hover:border-amber-600 cursor-pointer">
                 <AlertTriangle className="w-4 h-4 text-amber-400" />
                 <span className="text-sm text-amber-200 font-medium">{s.pendingApprovals} {s.pendingApprovals === 1 ? 'decision needs' : 'decisions need'} your approval</span>
-              </div>
+              </button>
             ) : (
               <div className="flex items-center gap-2 rounded-lg bg-emerald-950/30 border border-emerald-900 px-3 py-1.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
