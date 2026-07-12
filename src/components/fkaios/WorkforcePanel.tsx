@@ -94,11 +94,16 @@ export default function WorkforcePanel({ workforce }: { workforce: WorkforceMemb
     return workforce.filter(m => !t || m.name.toLowerCase().includes(t) || (m.role || '').toLowerCase().includes(t) || (m.department || '').toLowerCase().includes(t) || (m.company || '').toLowerCase().includes(t));
   }, [workforce, q]);
 
+  // RANKED BY OUTPUT (Blueprint P1.4 / UiPath principle): real producers first,
+  // idle agents honestly sink to the bottom — never displayed as peers.
+  const output = (m: WorkforceMember) => (m.total_tasks_completed ?? 0) * 1000 + m.tasks_completed;
+  const ranked = useMemo(() => [...filtered].sort((a, b) => output(b) - output(a)), [filtered]);
+
   const byCompany = useMemo(() => {
     const g: Record<string, WorkforceMember[]> = {};
-    for (const m of filtered) (g[m.company || 'Group / Unassigned'] = g[m.company || 'Group / Unassigned'] || []).push(m);
+    for (const m of ranked) (g[m.company || 'Group / Unassigned'] = g[m.company || 'Group / Unassigned'] || []).push(m);
     return g;
-  }, [filtered]);
+  }, [ranked]);
 
   const activeCount = workforce.filter(m => m.is_active && m.status === 'active').length;
   const workingToday = workforce.filter(m => m.current_objective).length;
@@ -133,7 +138,7 @@ export default function WorkforcePanel({ workforce }: { workforce: WorkforceMemb
         ))
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          {filtered.map(m => <AgentCard key={m.name} m={m} />)}
+          {ranked.map(m => <AgentCard key={m.name} m={m} />)}
         </div>
       )}
     </div>

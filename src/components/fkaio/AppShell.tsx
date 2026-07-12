@@ -45,34 +45,65 @@ import { supabase } from '@/lib/supabase';
 // built and wired to real data — see AEOS_STATUS.md for the honest roadmap.
 // UPDATE (Founder Vision Audit Phase 3/6): Approvals is back — wired for
 // real this time to finance-engine + company_invoices + founder_notifications.
-const fkaioNav = [
-  { id: 'founder-avatar', label: 'Founder Avatar', icon: Radio },
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'my-brain', label: 'My Brain', icon: ShieldCheck },
-  { id: 'product-video', label: 'Product Video Gen', icon: Users },
-  { id: 'leads-crm', label: 'Leads CRM', icon: Users },
-  { id: 'approvals', label: 'Approvals', icon: ShieldCheck },
-  { id: 'governance', label: "Chairman's Command Center", icon: Scale },
-  { id: 'project-review', label: 'Project Review', icon: Users },
-  { id: 'settings', label: 'Settings', icon: Settings },
-];
+// ---- FIVE-DOOR INFORMATION ARCHITECTURE (World-Class OS Blueprint §11) ----
+// 23 flat items -> 5 doors. NOTHING deleted: every page keeps its id and
+// component; it is reparented into the door where it logically lives.
+// TODAY is a direct door (the landing). The other four are collapsible groups.
+type NavItem = { id: string; label: string; icon: React.ComponentType<{ className?: string }> };
+type NavDoor = { door: string; icon: React.ComponentType<{ className?: string }>; accent: string; items: NavItem[] };
 
-const brainNav = [
-  { id: 'brain-chat', label: 'AI Brain', icon: MessageSquare },
-  { id: 'agent-factory', label: 'Agent Factory', icon: Factory },
-  { id: 'knowledge-vault', label: 'Knowledge Vault', icon: Vault },
-  { id: 'decision-engine', label: 'Decision Engine', icon: Scale },
-  { id: 'business-creator', label: 'Business Creator', icon: Rocket },
-  { id: 'chief-of-staff', label: 'Chief of Staff', icon: UserCheck },
-  { id: 'self-learning', label: 'Self-Learning', icon: GraduationCap },
-  { id: 'aura-blueprint', label: 'AURA Blueprint', icon: Compass },
-  { id: 'voice-ai', label: 'Voice AI', icon: Phone },
-  { id: 'builder-ai', label: 'Builder AI', icon: Hammer },
-  { id: 'ai-company', label: 'AI Company', icon: Network },
-  { id: 'agent-workday', label: 'Agent Workday', icon: CalendarDays },
-  { id: 'companies', label: 'Companies', icon: Building2 },
-  { id: 'research', label: 'Research', icon: Search },
+const NAV_DOORS: NavDoor[] = [
+  {
+    door: 'TODAY', icon: Scale, accent: 'text-cyan-400',
+    items: [
+      { id: 'governance', label: 'Today — Command Center', icon: Scale },
+      { id: 'founder-avatar', label: 'Founder Avatar', icon: Radio },
+    ],
+  },
+  {
+    door: 'BUSINESS', icon: DollarSign, accent: 'text-emerald-400',
+    items: [
+      { id: 'leads-crm', label: 'Leads & Pipeline', icon: Users },
+      { id: 'approvals', label: 'Approvals', icon: ShieldCheck },
+      { id: 'dashboard', label: 'Operations Dashboard', icon: LayoutDashboard },
+      { id: 'companies', label: 'Companies', icon: Building2 },
+    ],
+  },
+  {
+    door: 'WORKFORCE', icon: Cpu, accent: 'text-blue-400',
+    items: [
+      { id: 'agent-workday', label: 'Agent Workday', icon: CalendarDays },
+      { id: 'agent-factory', label: 'Agent Factory', icon: Factory },
+      { id: 'chief-of-staff', label: 'Chief of Staff', icon: UserCheck },
+      { id: 'ai-company', label: 'AI Company', icon: Network },
+    ],
+  },
+  {
+    door: 'INTELLIGENCE', icon: Brain, accent: 'text-purple-400',
+    items: [
+      { id: 'my-brain', label: 'My Brain', icon: ShieldCheck },
+      { id: 'brain-chat', label: 'AI Brain Chat', icon: MessageSquare },
+      { id: 'knowledge-vault', label: 'Knowledge Vault', icon: Vault },
+      { id: 'research', label: 'Research', icon: Search },
+      { id: 'decision-engine', label: 'Decision Engine', icon: Scale },
+      { id: 'self-learning', label: 'Self-Learning', icon: GraduationCap },
+    ],
+  },
+  {
+    door: 'BUILD', icon: Hammer, accent: 'text-amber-400',
+    items: [
+      { id: 'builder-ai', label: 'Builder AI', icon: Hammer },
+      { id: 'business-creator', label: 'Business Creator', icon: Rocket },
+      { id: 'product-video', label: 'Product Video Gen', icon: Users },
+      { id: 'project-review', label: 'Project Review', icon: FileText },
+      { id: 'aura-blueprint', label: 'AURA Blueprint', icon: Compass },
+      { id: 'voice-ai', label: 'Voice AI', icon: Phone },
+      { id: 'settings', label: 'Settings', icon: Settings },
+    ],
+  },
 ];
+// Flat index for ⌘K and label lookups.
+const ALL_PAGES: NavItem[] = NAV_DOORS.flatMap(d => d.items);
 
 // ---- Placeholder pages for original FKAIO modules ----
 function PlaceholderPage({ title, description }: { title: string; description: string }) {
@@ -124,6 +155,28 @@ export default function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userEmail, setUserEmail] = useState('');
   const [authChecked, setAuthChecked] = useState(false);
+  // Five-door IA: doors collapse; the door containing the active page opens.
+  const [openDoors, setOpenDoors] = useState<Record<string, boolean>>({ TODAY: true });
+  // ⌘K command palette (Blueprint §11 / Bloomberg command-language principle).
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState('');
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(o => !o); setPaletteQuery(''); }
+      if (e.key === 'Escape') setPaletteOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const go = (id: string) => {
+    setActivePage(id);
+    setSidebarOpen(false);
+    setPaletteOpen(false);
+    const door = NAV_DOORS.find(d => d.items.some(i => i.id === id));
+    if (door) setOpenDoors(prev => ({ ...prev, [door.door]: true }));
+  };
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -179,11 +232,11 @@ export default function AppShell() {
       case 'companies': return <CompaniesAdmin />;
       case 'research': return <ResearchOS />;
     }
-    return <PlaceholderPage title={fkaioNav.find(n => n.id === activePage)?.label || 'Dashboard'} description={pageDescriptions[activePage] || 'Not yet built.'} />;
+    return <PlaceholderPage title={ALL_PAGES.find(n => n.id === activePage)?.label || 'Dashboard'} description={pageDescriptions[activePage] || 'Not yet built.'} />;
   };
 
-  const currentLabel = [...fkaioNav, ...brainNav].find(n => n.id === activePage)?.label || 'Dashboard';
-  const isBrainPage = brainNav.some(n => n.id === activePage);
+  const currentLabel = ALL_PAGES.find(n => n.id === activePage)?.label || 'Dashboard';
+  const isBrainPage = ['INTELLIGENCE','WORKFORCE'].includes(NAV_DOORS.find(d => d.items.some(i => i.id === activePage))?.door || '');
 
   return (
     <div className="flex h-screen bg-slate-950 text-white overflow-hidden">
@@ -206,44 +259,47 @@ export default function AppShell() {
         </div>
 
         <nav className="flex-1 px-3 overflow-y-auto">
-          <p className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider px-3 mb-2 mt-1">Operations</p>
-          <div className="space-y-0.5 mb-4">
-            {fkaioNav.map((item) => {
-              const Icon = item.icon;
-              const active = activePage === item.id;
-              return (
-                <button key={item.id} onClick={() => { setActivePage(item.id); setSidebarOpen(false); }}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-200 w-full text-left cursor-pointer ${
-                    active ? 'bg-blue-600/20 text-blue-400 border border-blue-600/30' : 'text-slate-400 hover:text-white hover:bg-slate-800/50 border border-transparent'
-                  }`}>
-                  <Icon className="w-4 h-4 shrink-0" />
-                  <span className="truncate">{item.label}</span>
-                  {active && <ChevronRight className="w-3 h-3 ml-auto shrink-0" />}
-                </button>
-              );
-            })}
-          </div>
+          {/* ⌘K entry point */}
+          <button onClick={() => { setPaletteOpen(true); setPaletteQuery(''); }}
+            className="w-full flex items-center gap-2 px-3 py-2 mb-3 mt-1 rounded-xl bg-slate-800/60 border border-slate-700 text-slate-400 hover:text-white text-xs cursor-pointer">
+            <Search className="w-3.5 h-3.5" />
+            <span className="flex-1 text-left">Jump anywhere…</span>
+            <kbd className="text-[9px] bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5">⌘K</kbd>
+          </button>
 
-          <p className="text-[9px] font-semibold text-purple-500 uppercase tracking-wider px-3 mb-2 flex items-center gap-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
-            AI Brain System
-          </p>
-          <div className="space-y-0.5 mb-4">
-            {brainNav.map((item) => {
-              const Icon = item.icon;
-              const active = activePage === item.id;
-              return (
-                <button key={item.id} onClick={() => { setActivePage(item.id); setSidebarOpen(false); }}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-200 w-full text-left cursor-pointer ${
-                    active ? 'bg-purple-600/20 text-purple-400 border border-purple-600/30' : 'text-slate-400 hover:text-white hover:bg-slate-800/50 border border-transparent'
-                  }`}>
-                  <Icon className="w-4 h-4 shrink-0" />
-                  <span className="truncate">{item.label}</span>
-                  {active && <ChevronRight className="w-3 h-3 ml-auto shrink-0" />}
+          {/* FIVE DOORS — 23 pages reparented, nothing deleted (Blueprint §11) */}
+          {NAV_DOORS.map((d) => {
+            const DoorIcon = d.icon;
+            const containsActive = d.items.some(i => i.id === activePage);
+            const open = openDoors[d.door] || containsActive;
+            return (
+              <div key={d.door} className="mb-1.5">
+                <button onClick={() => setOpenDoors(prev => ({ ...prev, [d.door]: !open }))}
+                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-left cursor-pointer transition-colors ${containsActive ? 'bg-slate-800/70' : 'hover:bg-slate-800/40'}`}>
+                  <DoorIcon className={`w-4 h-4 shrink-0 ${d.accent}`} />
+                  <span className={`text-[11px] font-bold tracking-wider ${containsActive ? 'text-white' : 'text-slate-300'}`}>{d.door}</span>
+                  <ChevronRight className={`w-3 h-3 ml-auto shrink-0 text-slate-500 transition-transform ${open ? 'rotate-90' : ''}`} />
                 </button>
-              );
-            })}
-          </div>
+                {open && (
+                  <div className="mt-0.5 ml-3 pl-3 border-l border-slate-800 space-y-0.5">
+                    {d.items.map((item) => {
+                      const Icon = item.icon;
+                      const active = activePage === item.id;
+                      return (
+                        <button key={item.id} onClick={() => go(item.id)}
+                          className={`flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all w-full text-left cursor-pointer ${
+                            active ? 'bg-blue-600/20 text-blue-300 border border-blue-600/30' : 'text-slate-400 hover:text-white hover:bg-slate-800/50 border border-transparent'
+                          }`}>
+                          <Icon className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
 
         <div className="p-4 border-t border-slate-800">
@@ -287,6 +343,45 @@ export default function AppShell() {
           {renderPage()}
         </main>
       </div>
+
+      {/* ⌘K COMMAND PALETTE — jump to any of the 23 pages by name */}
+      {paletteOpen && (
+        <div className="fixed inset-0 z-[60] flex items-start justify-center pt-[18vh] bg-black/60 backdrop-blur-sm" onClick={() => setPaletteOpen(false)}>
+          <div className="w-full max-w-lg mx-4 rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-800">
+              <Search className="w-4 h-4 text-slate-500" />
+              <input autoFocus value={paletteQuery} onChange={e => setPaletteQuery(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    const q = paletteQuery.trim().toLowerCase();
+                    const hit = ALL_PAGES.find(p => p.label.toLowerCase().includes(q)) || ALL_PAGES[0];
+                    if (hit) go(hit.id);
+                  }
+                }}
+                placeholder="Type a page name… (Enter to jump, Esc to close)"
+                className="flex-1 bg-transparent text-sm text-white placeholder-slate-600 outline-none" />
+              <kbd className="text-[9px] text-slate-500 bg-slate-800 border border-slate-700 rounded px-1.5 py-0.5">esc</kbd>
+            </div>
+            <div className="max-h-72 overflow-y-auto py-1">
+              {ALL_PAGES.filter(p => !paletteQuery.trim() || p.label.toLowerCase().includes(paletteQuery.trim().toLowerCase())).map(p => {
+                const door = NAV_DOORS.find(d => d.items.some(i => i.id === p.id));
+                const Icon = p.icon;
+                return (
+                  <button key={p.id} onClick={() => go(p.id)}
+                    className="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-slate-800/70 cursor-pointer">
+                    <Icon className="w-4 h-4 text-slate-500 shrink-0" />
+                    <span className="text-sm text-slate-200 flex-1 truncate">{p.label}</span>
+                    <span className="text-[9px] text-slate-600 uppercase tracking-wider">{door?.door}</span>
+                  </button>
+                );
+              })}
+              {ALL_PAGES.filter(p => p.label.toLowerCase().includes(paletteQuery.trim().toLowerCase())).length === 0 && (
+                <p className="px-4 py-3 text-xs text-slate-500">No page matches “{paletteQuery}”.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
