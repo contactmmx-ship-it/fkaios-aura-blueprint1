@@ -1,47 +1,48 @@
 # Edge Function Git Parity Audit (Blueprint P2.4)
 
 **Audited:** 2026-07-12 against live Supabase project `nrlsqshkjuuwiovthrnb`.
+**Updated:** 2026-07-12 (second session) — drift CLOSED.
 
 ## Result
 - **Live edge functions:** 77
-- **Previously in repo:** 73
-- **DRIFT — live but never committed: 9**
-
-If Supabase had lost these, they would have been **unrecoverable**. This is the
-structural risk the Blueprint flags as HIGH: a non-reproducible system is the
-substrate that let four silent failures persist unnoticed.
+- **Drift (live but never committed):** was 9 → **now 0**
 
 | Function | Criticality | Status |
 |---|---|---|
 | `governance-engine` | **CRITICAL** — the constitutional reviewer | ✅ RECOVERED into git |
 | `executive-intelligence` | **CRITICAL** — the CEO cognition loop | ✅ RECOVERED into git |
-| `market-intelligence` | HIGH — market signal capture | ⏳ pending pull |
-| `invoice-engine` | HIGH — commercial lifecycle (Invoice object) | ⏳ pending pull |
-| `avatar-orchestrator` | MEDIUM — Founder Avatar backend | ⏳ pending pull |
-| `verify-voice` | LOW — voice utility | ⏳ pending pull |
-| `diagnostic-secrets-check` | DEBUG — candidate for deletion | review |
-| `temp-key-check` | DEBUG/TEMP — candidate for deletion | review |
-| `avatar-debug-llm` | DEBUG — candidate for deletion | review |
+| `market-intelligence` | HIGH — market signal capture | ✅ RECOVERED as **v2** (see security note) |
+| `invoice-engine` | HIGH — commercial lifecycle (Invoice object) | ✅ RECOVERED into git (verbatim) |
+| `avatar-orchestrator` | MEDIUM — Founder Avatar backend | ✅ RECOVERED into git (verbatim v8) |
+| `verify-voice` | LOW — voice utility | ✅ RECOVERED as **v3**, now JWT-gated |
+| `diagnostic-secrets-check` | DEBUG | 🔒 **NEUTERED** → 410 Gone, verify_jwt TRUE |
+| `temp-key-check` | DEBUG/TEMP | 🔒 **NEUTERED** → 410 Gone, verify_jwt TRUE |
+| `avatar-debug-llm` | DEBUG | 🔒 **NEUTERED** → 410 Gone, verify_jwt TRUE |
 
-## 🔴 SECURITY ESCALATION (new finding, discovered during this pull)
+## Security actions taken 2026-07-12 (verified in production via pg_net)
+1. **`market-intelligence` v2** — removed the hardcoded `?? "kjhgfdsa"` fallback
+   (the last remaining hardcoded secret in any live function source). Auth now
+   reads `MARKET_INTEL_SECRET` → `HEARTBEAT_SECRET` → **fail closed (503)**.
+   Verified: wrong secret → HTTP 401 (req 23645).
+2. **3 debug functions neutered.** No MCP tool can DELETE an edge function, so
+   each was redeployed as a 410-Gone stub with `verify_jwt: true`. Before this,
+   `diagnostic-secrets-check` publicly enumerated which secrets exist, and
+   `avatar-debug-llm` made a **real Anthropic web-search call on every
+   anonymous hit** (observed live, req 23648, before the fix propagated).
+   Verified after propagation: all three → HTTP 401 unauthenticated
+   (reqs 23646, 23647, 23649).
+3. **`verify-voice` v3** — was `verify_jwt:false` and burned real ElevenLabs
+   credits per anonymous call. Now `verify_jwt: true`; capability preserved for
+   authenticated callers. Verified: anonymous → HTTP 401 (req 23655).
 
-The shared secret is **hardcoded in edge function source**, not only in
-`pg_cron` command text as previously believed:
-
-```ts
-const SHARED_SECRET = "kjhgfdsa";   // governance-engine, executive-intelligence
-```
-
-This is worse than the known cron exposure. Any read of the function source
-reveals the credential that authorizes the **constitutional reviewer** and the
-**executive cognition loop** — the two most privileged agents in FKAIOS.
-
-**Required (Blueprint P1.5 — FOUNDER ACTION, cannot be done from this session):**
-1. Generate a new strong `HEARTBEAT_SECRET` in the Supabase dashboard.
-2. Replace every hardcoded `SHARED_SECRET` with `Deno.env.get('HEARTBEAT_SECRET')`.
-3. Update the `pg_cron` job commands (15, 21, 22, 25, 26, 31) that embed `secret=kjhgfdsa`.
-
-Claude has no tool to set Supabase edge-function secrets; this needs the dashboard.
+## 🔒 Remaining FOUNDER dashboard actions (Claude has no tool for these)
+1. **Rotate the fleet secret** — still `kjhgfdsa`. Set `HEARTBEAT_SECRET` to a
+   strong value + update the 13 cron commands embedding `secret=kjhgfdsa`
+   (jobs 13, 15, 16, 17, 18, 19, 20, 21, 22, 25, 26, 29, 31 — note: MORE than
+   the 6 previously listed; job list verified live 2026-07-12).
+   `market-intelligence` v2 picks up the rotation automatically.
+2. **Delete the 3 neutered debug slugs** from the dashboard (Edge Functions →
+   delete). They are inert 410 stubs until then.
 
 ## Policy going forward
 No edge function may be deployed to production without being committed to this

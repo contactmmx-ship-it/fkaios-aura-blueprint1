@@ -1,6 +1,6 @@
 # FKAIOS — SESSION HANDOFF (read this first, then continue)
 
-**Last updated:** 2026-07-12 · **Last commit:** `62787cd` · **Branch:** `main`
+**Last updated:** 2026-07-12 (session 2) · **Branch:** `main`
 
 > **New chat: do NOT restart, re-audit, or rebuild. Everything below is DONE and
 > verified in production. Continue from "NEXT ACTIONS".**
@@ -71,12 +71,12 @@ In repo root. `FKAIOS_WORLD_CLASS_OS_BLUEPRINT.md` is **v1.0 and supersedes the 
 The blueprint's own §23 names the top risk: *the planning loop replacing the building loop.*
 
 ## 6. 🔒 BLOCKED — NEEDS RAJEEV (Claude cannot do these)
-1. **Rotate the secret value.** It is still `kjhgfdsa`. Now a ONE-STEP dashboard change (set `HEARTBEAT_SECRET` env + update 6 cron command texts: jobs 15, 21, 22, 25, 26, 31). No code deploy needed. Claude has **no tool** to set Supabase edge secrets.
+1. **Rotate the secret value.** It is still `kjhgfdsa`. Now a ONE-STEP dashboard change (set `HEARTBEAT_SECRET` env + update the **13** cron command texts embedding `secret=kjhgfdsa`: jobs 13, 15, 16, 17, 18, 19, 20, 21, 22, 25, 26, 29, 31 — full list verified live). No code deploy needed. `market-intelligence` v2 picks the rotation up automatically. Claude has **no tool** to set Supabase edge secrets.
 2. **Approve paid contact data (Apify Google Maps).** This is THE blocker on revenue. Free OSM cannot enrich these leads. Claude will NOT spend credits without explicit approval — the system's own cost-governance rule requires it.
 
 ## 7. ▶️ NEXT ACTIONS (free, autonomous — just continue)
-1. Pull remaining 4 drifted edge functions into git: `market-intelligence`, `invoice-engine`, `avatar-orchestrator`, `verify-voice`
-2. Delete 3 obsolete debug functions: `temp-key-check`, `avatar-debug-llm`, `diagnostic-secrets-check`
+1. ✅ DONE 2026-07-12 — all 4 drifted functions recovered into git (drift now 0; see `supabase/DRIFT.md`). `market-intelligence` v2 removed the last hardcoded secret fallback and fails closed (verified 401/503 paths).
+2. ✅ DONE 2026-07-12 — 3 debug functions NEUTERED (410 Gone + verify_jwt TRUE; no MCP tool can delete a function — Founder deletes the inert slugs from dashboard). `verify-voice` also JWT-gated (was an anonymous ElevenLabs credit burner). All verified 401 via pg_net.
 3. **P2 — Lineage:** every number on TODAY clicks through to its source row (Palantir principle)
 4. **P2 — Ontology navigation:** the object graph already exists in the schema (companies→departments→agents→tasks→leads); the UI flattens it. Expose it as drillable objects+links.
 5. **P2 — Proposal/Invoice/Payment screens** (only meaningful once real leads exist)
