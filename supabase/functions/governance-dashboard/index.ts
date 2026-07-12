@@ -1,4 +1,11 @@
-// governance-dashboard v4 -> Chairman's Command Center data source.
+// governance-dashboard v5 -> Chairman's Command Center data source.
+// v5 adds (Blueprint P1.2/P1.3 — exposure of EXISTING data, no new backend):
+//   revenue          : real money from company_invoices (honestly 0 today).
+//   alerts           : open Silence Monitor alerts from founder_notifications.
+//   department_status: GO / NO-GO / UNSTAFFED per department, computed from real
+//                      agent output in the last 24h. NASA Mission Control rule:
+//                      nominal is silent, silence is never consent -> a staffed
+//                      department producing nothing reports NO-GO.
 // v4 EXPOSES existing event streams as a LIVING enterprise (no new backend):
 //   activity_stream : agent_dispatch_log (agent-attributed) + execution_log
 //                     (engine-attributed), normalized + time-ordered.
@@ -28,7 +35,7 @@ Deno.serve(async (req: Request) => {
   try {
     const [summary, laws, decisions, profiles, kpiHistory, kpiLatest, cycles, predictions, auditTimeline, violations, approvalQueue,
            board, execCommittee, orgUnits, companies, market, competitors, knowledgeGrowth, delegations,
-           agentsFull, workdays, departments, dispatches, execLog] = await Promise.all([
+           agentsFull, workdays, departments, dispatches, execLog, invoicesQ, silenceQ] = await Promise.all([
       supabase.from("v_governance_dashboard_summary").select("*").single(),
       supabase.from("engineering_constitution").select("law_number,name,active").order("law_number"),
       supabase.from("governed_decisions").select("id,domain,proposing_agent,title,status,review_verdict,created_at,updated_at").order("updated_at", { ascending: false }).limit(25),
@@ -53,6 +60,8 @@ Deno.serve(async (req: Request) => {
       supabase.from("departments").select("code,name,company_id,automation_level").eq("is_active", true),
       supabase.from("agent_dispatch_log").select("agent_id,action,status,output_data,created_at").order("created_at", { ascending: false }).limit(300),
       supabase.from("execution_log").select("function_name,department_code,action,output_summary,status,created_at").order("created_at", { ascending: false }).limit(40),
+      supabase.from("company_invoices").select("total_inr,amount_received_inr,status,created_at"),
+      supabase.from("founder_notifications").select("type,title,detail,department_code,created_at").eq("type", "silence").eq("is_read", false).order("created_at", { ascending: false }).limit(10),
     ]);
 
     const { data: autonomy } = await supabase.from("ai_agents").select("name,autonomy_level,department,company_id").order("autonomy_level", { ascending: false }).limit(80);
@@ -128,6 +137,49 @@ Deno.serve(async (req: Request) => {
     stream.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
     const activity_stream = stream.slice(0, 60);
 
+    // ---- REVENUE (real; zero is reported truthfully, never hidden) ----
+    const inv = invoicesQ.data ?? [];
+    const revenue = {
+      invoices_total: inv.length,
+      invoiced_inr: inv.reduce((s: number, i: any) => s + Number(i.total_inr || 0), 0),
+      received_inr: inv.reduce((s: number, i: any) => s + Number(i.amount_received_inr || 0), 0),
+      paid_invoices: inv.filter((i: any) => Number(i.amount_received_inr || 0) > 0).length,
+    };
+
+    // ---- GO / NO-GO CONSOLES (Mission Control: silence is never consent) ----
+    const dayAgo = Date.now() - 24 * 3600 * 1000;
+    const outputByAgentId: Record<string, number> = {};
+    for (const d of dispatches.data ?? []) {
+      if (!d.agent_id) continue;
+      if (new Date(d.created_at).getTime() > dayAgo && (d.status === "completed" || d.status === "success")) {
+        outputByAgentId[d.agent_id] = (outputByAgentId[d.agent_id] || 0) + 1;
+      }
+    }
+    const deptOfAgent: Record<string, string> = {};
+    for (const a of agentsFull.data ?? []) deptOfAgent[a.id] = a.department || a.dept || "UNASSIGNED";
+
+    const deptAgents: Record<string, { staffed: number; output: number }> = {};
+    for (const a of agentsFull.data ?? []) {
+      const code = deptOfAgent[a.id];
+      deptAgents[code] = deptAgents[code] || { staffed: 0, output: 0 };
+      deptAgents[code].staffed++;
+      deptAgents[code].output += outputByAgentId[a.id] || 0;
+    }
+    const department_status = (departments.data ?? []).map((d: any) => {
+      const s2 = deptAgents[d.code] || { staffed: 0, output: 0 };
+      const status = s2.staffed === 0 ? "UNSTAFFED" : s2.output > 0 ? "GO" : "NO_GO";
+      return {
+        code: d.code, name: d.name, staffed: s2.staffed, output_24h: s2.output, status,
+        reason: status === "GO" ? `${s2.output} real outcomes in 24h`
+              : status === "NO_GO" ? `${s2.staffed} agent(s) assigned, 0 outcomes in 24h — reporting NO-GO`
+              : "no agents assigned",
+      };
+    }).sort((a: any, b: any) => (a.status === "NO_GO" ? -1 : 1) - (b.status === "NO_GO" ? -1 : 1));
+
+    const alerts = (silenceQ.data ?? []).map((n: any) => ({
+      title: n.title, detail: n.detail, department: n.department_code, created_at: n.created_at,
+    }));
+
     const collaboration = (delegations.data ?? []).map((d: any) => ({
       from_agent: d.from_agent, to_agent: d.to_agent, task: d.task_description,
       status: d.status, requires_founder_approval: d.requires_founder_approval, created_at: d.created_at,
@@ -152,6 +204,9 @@ Deno.serve(async (req: Request) => {
       dept_roster: deptRoster,
       activity_stream,
       collaboration,
+      revenue,
+      department_status,
+      alerts,
     });
   } catch (err) {
     return j({ error: String(err) }, 500);

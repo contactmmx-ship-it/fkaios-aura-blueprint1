@@ -1,6 +1,6 @@
 'use client';
 import { useMemo } from 'react';
-import { Radio, ArrowRight, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Clock, Sparkles, Activity } from 'lucide-react';
+import { Radio, ArrowRight, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Clock, Sparkles, Activity, IndianRupee, ShieldAlert } from 'lucide-react';
 
 // LEVEL 1 — The Founder Story. Replaces "cockpit syndrome" with a plain-language
 // account of what the enterprise is doing right now, a live "watch it think"
@@ -11,7 +11,13 @@ import { Radio, ArrowRight, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2,
 
 interface StreamEvent { ts: string; actor: string; actor_type: string; action: string; outcome: string; status: string; }
 interface Collab { from_agent: string; to_agent: string; task: string; status: string; requires_founder_approval: boolean; created_at: string; }
+interface DeptStatus { code: string; name: string; staffed: number; output_24h: number; status: string; reason: string; }
+interface SilenceAlert { title: string; detail: string; department: string; created_at: string; }
+interface Revenue { invoices_total: number; invoiced_inr: number; received_inr: number; paid_invoices: number; }
 interface StoryData {
+  revenue?: Revenue;
+  department_status?: DeptStatus[];
+  alerts?: SilenceAlert[];
   workforce?: { is_active: boolean; status: string; total_tasks_completed: number | null; tasks_completed: number; name: string; success_rate: number | null }[];
   activity_stream?: StreamEvent[];
   collaboration?: Collab[];
@@ -38,6 +44,12 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
   const collab = data.collaboration ?? [];
   const approvals = data.approval_queue ?? [];
   const cycle = (data.executive_cycles ?? [])[0];
+  const rev = data.revenue ?? { invoices_total: 0, invoiced_inr: 0, received_inr: 0, paid_invoices: 0 };
+  const depts = data.department_status ?? [];
+  const silences = data.alerts ?? [];
+  const noGo = depts.filter(d => d.status === 'NO_GO');
+  const going = depts.filter(d => d.status === 'GO');
+  const inr = (n: number) => `₹${n.toLocaleString('en-IN')}`;
 
   const s = useMemo(() => {
     const dayAgo = Date.now() - 24 * 3600 * 1000;
@@ -87,6 +99,72 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
             {s.failures > 0 && <p className="text-amber-300/90"><AlertTriangle className="w-3.5 h-3.5 inline mr-1" />{s.failures} operations failed in the last 24h — worth a look in the activity stream below.</p>}
             {recommendation && <p className="text-slate-300"><Sparkles className="w-3.5 h-3.5 inline mr-1 text-purple-400" /><span className="text-purple-300">CEO AI recommends: </span>{String(recommendation).slice(0, 220)}</p>}
           </div>
+
+          {/* ── HERO NUMBER (Stripe principle: one number answers "is it working?") ── */}
+          <div className="mt-5 flex flex-wrap items-end gap-6 pb-4 border-b border-slate-800">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1">
+                <IndianRupee className="w-3 h-3" /> Revenue received
+              </p>
+              <p className={`text-5xl font-bold tabular-nums leading-none ${rev.received_inr > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                {inr(rev.received_inr)}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-1.5">
+                {rev.invoices_total === 0
+                  ? 'No invoices exist yet — the enterprise has never billed a customer.'
+                  : `${rev.paid_invoices} of ${rev.invoices_total} invoices paid · ${inr(rev.invoiced_inr)} invoiced`}
+              </p>
+            </div>
+            <div className="text-[11px] text-slate-500 pb-1">
+              <p>Mission 2030: <span className="text-slate-300 font-semibold">₹1,100 Cr</span></p>
+              <p className="mt-0.5">Progress: <span className="text-slate-300 font-semibold">{rev.received_inr > 0 ? '—' : '0%'}</span></p>
+            </div>
+          </div>
+
+          {/* ── GO / NO-GO CONSOLES (Mission Control: silence is never consent) ── */}
+          {depts.length > 0 && (
+            <div className="mt-4">
+              <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">Department consoles — reporting now</p>
+              <div className="flex flex-wrap gap-1.5">
+                {noGo.map(d => (
+                  <span key={d.code} title={d.reason}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-red-950/40 border border-red-900 px-2.5 py-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                    <span className="text-[11px] font-semibold text-red-300">{d.name}</span>
+                    <span className="text-[9px] text-red-400/70">NO-GO</span>
+                  </span>
+                ))}
+                {going.map(d => (
+                  <span key={d.code} title={d.reason}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-950/30 border border-emerald-900/60 px-2.5 py-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span className="text-[11px] font-medium text-emerald-300">{d.name}</span>
+                    <span className="text-[9px] text-emerald-500/70">GO · {d.output_24h}</span>
+                  </span>
+                ))}
+              </div>
+              {noGo.length > 0 && (
+                <p className="text-[11px] text-red-300/80 mt-2">
+                  {noGo.length} department{noGo.length === 1 ? '' : 's'} staffed but produced nothing in 24h. Silence is never consent — they report NO-GO.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* ── SILENCE MONITOR ALERTS (Datadog no-data principle) ── */}
+          {silences.length > 0 && (
+            <div className="mt-4 space-y-1.5">
+              {silences.map((a, i) => (
+                <div key={i} className="flex items-start gap-2 rounded-lg bg-amber-950/30 border border-amber-900/70 px-3 py-2">
+                  <ShieldAlert className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-amber-200">{a.title}</p>
+                    <p className="text-[11px] text-amber-200/70 leading-snug">{a.detail}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* the one thing that matters: what needs you */}
           <div className="mt-4 flex flex-wrap items-center gap-3">
