@@ -5,7 +5,7 @@ import {
   Bell, Settings, Menu, X, ChevronRight, Radio, Tag, UserCog,
   UserCircle, Database, GitBranch, TrendingUp, BookOpen, DollarSign,
   ShieldCheck, Sparkles, MessageSquare, Factory, Vault, Scale, Rocket,
-  UserCheck, GraduationCap, Zap, Compass, Phone, Hammer, Network, Search, Building2
+  UserCheck, GraduationCap, Zap, Compass, Phone, Hammer, Network, Search, Building2, IndianRupee
 } from 'lucide-react';
 import BrainChat from '@/components/fkaios/BrainChat';
 import AgentFactory from '@/components/fkaios/AgentFactory';
@@ -27,6 +27,7 @@ import LeadsCRM from '@/components/fkaios/LeadsCRM';
 import ResearchOS from '@/components/fkaios/ResearchOS';
 import ApprovalsPage from '@/components/fkaios/ApprovalsPage';
 import GovernanceDashboard from '@/components/fkaios/GovernanceDashboard';
+import RevenueDesk from '@/components/fkaios/RevenueDesk';
 import ProjectReview from '@/components/fkaios/ProjectReview';
 import MyBrain from '@/components/fkaios/MyBrain';
 import ProductVideoGenerator from '@/components/fkaios/ProductVideoGenerator';
@@ -63,6 +64,7 @@ const NAV_DOORS: NavDoor[] = [
   {
     door: 'BUSINESS', icon: DollarSign, accent: 'text-emerald-400',
     items: [
+      { id: 'revenue-desk', label: 'Revenue Desk', icon: IndianRupee },
       { id: 'leads-crm', label: 'Leads & Pipeline', icon: Users },
       { id: 'approvals', label: 'Approvals', icon: ShieldCheck },
       { id: 'dashboard', label: 'Operations Dashboard', icon: LayoutDashboard },
@@ -213,6 +215,7 @@ export default function AppShell() {
     if (activePage === 'leads-crm') return <LeadsCRM />;
     if (activePage === 'approvals') return <ApprovalsPage />;
     if (activePage === 'governance') return <GovernanceDashboard />;
+    if (activePage === 'revenue-desk') return <RevenueDesk />;
     if (activePage === 'project-review') return <ProjectReview />;
     if (activePage === 'my-brain') return <MyBrain />;
     if (activePage === 'product-video') return <ProductVideoGenerator />;
