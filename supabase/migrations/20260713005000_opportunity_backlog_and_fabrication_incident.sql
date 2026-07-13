@@ -1,0 +1,20 @@
+-- (1) SELF-THINKING / OPPORTUNITY BACKLOG ENGINE (Roadmap item 1). Applied to prod.
+--     opportunity_backlog + compute_opportunity_backlog() + opportunity-engine fn.
+--     Discipline: a proposal not grounded in a REAL existing asset is REJECTED before
+--     insert. ROI is computed server-side ((revenue x probability) / effort) so a model
+--     that inflates revenue while admitting low probability cannot game the ranking.
+--     Every rupee figure is an ASSUMPTION; commercial pricing is a Founder Approval Gate.
+--     First run: 5 grounded opportunities, honest probabilities 18-40%, $0.049.
+--
+-- (2) INCIDENT — FABRICATED WORK HALTED AND QUARANTINED. 2026-07-13.
+--     ai-engine.executeJob() had a catch-all fallback returning a "simulated
+--     placeholder" on ANY LLM failure; runJobs() wrote it as status='completed'.
+--     ANTHROPIC_API_KEY IS set — the message lied about its own cause.
+--     5,970 jobs (2,982 GENERATE_INVOICE + 2,982 GENERATE_PROPOSAL + others) were
+--     recorded as completed work that NEVER HAPPENED.
+--     After quarantine, jobs still claiming status='completed' = ZERO. There was
+--     never any real completed work in this queue.
+--     ACTIONS: cron 23 (job-scheduler-drain) and cron 27 (ai-engine-run-jobs-5min)
+--     DISABLED. All 5,970 rows relabelled status='failed' with a quarantine reason.
+--     BOTH CRONS MUST STAY OFF until ai-engine is redeployed to FAIL LOUDLY.
+--     Reversible: SELECT cron.alter_job(23, active:=true); same for 27.
