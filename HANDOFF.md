@@ -81,6 +81,19 @@ The blueprint's own §23 names the top risk: *the planning loop replacing the bu
 4. **P2 — Ontology navigation:** the object graph already exists in the schema (companies→departments→agents→tasks→leads); the UI flattens it. Expose it as drillable objects+links.
 5. **P2 — Proposal/Invoice/Payment screens** (only meaningful once real leads exist)
 
+### ₹1,100 Cr Progress Engine (World Class Constitution) — DONE 2026-07-12
+`public.compute_mission_progress()` + governance-dashboard **v6** (`mission` key) +
+live Mission bar on TODAY. Commit `6902da1`, deploy `dpl_695BAS391UP2q8wTBvsA2vubrcQT` READY.
+- **DATA TRAP:** `company_revenue_milestones` is HIERARCHICAL — the holding row (₹1,100 Cr)
+  is a ROLLUP of the 3 subsidiaries (₹366.67 Cr each). **`SUM(target_inr)` returns ₹2,200 Cr
+  and halves the apparent gap.** The engine sums subsidiaries only + asserts reconciliation
+  (₹100 tolerance; exact equality was firing a false positive on a ₹1 rounding artifact).
+- Live truth: target ₹1,100 Cr · **0.0000% achieved** · gap ₹1,100 Cr · 1,602 days ·
+  **₹68,66,417/day required** · forecast **NEVER** (₹0/mo run-rate → division undefined, not faked).
+- Engine also reports the plan has **NO 2026–2029 ramp** (all targets in the final year), so
+  progress can be reported but not GRADED. **Building that ramp is a Founder decision, not mine —
+  I will not invent revenue targets.**
+
 ## 8. NON-NEGOTIABLE OPERATING RULES
 - **No fake data. Ever.** No `Math.random()`, no hardcoded stats, no stubs presented as complete. Rajeev has caught this repeatedly and treats it as trust-breaking.
 - **Evidence, not claims.** Every "done" must be proven with a live query result, deployment ID, or verified HTTP response.
