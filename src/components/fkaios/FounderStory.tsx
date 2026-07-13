@@ -15,8 +15,19 @@ interface Collab { from_agent: string; to_agent: string; task: string; status: s
 interface DeptStatus { code: string; name: string; staffed: number; output_24h: number; status: string; reason: string; }
 interface SilenceAlert { title: string; detail: string; department: string; created_at: string; }
 interface Revenue { invoices_total: number; invoiced_inr: number; received_inr: number; paid_invoices: number; }
+interface Mission {
+  target_inr: number; target_crore: number; received_inr: number; gap_inr: number; gap_crore: number;
+  pct_achieved: number; deadline: string; days_remaining: number; months_remaining: number;
+  run_rate_30d_inr: number; forecast_completion: string;
+  required_monthly_inr: number; required_weekly_inr: number; required_daily_inr: number;
+  plan_reconciles: boolean; plan_warning: string | null; has_ramp: boolean; ramp_warning: string | null;
+  by_company: { company: string; target_inr: number; target_crore: number; received_inr: number; invoices: number }[];
+  pipeline: { leads_total: number; leads_advanced: number; leads_contactable: number; client_projects: number; invoices: number; payments: number };
+  error?: string;
+}
 interface StoryData {
   revenue?: Revenue;
+  mission?: Mission;
   department_status?: DeptStatus[];
   alerts?: SilenceAlert[];
   workforce?: { is_active: boolean; status: string; total_tasks_completed: number | null; tasks_completed: number; name: string; success_rate: number | null; department?: string | null }[];
@@ -58,6 +69,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
   const approvals = data.approval_queue ?? [];
   const cycle = (data.executive_cycles ?? [])[0];
   const rev = data.revenue ?? { invoices_total: 0, invoiced_inr: 0, received_inr: 0, paid_invoices: 0 };
+  const mission = data.mission;
   const depts = data.department_status ?? [];
   const silences = data.alerts ?? [];
   const noGo = depts.filter(d => d.status === 'NO_GO');
@@ -107,7 +119,31 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
     emptyTruth: 'company_invoices is EMPTY. Zero invoices have ever been created, so zero rupees have ever been received. This is not a display error and not a loading state — the enterprise has never billed a customer. ₹0 is the true and current state.',
   });
 
-  // A NO-GO chip is an accusation against a department. It must carry its evidence:
+  // The mission number must carry its own math, including the trap in the data.
+  const missionLineage = (m: Mission): LineageSpec => {
+    const p = m.pipeline;
+    const rows: LineageRow[] = [
+      ...m.by_company.map(c => ({
+        primary: c.company,
+        secondary: `target ₹${c.target_crore.toLocaleString('en-IN')} Cr`,
+        status: c.received_inr > 0 ? 'completed' : 'pending',
+        meta: `received ${inr(c.received_inr)} · ${c.invoices} invoice${c.invoices === 1 ? '' : 's'}`,
+      } as LineageRow)),
+      { primary: '— the commercial chain that must produce this money —', secondary: `${p.leads_total} leads · ${p.leads_contactable} contactable · ${p.leads_advanced} advanced past 'new' · ${p.client_projects} projects · ${p.invoices} invoices · ${p.payments} paid`, meta: p.payments === 0 ? 'The chain terminates before revenue. Every stage after lead-scoring is empty.' : undefined },
+    ];
+    return {
+      title: `Mission ${new Date(m.deadline).getFullYear()} — ₹${m.target_crore.toLocaleString('en-IN')} Cr`,
+      value: `${m.pct_achieved}%`,
+      source: 'public.compute_mission_progress() over company_revenue_milestones × companies × company_invoices',
+      derivation:
+        `Target = SUM of the three SUBSIDIARY targets (₹366.67 Cr each). The holding company row is a ROLLUP of those subsidiaries, so a naive SUM(target_inr) across the whole table returns ₹2,200 Cr — double-counting the mission and halving the apparent gap. This engine sums subsidiaries only and asserts it reconciles to the holding target (it does, within ₹1 of rounding). ` +
+        `Achieved = SUM(company_invoices.amount_received_inr) — money RECEIVED, never money invoiced. ` +
+        `Required run-rate = remaining gap ÷ time remaining. Forecast divides the gap by the trailing-30-day run-rate; at ₹0/month that division is undefined and is reported as NEVER rather than faked.` +
+        (m.ramp_warning ? ` ⚠ ${m.ramp_warning}` : ''),
+      reconciles: false,
+      rows,
+    };
+  };
   // who is staffed there, and what (if anything) they actually shipped in 24h.
   const deptLineage = (d: DeptStatus): LineageSpec => {
     const roster = wf.filter(a => (a.department ?? '') === d.code);
@@ -221,10 +257,38 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
                   : `${rev.paid_invoices} of ${rev.invoices_total} invoices paid · ${inr(rev.invoiced_inr)} invoiced`}
               </p>
             </div>
-            <div className="text-[11px] text-slate-500 pb-1">
-              <p>Mission 2030: <span className="text-slate-300 font-semibold">₹1,100 Cr</span></p>
-              <p className="mt-0.5">Progress: <span className="text-slate-300 font-semibold">{rev.received_inr > 0 ? '—' : '0%'}</span></p>
-            </div>
+            {mission && !mission.error ? (
+              <div className="text-[11px] text-slate-500 pb-1 min-w-[260px]">
+                <div className="flex items-baseline gap-2">
+                  <p>Mission {new Date(mission.deadline).getFullYear()}:</p>
+                  <button onClick={() => setLineage(missionLineage(mission))} title="Click to see how the mission number is computed"
+                    className="text-slate-300 font-semibold underline decoration-dotted decoration-slate-600 underline-offset-4 hover:decoration-cyan-400 cursor-pointer">
+                    ₹{mission.target_crore.toLocaleString('en-IN')} Cr
+                  </button>
+                </div>
+                {/* Progress bar. At 0.0000% it renders as an empty trough — the
+                    truth is a bar with nothing in it, not a hidden widget. */}
+                <div className="mt-1.5 h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
+                  <div className="h-full bg-emerald-500" style={{ width: `${Math.min(100, Math.max(0, mission.pct_achieved))}%` }} />
+                </div>
+                <p className="mt-1">
+                  Progress: <span className="text-slate-300 font-semibold">{mission.pct_achieved === 0 ? '0%' : `${mission.pct_achieved}%`}</span>
+                  <span className="text-slate-600"> · gap ₹{mission.gap_crore.toLocaleString('en-IN')} Cr · {mission.days_remaining.toLocaleString('en-IN')} days left</span>
+                </p>
+                <p className="mt-0.5">
+                  Required from today: <span className="text-slate-300 font-semibold">{inr(Math.round(mission.required_daily_inr))}/day</span>
+                  <span className="text-slate-600"> ({inr(Math.round(mission.required_monthly_inr))}/mo)</span>
+                </p>
+                <p className={`mt-1 ${mission.run_rate_30d_inr > 0 ? 'text-slate-400' : 'text-red-400/90'}`}>
+                  Forecast: <span className="font-semibold">{mission.run_rate_30d_inr > 0 ? mission.forecast_completion : 'NEVER at current run-rate (₹0/mo)'}</span>
+                </p>
+              </div>
+            ) : (
+              <div className="text-[11px] text-slate-500 pb-1">
+                <p className="text-amber-400/90">Mission progress unavailable{mission?.error ? `: ${mission.error}` : ''}</p>
+                <p className="text-slate-600 mt-0.5">Not showing a number I cannot compute.</p>
+              </div>
+            )}
           </div>
 
           {/* ── GO / NO-GO CONSOLES (Mission Control: silence is never consent) ── */}

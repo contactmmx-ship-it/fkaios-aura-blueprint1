@@ -1,3 +1,11 @@
+// governance-dashboard v6 -> Chairman's Command Center data source.
+// v6 adds (World Class Enterprise Constitution — "1100 Crore Progress Engine"):
+//   mission : public.compute_mission_progress() — the single answer to
+//             "How close are we to Rs 1,100 Cr today?" Real money received vs
+//             the SUBSIDIARY target sum (the holding row is a ROLLUP of the
+//             three subsidiaries; a naive SUM would double-count to Rs 2,200 Cr).
+//             Reports required daily/weekly/monthly run-rate, and an honest
+//             forecast of NEVER while the run-rate is Rs 0/month.
 // governance-dashboard v5 -> Chairman's Command Center data source.
 // v5 adds (Blueprint P1.2/P1.3 — exposure of EXISTING data, no new backend):
 //   revenue          : real money from company_invoices (honestly 0 today).
@@ -65,6 +73,11 @@ Deno.serve(async (req: Request) => {
     ]);
 
     const { data: autonomy } = await supabase.from("ai_agents").select("name,autonomy_level,department,company_id").order("autonomy_level", { ascending: false }).limit(80);
+
+    // 1100 Crore Progress Engine. Computed server-side in SQL so the mission
+    // number can never drift from the money. Failure is surfaced, not hidden.
+    const { data: missionData, error: missionErr } = await supabase.rpc("compute_mission_progress");
+    const mission = missionErr ? { error: missionErr.message } : missionData;
 
     const latestKpi: Record<string, { value: number; evidence: unknown; measured_at: string }> = {};
     for (const row of kpiLatest.data ?? []) if (!latestKpi[row.kpi]) latestKpi[row.kpi] = { value: Number(row.value), evidence: row.evidence, measured_at: row.measured_at };
@@ -207,6 +220,7 @@ Deno.serve(async (req: Request) => {
       revenue,
       department_status,
       alerts,
+      mission,
     });
   } catch (err) {
     return j({ error: String(err) }, 500);
