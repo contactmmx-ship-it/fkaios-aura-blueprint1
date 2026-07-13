@@ -26,6 +26,14 @@ const BRAIN_MODEL = "claude-sonnet-5";
 const COST_PER_1M: Record<string, { in: number; out: number }> = {
   "claude-sonnet-5": { in: 3, out: 15 },
 };
+// LLM EXECUTION GRAPH (Master Realignment Phase 2): every call must record the
+// model, WHY it was selected, prompt version, retries, owner department and the
+// BUSINESS OBJECTIVE it spent money toward. This function is 100% of the
+// enterprise's measured AI spend and recorded NONE of it — cost was logged, but
+// nothing said what the money bought.
+const AVATAR_MODEL_REASON =
+  "Sonnet selected for the Founder avatar: open-ended reasoning + tool-use + live web_search over a multi-step agentic loop, where response quality directly shapes Founder decisions. Haiku degrades multi-step tool reasoning; an Opus-class model would multiply cost on a conversational surface that already consumes 100% of measured spend.";
+const AVATAR_PROMPT_VERSION = "avatar-fil-v8";
 
 const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -168,7 +176,7 @@ async function getConversationHistory(sessionId: string): Promise<Array<{ role: 
 }
 
 // ---------- The agentic loop ----------
-interface BrainResult { text: string; toolsUsed: string[]; inputTokens: number; outputTokens: number; }
+interface BrainResult { text: string; toolsUsed: string[]; inputTokens: number; outputTokens: number; steps: number; }
 
 async function runBrain(systemPrompt: string, history: Array<{ role: string; content: string }>, transcript: string): Promise<BrainResult> {
   const messages: Array<Record<string, unknown>> = [...history, { role: "user", content: transcript }];
@@ -212,9 +220,9 @@ async function runBrain(systemPrompt: string, history: Array<{ role: string; con
     const text = Array.isArray(data?.content)
       ? data.content.filter((b: any) => b?.type === "text").map((b: any) => b.text).join("")
       : "";
-    return { text, toolsUsed, inputTokens, outputTokens };
+    return { text, toolsUsed, inputTokens, outputTokens, steps: step + 1 };
   }
-  return { text: "Maine 6 internal steps use kar liye is task pe aur abhi bhi complete nahi hua — honestly bata raha hoon bajaye adha-adhura result dene ke. Thoda break down karke do, ya bolo continue karun.", toolsUsed, inputTokens, outputTokens };
+  return { text: "Maine 6 internal steps use kar liye is task pe aur abhi bhi complete nahi hua — honestly bata raha hoon bajaye adha-adhura result dene ke. Thoda break down karke do, ya bolo continue karun.", toolsUsed, inputTokens, outputTokens, steps: 6 };
 }
 
 async function synthesizeSpeech(text: string): Promise<string | null> {
@@ -294,6 +302,10 @@ How you operate in conversation:
       agent_id: "founder-avatar", task_type: "agentic_turn", latency_ms: latencyMs,
       estimated_cost_usd: (brain.inputTokens / 1_000_000) * costRate.in + (brain.outputTokens / 1_000_000) * costRate.out,
       input_tokens: brain.inputTokens || null, output_tokens: brain.outputTokens || null, success: true,
+      model: BRAIN_MODEL, provider: "anthropic", selection_reason: AVATAR_MODEL_REASON,
+      prompt_version: AVATAR_PROMPT_VERSION, retries: Math.max(0, brain.steps - 1),
+      department: "FOUNDER",
+      business_objective: "Founder supervision & decision support (NOT a revenue-producing path — this surface is 100% of measured AI spend and has produced Rs 0)",
     });
 
     return jsonResponse({
@@ -307,6 +319,8 @@ How you operate in conversation:
     await supabase.from("agent_performance_metrics").insert({
       agent_id: "founder-avatar", task_type: "agentic_turn", latency_ms: Date.now() - startedAt,
       success: false, error_message: message,
+      model: BRAIN_MODEL, provider: "anthropic", prompt_version: AVATAR_PROMPT_VERSION,
+      department: "FOUNDER", business_objective: "Founder supervision & decision support",
     });
     return jsonResponse({ error: message, correlationId }, 500);
   }
