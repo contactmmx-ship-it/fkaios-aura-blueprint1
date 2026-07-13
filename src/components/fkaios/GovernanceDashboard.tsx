@@ -41,6 +41,11 @@ interface GovData {
   department_activity: { dept: string; total: number; pending: number }[];
   recent_activity: { from_agent: string; to_agent: string; task_description: string; status: string; created_at: string }[];
   workforce?: WorkforceMember[];
+  blockers?: {
+    revenue_inr: number; headline: string; exit_that_needs_no_new_data: string;
+    chain: { stage: string; count: number; owner_role: string; owner_agent: string; alive: boolean; note?: string }[];
+    first_break?: { stage: string; count: number; owner_role: string; owner_agent: string; note?: string };
+  };
   economics?: {
     measured_spend_usd: number; revenue_inr: number; llm_calls_costed: number;
     spend_on_founder_avatar_usd: number; spend_on_revenue_work_usd: number;
@@ -94,7 +99,10 @@ export default function GovernanceDashboard() {
       // revenue were never stated in the same place). Read directly via RPC —
       // no edge-function redeploy needed, the function is granted to authenticated.
       const { data: econ } = await supabase.rpc('compute_enterprise_economics');
-      setData({ ...(d as GovData), economics: econ ?? undefined });
+      // "What is blocking revenue?" — answered from live data, with the OWNING
+      // executive named. The Founder should never have to ask this twice.
+      const { data: blockers } = await supabase.rpc('compute_revenue_blockers');
+      setData({ ...(d as GovData), economics: econ ?? undefined, blockers: blockers ?? undefined });
       setError(null);
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (e) {

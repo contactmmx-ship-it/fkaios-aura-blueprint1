@@ -1,0 +1,21 @@
+-- REVENUE BLOCKER ENGINE — the standing answer to the Founder's question
+-- "What is blocking revenue?", computed from LIVE DATA, never narrated.
+-- (Master Realignment Constitution: Founder Experience; and "every number must
+-- support drill-down into its source, derivation, history and OWNER" — ownership
+-- was the one part of lineage FKAIOS did not have.)
+--
+-- Walks the commercial chain, finds the FIRST stage where it terminates, and
+-- attributes it to the real executive who owns that stage (executive_committee).
+--
+-- THE FINDING (live, 2026-07-13):
+--   Chain breaks at STAGE 3 — "Lead qualifies (score >= 40)" — owned by the
+--   Chief Sales Officer (sales-engine).
+--   67 of 67 leads scored. ZERO reached 40. The BEST score the enterprise has
+--   EVER produced is 32.
+--   The top-of-funnel is not underperforming — it is STRUCTURALLY INCAPABLE of
+--   emitting an advanceable lead. No qualifier tuning fixes an input that cannot
+--   clear the bar. Stages 4-7 have therefore never once been exercised.
+--
+--   Exit requiring no new data: the 8 existing brands + prior clients are
+--   reachable at zero cost and need no funnel at all. The Revenue Desk can
+--   invoice them today, bypassing the entire broken chain.

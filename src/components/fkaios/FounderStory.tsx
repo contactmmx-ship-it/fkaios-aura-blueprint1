@@ -38,10 +38,16 @@ interface Economics {
   coverage_warning: string | null; traceability_warning: string | null; verdict: string;
   by_agent: { agent: string; calls: number; spend_usd: number; failed: number }[];
 }
+interface Blockers {
+  revenue_inr: number; headline: string; exit_that_needs_no_new_data: string;
+  chain: { stage: string; count: number; owner_role: string; owner_agent: string; alive: boolean; note?: string }[];
+  first_break?: { stage: string; count: number; owner_role: string; owner_agent: string; note?: string };
+}
 interface StoryData {
   revenue?: Revenue;
   mission?: Mission;
   economics?: Economics;
+  blockers?: Blockers;
   department_status?: DeptStatus[];
   alerts?: SilenceAlert[];
   workforce?: { is_active: boolean; status: string; total_tasks_completed: number | null; tasks_completed: number; name: string; success_rate: number | null; department?: string | null }[];
@@ -85,6 +91,24 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
   const rev = data.revenue ?? { invoices_total: 0, invoiced_inr: 0, received_inr: 0, paid_invoices: 0 };
   const mission = data.mission;
   const econ = data.economics;
+  const blk = data.blockers;
+
+  // "What is blocking revenue?" — a standing, always-current answer with the
+  // OWNING EXECUTIVE named. Constitution: every number drills down to source,
+  // derivation, history AND owner. Ownership was the missing one.
+  const blockerLineage = (b: Blockers): LineageSpec => ({
+    title: 'What is blocking revenue?',
+    value: b.first_break ? `Breaks at ${b.first_break.stage}` : 'No break',
+    source: 'public.compute_revenue_blockers() over leads × client_projects × company_invoices × executive_committee',
+    derivation: `${b.headline} Every stage is attributed to the executive who owns it, so the break has a name, not just a number.`,
+    reconciles: false,
+    rows: b.chain.map(c => ({
+      primary: c.stage,
+      secondary: c.note ?? `owner: ${c.owner_role} (${c.owner_agent})`,
+      status: c.alive ? 'completed' : 'failed',
+      meta: `${c.count} · ${c.owner_role}`,
+    } as LineageRow)),
+  });
 
   // Spend and revenue must be readable in one glance. The Constitution makes the
   // CEO responsible for reducing cost and growing revenue; that is impossible
@@ -370,6 +394,27 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
               </div>
             )}
           </div>
+
+          {/* ── WHAT IS BLOCKING REVENUE — the standing answer, with an owner ── */}
+          {blk && blk.revenue_inr === 0 && blk.first_break && (
+            <button onClick={() => setLineage(blockerLineage(blk))}
+              className="mt-3 w-full text-left rounded-lg border border-red-900 bg-red-950/30 px-3 py-2 hover:border-red-700 cursor-pointer">
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                <span className="text-[10px] uppercase tracking-wider text-red-400/80">What is blocking revenue</span>
+                <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded-full bg-red-950 text-red-300 border border-red-900">
+                  {blk.first_break.owner_role}
+                </span>
+              </div>
+              <p className="text-xs text-red-200 font-semibold mt-1">
+                Chain breaks at {blk.first_break.stage}
+              </p>
+              <p className="text-[11px] text-red-200/70 leading-snug mt-0.5">{blk.first_break.note}</p>
+              <p className="text-[10px] text-emerald-300/70 leading-snug mt-1.5">
+                Exit that needs no new data: {blk.exit_that_needs_no_new_data}
+              </p>
+            </button>
+          )}
 
           {/* ── UNIT ECONOMICS: what the enterprise BURNS vs what it EARNS ──
               The Constitution's only success metric is revenue. This is the one
