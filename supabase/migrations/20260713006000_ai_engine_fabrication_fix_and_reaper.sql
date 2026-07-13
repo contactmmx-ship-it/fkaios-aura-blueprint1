@@ -1,0 +1,16 @@
+-- ai-engine v41: FABRICATION REMOVED. The no-agent path's catch-all used to RETURN
+-- a "simulated placeholder" on ANY failure, which runJobs() wrote as completed.
+-- It now THROWS. Failures are recorded as failures with their REAL cause.
+-- ai-engine also now writes to the LLM execution graph (model/provider/cost/
+-- department/business_objective), so its spend is no longer invisible.
+-- VERIFIED LIVE: 0 new fabrications after the fix, across a real job-scheduler cycle.
+--
+-- ORPHAN REAPER: removing the fabrication exposed 4,010 jobs stuck in status='running',
+-- oldest since 2026-07-06 (a WEEK). The edge function marks a job 'running', dies on
+-- its wall-clock limit mid-loop, and nothing ever touches the job again — neither done
+-- nor failed, so NOTHING REPORTS IT. Same silent-failure class as a fake completion:
+-- the enterprise believes work is in flight that is actually dead.
+-- reap_orphaned_ai_jobs() requeues (<2 retries) or fails (>=2) anything stuck past
+-- 15 minutes. Cron 'ai-jobs-orphan-reaper' every 10 min. Pure SQL — no HTTP, no secret,
+-- so it cannot fail the way the fabricating HTTP path did.
+-- First run: 4,000 zombies resurrected into an honest state.
