@@ -21,6 +21,11 @@ interface Mission {
   run_rate_30d_inr: number; forecast_completion: string;
   required_monthly_inr: number; required_weekly_inr: number; required_daily_inr: number;
   plan_reconciles: boolean; plan_warning: string | null; has_ramp: boolean; ramp_warning: string | null;
+  next_gate?: {
+    exists: boolean; target_inr: number; target_crore: number; target_date: string;
+    days_remaining: number; received_inr: number; gap_inr: number; pct_achieved: number;
+    required_daily_inr: number; required_monthly_inr: number; on_track: boolean; verdict: string;
+  };
   by_company: { company: string; target_inr: number; target_crore: number; received_inr: number; invoices: number }[];
   pipeline: { leads_total: number; leads_advanced: number; leads_contactable: number; client_projects: number; invoices: number; payments: number };
   error?: string;
@@ -175,6 +180,28 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
       rows,
     };
   };
+  // The gate's lineage must answer the only question that matters about it:
+  // BY WHAT MECHANISM would this number be produced? Not "what is the target".
+  const gateLineage = (m: Mission): LineageSpec => {
+    const g = m.next_gate!;
+    const p = m.pipeline;
+    return {
+      title: `Next gate — ₹${g.target_crore} Cr by ${new Date(g.target_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+      value: `${g.pct_achieved}%`,
+      source: 'company_revenue_milestones (Founder-stated 2026-07-13) × company_invoices',
+      derivation:
+        `Founder-stated first execution milestone: ₹5 Cr revenue by 31-Dec-2026. Achieved = money RECEIVED (${inr(g.received_inr)}). ` +
+        `Required run-rate = gap ÷ ${g.days_remaining} days = ${inr(Math.round(g.required_daily_inr))}/day, every day, starting today. ` +
+        `On-track test: trailing-30-day run-rate × days remaining ≥ gap. The current run-rate is ₹0/month, so the test fails by the widest possible margin.`,
+      reconciles: false,
+      rows: [
+        { primary: 'Required from today', secondary: `${inr(Math.round(g.required_daily_inr))} per day · ${inr(Math.round(g.required_monthly_inr))} per month`, status: 'pending', meta: `${g.days_remaining} days remain` },
+        { primary: 'Current run-rate', secondary: '₹0 per month — no invoice has ever been paid', status: 'failed' },
+        { primary: 'The mechanism that must produce it', secondary: `${p.leads_total} leads · only ${p.leads_contactable} contactable · ${p.leads_advanced} advanced past 'new' · ${p.client_projects} projects · ${p.invoices} invoices`, status: 'failed', meta: 'There is no channel here capable of ₹5 Cr. This gate is not short of effort — it is short of reachable customers.' },
+      ],
+    };
+  };
+
   // who is staffed there, and what (if anything) they actually shipped in 24h.
   const deptLineage = (d: DeptStatus): LineageSpec => {
     const roster = wf.filter(a => (a.department ?? '') === d.code);
@@ -289,7 +316,29 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
               </p>
             </div>
             {mission && !mission.error ? (
-              <div className="text-[11px] text-slate-500 pb-1 min-w-[260px]">
+              <div className="text-[11px] text-slate-500 pb-1 min-w-[280px]">
+                {/* NEXT GATE — the near-term commitment. A 2030 target cannot be
+                    missed today; a 31-Dec-2026 target can be missed every single
+                    day, and this is the number that says so. */}
+                {mission.next_gate?.exists && (
+                  <div className={`mb-2 rounded-lg border px-2.5 py-1.5 ${mission.next_gate.on_track ? 'border-emerald-900 bg-emerald-950/30' : 'border-red-900 bg-red-950/30'}`}>
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className="text-[9px] uppercase tracking-wider text-slate-500">Next gate</span>
+                      <button onClick={() => setLineage(gateLineage(mission))}
+                        className={`text-sm font-bold underline decoration-dotted underline-offset-4 hover:decoration-cyan-400 cursor-pointer ${mission.next_gate.on_track ? 'text-emerald-300' : 'text-red-300'}`}>
+                        ₹{mission.next_gate.target_crore} Cr
+                      </button>
+                      <span className="text-slate-500">by {new Date(mission.next_gate.target_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full ml-auto ${mission.next_gate.on_track ? 'bg-emerald-950 text-emerald-400' : 'bg-red-950 text-red-300'}`}>
+                        {mission.next_gate.on_track ? 'ON TRACK' : 'BEHIND'}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-slate-400">
+                      <span className="text-slate-300 font-semibold">{mission.next_gate.days_remaining}</span> days left ·{' '}
+                      <span className="text-slate-300 font-semibold">{inr(Math.round(mission.next_gate.required_daily_inr))}/day</span> required
+                    </p>
+                  </div>
+                )}
                 <div className="flex items-baseline gap-2">
                   <p>Mission {new Date(mission.deadline).getFullYear()}:</p>
                   <button onClick={() => setLineage(missionLineage(mission))} title="Click to see how the mission number is computed"

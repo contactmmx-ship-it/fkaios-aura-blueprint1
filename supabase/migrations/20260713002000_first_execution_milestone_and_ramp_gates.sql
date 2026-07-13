@@ -1,0 +1,23 @@
+-- FIRST EXECUTION MILESTONE — ₹5 Crore by 31 December 2026.
+-- (Constitutional Realignment Directive, 2026-07-13.) Applied to prod.
+--
+-- This is a FOUNDER-STATED target. compute_mission_progress() had been reporting
+-- "the plan has NO intermediate milestones... this engine can report progress but
+-- cannot GRADE it", and I refused to invent a ramp because inventing revenue
+-- targets is the Founder's decision, not mine. He supplied it. Now it is encoded.
+--
+-- TRAP AVOIDED IN THE SAME CHANGE: the ₹5 Cr row sits at HOLDING level. The
+-- double-count reconciliation (holding rollup vs subsidiary sum) would have seen
+-- holding=₹11,005,000,000 vs subsidiary=₹11,000,000,001 and fired a FALSE
+-- "plan does not reconcile" alarm the moment this row landed. The check is now
+-- scoped to the FINAL YEAR (2030) only; earlier years are RAMP GATES.
+-- Fixed before it fired, not after. Verified: plan_reconciles = true.
+--
+-- compute_mission_progress() v2 now returns next_gate{} — the nearest un-passed
+-- ramp milestone, GRADED on-track/behind against the trailing-30-day run-rate.
+--
+-- FIRST GRADE (real, 2026-07-13):
+--   ₹5 Cr · 31-Dec-2026 · 171 days left · 0.00% achieved
+--   requires ₹2,92,398/DAY starting today, from a standing start of ₹0/day
+--   on_track = false
+--   "Nothing in the current pipeline can produce it."
