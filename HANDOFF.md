@@ -94,6 +94,19 @@ live Mission bar on TODAY. Commit `6902da1`, deploy `dpl_695BAS391UP2q8wTBvsA2vu
   progress can be reported but not GRADED. **Building that ramp is a Founder decision, not mine —
   I will not invent revenue targets.**
 
+### LLM Execution Graph + Enterprise Economics — DONE 2026-07-13
+`compute_enterprise_economics()`; `agent_performance_metrics` += model/provider/
+selection_reason/prompt_version/retries (NULLABLE, **deliberately not backfilled** —
+avatar runs `claude-sonnet-5`, qualifier runs `claude-sonnet-4-6`, so a backfill would
+have written a FALSE audit trail on all 88 rows). `auto-agents-engine` **v7** costs every
+qualifier call incl. failures. Spend vs revenue now on TODAY with lineage (`cc8a7aa`).
+- **Live truth: ≥ $5.49 burned → ₹0 earned. 100% of measured spend went to `founder-avatar`
+  (the Founder talking to his own avatar). $0.00 to any agent with a path to revenue.**
+- Spend is a **FLOOR**: only 3 of 41 agents log cost; **963 dispatches never costed**.
+- ⏭ REMAINING: extend cost+model logging to `avatar-orchestrator` (the 100% spender —
+  logs cost but no model), `executive-intelligence`, `market-intelligence`, `research-engine`.
+  Until then true spend stays unknown.
+
 ## 8. NON-NEGOTIABLE OPERATING RULES
 - **No fake data. Ever.** No `Math.random()`, no hardcoded stats, no stubs presented as complete. Rajeev has caught this repeatedly and treats it as trust-breaking.
 - **Evidence, not claims.** Every "done" must be proven with a live query result, deployment ID, or verified HTTP response.
