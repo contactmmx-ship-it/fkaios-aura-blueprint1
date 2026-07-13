@@ -25,9 +25,18 @@ interface Mission {
   pipeline: { leads_total: number; leads_advanced: number; leads_contactable: number; client_projects: number; invoices: number; payments: number };
   error?: string;
 }
+interface Economics {
+  measured_spend_usd: number; revenue_inr: number; llm_calls_costed: number;
+  spend_on_founder_avatar_usd: number; spend_on_revenue_work_usd: number;
+  pct_spend_on_founder_avatar: number; agents_logging_cost: number; agents_total: number;
+  untracked_llm_dispatches: number; model_unknown_rows: number; spend_is_a_floor: boolean;
+  coverage_warning: string | null; traceability_warning: string | null; verdict: string;
+  by_agent: { agent: string; calls: number; spend_usd: number; failed: number }[];
+}
 interface StoryData {
   revenue?: Revenue;
   mission?: Mission;
+  economics?: Economics;
   department_status?: DeptStatus[];
   alerts?: SilenceAlert[];
   workforce?: { is_active: boolean; status: string; total_tasks_completed: number | null; tasks_completed: number; name: string; success_rate: number | null; department?: string | null }[];
@@ -70,6 +79,28 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
   const cycle = (data.executive_cycles ?? [])[0];
   const rev = data.revenue ?? { invoices_total: 0, invoiced_inr: 0, received_inr: 0, paid_invoices: 0 };
   const mission = data.mission;
+  const econ = data.economics;
+
+  // Spend and revenue must be readable in one glance. The Constitution makes the
+  // CEO responsible for reducing cost and growing revenue; that is impossible
+  // while the two numbers never appear in the same sentence.
+  const economicsLineage = (e: Economics): LineageSpec => ({
+    title: 'AI spend vs revenue (all time)',
+    value: `$${e.measured_spend_usd.toFixed(2)} spent · ${inr(e.revenue_inr)} earned`,
+    source: 'public.compute_enterprise_economics() over agent_performance_metrics × agent_dispatch_log × company_invoices',
+    derivation:
+      `Spend = SUM(estimated_cost_usd) across every costed LLM execution (${e.llm_calls_costed} calls). Revenue = SUM(company_invoices.amount_received_inr). ` +
+      (e.coverage_warning ? `⚠ ${e.coverage_warning} ` : '') +
+      (e.traceability_warning ? `⚠ ${e.traceability_warning}` : ''),
+    reconciles: false,
+    rows: e.by_agent.map(a => ({
+      primary: a.agent,
+      secondary: a.agent === 'founder-avatar' ? 'the Founder talking to his own avatar — no path to revenue' : undefined,
+      status: a.failed > 0 ? 'failed' : 'completed',
+      meta: `${a.calls} call${a.calls === 1 ? '' : 's'} · $${Number(a.spend_usd ?? 0).toFixed(4)}${a.failed > 0 ? ` · ${a.failed} failed` : ''}`,
+    } as LineageRow)),
+    emptyTruth: 'No LLM execution has ever been costed.',
+  });
   const depts = data.department_status ?? [];
   const silences = data.alerts ?? [];
   const noGo = depts.filter(d => d.status === 'NO_GO');
@@ -290,6 +321,34 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
               </div>
             )}
           </div>
+
+          {/* ── UNIT ECONOMICS: what the enterprise BURNS vs what it EARNS ──
+              The Constitution's only success metric is revenue. This is the one
+              line that makes the ratio impossible to look away from. ── */}
+          {econ && (
+            <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
+              <button onClick={() => setLineage(economicsLineage(econ))}
+                className="w-full text-left cursor-pointer group">
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <span className="text-[10px] uppercase tracking-wider text-slate-500">AI spend vs revenue</span>
+                  <span className="text-sm font-bold text-amber-300 tabular-nums group-hover:underline decoration-dotted underline-offset-4">
+                    {econ.spend_is_a_floor ? '≥ ' : ''}${econ.measured_spend_usd.toFixed(2)} burned
+                  </span>
+                  <span className="text-slate-600 text-xs">→</span>
+                  <span className={`text-sm font-bold tabular-nums ${econ.revenue_inr > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                    {inr(econ.revenue_inr)} earned
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-snug mt-1">{econ.verdict}</p>
+                {econ.spend_is_a_floor && (
+                  <p className="text-[10px] text-amber-400/70 leading-snug mt-0.5">
+                    Spend is a floor, not a total — {econ.agents_logging_cost} of {econ.agents_total} agents log cost;
+                    {' '}{econ.untracked_llm_dispatches.toLocaleString('en-IN')} dispatches were never costed.
+                  </p>
+                )}
+              </button>
+            </div>
+          )}
 
           {/* ── GO / NO-GO CONSOLES (Mission Control: silence is never consent) ── */}
           {depts.length > 0 && (

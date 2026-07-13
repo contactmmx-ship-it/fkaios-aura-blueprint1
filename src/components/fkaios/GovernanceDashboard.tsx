@@ -41,6 +41,14 @@ interface GovData {
   department_activity: { dept: string; total: number; pending: number }[];
   recent_activity: { from_agent: string; to_agent: string; task_description: string; status: string; created_at: string }[];
   workforce?: WorkforceMember[];
+  economics?: {
+    measured_spend_usd: number; revenue_inr: number; llm_calls_costed: number;
+    spend_on_founder_avatar_usd: number; spend_on_revenue_work_usd: number;
+    pct_spend_on_founder_avatar: number; agents_logging_cost: number; agents_total: number;
+    untracked_llm_dispatches: number; model_unknown_rows: number; spend_is_a_floor: boolean;
+    coverage_warning: string | null; traceability_warning: string | null; verdict: string;
+    by_agent: { agent: string; calls: number; spend_usd: number; failed: number }[];
+  };
   departments?: { code: string; name: string; company: string | null; automation_level: number | null; agent_count: number }[];
 }
 
@@ -81,7 +89,12 @@ export default function GovernanceDashboard() {
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || 'governance-dashboard failed');
-      setData(d as GovData);
+      // ENTERPRISE ECONOMICS (Constitution Addendum — the CEO's standing mandate
+      // is to reduce cost and grow revenue; it could do neither while spend and
+      // revenue were never stated in the same place). Read directly via RPC —
+      // no edge-function redeploy needed, the function is granted to authenticated.
+      const { data: econ } = await supabase.rpc('compute_enterprise_economics');
+      setData({ ...(d as GovData), economics: econ ?? undefined });
       setError(null);
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (e) {
