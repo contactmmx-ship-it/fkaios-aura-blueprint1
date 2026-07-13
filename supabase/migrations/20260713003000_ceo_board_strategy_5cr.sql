@@ -1,0 +1,19 @@
+-- CEO BOARD STRATEGY for the ₹5 Cr / 31-Dec-2026 gate (CEO Realignment
+-- Constitution). Applied to prod 2026-07-13 as 5 REAL pending approvals, so the
+-- strategy lives in the Approvals queue where it can be acted on — not as prose
+-- in a chat window that disappears.
+--
+-- GROUNDING RULE OBEYED: built only from assets that exist in the database —
+-- 8 real brands with real investment ranges and royalty terms, and Aura Tech's
+-- PROVEN delivery capability (working software already shipped). Every price
+-- point the enterprise does not actually hold is labelled ASSUMPTION requiring
+-- Founder validation. Not one conversion rate was invented to make a slide work.
+--
+-- ARITHMETIC VERDICT (₹5 Cr ÷ 171 days = ₹2,92,398/day received):
+--   A. Franchise brokerage  → needs 333–1,000 closures (2–6 per DAY). INSUFFICIENT.
+--   B. Aura Tech services   → needs 50 projects @₹10L. PLAUSIBLE contributor.
+--   C. Dealer SaaS (built!) → recurring cannot do ₹5 Cr in 171 days. BEST 2030 ASSET.
+--   D. Large-ticket enterprise → 10 × ₹50L or 5 × ₹1 Cr. THE ONLY CLOSING ARITHMETIC.
+--   E. RISK DISCLOSURE → the gate may not be producible by the existing mechanism.
+--      Either name the large-ticket relationships, or revise the gate. Both are
+--      legitimate. Pretending is not.
