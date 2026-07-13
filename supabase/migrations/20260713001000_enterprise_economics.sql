@@ -1,0 +1,17 @@
+-- ENTERPRISE ECONOMICS + LLM EXECUTION GRAPH (Autonomous Enterprise Operating
+-- Model). Applied to prod 2026-07-13.
+--
+-- 1) agent_performance_metrics gains: model, provider, selection_reason,
+--    prompt_version, retries. NULLABLE and NOT BACKFILLED — the 88 historical
+--    rows cannot have their model proven retroactively, and stamping a guess
+--    onto them would fabricate an audit trail. NULL means "not recorded".
+--    (Vindicated immediately: the avatar runs claude-sonnet-5 while the
+--    qualifier runs claude-sonnet-4-6 — a backfill would have been WRONG.)
+--
+-- 2) compute_enterprise_economics(): spend vs revenue in one sentence, and the
+--    honest caveat that measured spend is a FLOOR — only 3 of 41 agents wrote
+--    cost rows, and 963 agent dispatches were never costed at all.
+--
+-- FIRST VERDICT (real, 2026-07-13): "The enterprise has spent at least $5.49 on
+-- AI and earned ₹0. 100% of every measured dollar went to the Founder talking
+-- to his own avatar, not to work that could produce revenue."

@@ -29,15 +29,32 @@ const CORS = {
 const ok = (d: unknown) => new Response(JSON.stringify(d), { status: 200, headers: CORS });
 const err = (m: string, s = 500) => new Response(JSON.stringify({ error: m }), { status: s, headers: CORS });
 
-async function callAnthropic(key: string, system: string, user: string, maxTokens: number) {
+// LLM EXECUTION GRAPH (Autonomous Enterprise Operating Model):
+// every LLM execution must be traceable — which model, why, what it cost.
+// The Lead Qualifier made 362 real LLM calls and logged ZERO cost rows, so the
+// enterprise literally could not state what it spends. That blind spot closes here.
+const QUALIFIER_MODEL = 'claude-sonnet-4-6';
+const MODEL_RATES: Record<string, { in: number; out: number }> = {
+  'claude-sonnet-4-6': { in: 3, out: 15 },   // USD per 1M tokens
+};
+const MODEL_CHOICE_REASON =
+  'Sonnet chosen for lead BANT scoring: a bounded, structured-JSON classification over a few hundred tokens. Opus-class reasoning would raise cost ~5x for no measurable accuracy gain on this task; Haiku degrades the honesty of low-confidence scoring on thin leads.';
+
+interface LlmResult { text: string; model: string; inputTokens: number; outputTokens: number; costUsd: number; }
+
+async function callAnthropic(key: string, system: string, user: string, maxTokens: number): Promise<LlmResult> {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: maxTokens, system, messages: [{ role: 'user', content: user }] }),
+    body: JSON.stringify({ model: QUALIFIER_MODEL, max_tokens: maxTokens, system, messages: [{ role: 'user', content: user }] }),
   });
   if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const d = await res.json();
-  return (d.content?.[0]?.text ?? '').trim();
+  const inTok = Number(d?.usage?.input_tokens ?? 0);
+  const outTok = Number(d?.usage?.output_tokens ?? 0);
+  const rate = MODEL_RATES[QUALIFIER_MODEL] ?? { in: 0, out: 0 };
+  const costUsd = (inTok / 1_000_000) * rate.in + (outTok / 1_000_000) * rate.out;
+  return { text: (d.content?.[0]?.text ?? '').trim(), model: QUALIFIER_MODEL, inputTokens: inTok, outputTokens: outTok, costUsd };
 }
 
 Deno.serve(async (req) => {
@@ -89,8 +106,16 @@ Deno.serve(async (req) => {
         const label = lead.company_name ?? lead.contact_name ?? lead.id;
         try {
           const system = 'You are the Lead Qualifier AI for Franchise Kart. Score this franchise lead 0-100 on BANT (Budget, Authority, Need, Timeline) fit, using ONLY the real fields given. Missing contact details (no phone, no email, no city, no stated investment capacity) mean low Authority/Budget confidence — score honestly and low for thin, uncontactable leads. Respond with ONLY JSON: {"score": number, "reasoning": "1-2 sentences"}';
-          const raw = await callAnthropic(anthropicKey, system, JSON.stringify(lead), 300);
-          const cleaned = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '');
+          const t0 = Date.now();
+          const llm = await callAnthropic(anthropicKey, system, JSON.stringify(lead), 300);
+          // Cost + model attribution written for EVERY call (was: nothing).
+          await db.from('agent_performance_metrics').insert({
+            agent_id: 'lead-qualifier', task_type: 'qualify_lead', latency_ms: Date.now() - t0,
+            estimated_cost_usd: llm.costUsd, input_tokens: llm.inputTokens, output_tokens: llm.outputTokens,
+            success: true, model: llm.model, provider: 'anthropic',
+            selection_reason: MODEL_CHOICE_REASON, prompt_version: 'qualifier-bant-v1', retries: 0,
+          });
+          const cleaned = llm.text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '');
           const parsed = JSON.parse(cleaned);
           const score = Math.max(0, Math.min(100, Number(parsed.score) || 0));
           // Advance into auto-pilot's EXISTING nurture flow at the same >=40
@@ -104,6 +129,13 @@ Deno.serve(async (req) => {
             `score ${score}${nextStage !== lead.stage ? ` -> ${nextStage}` : ''}: ${parsed.reasoning ?? ''}`);
           scored++;
         } catch (e) {
+          // Failures are costed too — a failed LLM call still burns money, and
+          // hiding that would understate spend exactly where it hurts most.
+          await db.from('agent_performance_metrics').insert({
+            agent_id: 'lead-qualifier', task_type: 'qualify_lead', success: false,
+            model: QUALIFIER_MODEL, provider: 'anthropic', prompt_version: 'qualifier-bant-v1',
+            error_message: e instanceof Error ? e.message : 'unknown error',
+          });
           await logDispatch(agent.id, 'qualify_leads', 'failed', `lead: ${label}`, e instanceof Error ? e.message : 'unknown error');
         }
       }

@@ -1,0 +1,15 @@
+-- MISSION PROGRESS ENGINE — "How close are we to ₹1,100 Cr today?"
+-- (World Class Enterprise Constitution). Applied to prod 2026-07-13.
+--
+-- THE TRAP THIS EXISTS TO AVOID: company_revenue_milestones is HIERARCHICAL.
+-- Bhavishya Associates (holding) carries a ₹1,100 Cr target that is the ROLLUP
+-- of Franchise Kart + Aura Tech + Rajyog Infra (₹366.67 Cr each). A naive
+-- SUM(target_inr) over the table returns ₹2,200 Cr — double-counting the
+-- mission and reporting the gap as HALF its real size. We sum SUBSIDIARY rows
+-- only, and assert reconciliation against the holding target (₹100 tolerance:
+-- exact equality fired a false positive on a ₹1 rounding artifact, and a
+-- warning that cries wolf over ₹1 trains the Founder to ignore all warnings).
+--
+-- Revenue = money RECEIVED, never money invoiced. Forecast at a ₹0 run-rate is
+-- reported as NEVER, not computed by dividing by zero and not faked.
+-- Canonical definition lives in prod; see compute_mission_progress().
