@@ -1,0 +1,25 @@
+-- AURA TECH PRODUCT LIBRARY (Product Factory — mandated highest-priority division).
+-- Applied to prod 2026-07-13.
+--
+-- WHY COMMERCIAL, NOT ADMINISTRATIVE: Aura Tech has already BUILT working systems and
+-- none were listed as sellable assets — so every one is DEAD CAPITAL. You cannot sell
+-- what you cannot list. This converts shipped work into a resellable / white-labelable
+-- portfolio. Strategy B (services) and Strategy C (licensing) both depend on it.
+--
+-- TRUTH POLICY ENFORCED IN THE SCHEMA:
+--   CONSTRAINT evidence_must_be_real CHECK (length(trim(evidence)) > 8)
+-- An asset cannot be catalogued unless it carries proof it exists (edge-function slug,
+-- table, or repo path). Nothing is listed that cannot be pointed at.
+--   list_price_inr is NULL and pricing_status = 'UNKNOWN — FOUNDER MUST SET'.
+-- Pricing is a Founder Approval Gate; a guessed price is a fabricated commercial
+-- commitment.
+--
+-- SEEDED WITH 8 VERIFIED SHIPPED ASSETS (all evidenced, all unpriced):
+--   Inbound Franchise Enquiry Funnel (white-label)  <- sellable to ANY franchisor
+--   AI Revenue Desk (invoicing, human money-gate)
+--   Governance & Silence Monitor (9 silent-failure classes)
+--   LLM Cost & Execution Graph (what did we spend, what did it buy)
+--   Mission Progress Engine (honest revenue grading)
+--   Data Lineage Layer (every number walks back to its row)
+--   CEO Opportunity Engine (grounded, self-thinking backlog)
+--   Proposal Engine (drafts + UNKNOWNS list, forbidden from inventing a price)
