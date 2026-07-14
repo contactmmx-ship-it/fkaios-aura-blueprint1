@@ -1,0 +1,26 @@
+-- ENTERPRISE EVOLUTION ENGINE — the capability that builds future capabilities.
+-- Prod 2026-07-13. cron 'enterprise-evolution-daily' (jobid 37, 04:00 UTC).
+--
+-- The engine — NOT the engineer — now decides what the company builds next.
+-- It grades the enterprise against ITSELF using the company's own honest engines:
+--   compute_workforce_truth / compute_revenue_blockers / compute_enterprise_economics
+--   compute_mission_progress / compute_product_library / ai_jobs failure classes
+--
+-- THE DISCIPLINE THAT KEEPS IT FROM DEGENERATING INTO A WISHLIST:
+--   CONSTRAINT defect_must_be_measured CHECK (length(trim(observed_defect)) > 20)
+-- A capability may ONLY be proposed if it cites a MEASURED defect in live telemetry.
+-- The database physically refuses one that does not. A gap grounded in a hunch is a
+-- feature request — and feature requests are what the Constitution forbids.
+--
+-- priority_score is COMPUTED, never asserted by the model:
+--   (enterprise_value * confidence/100) / max(effort_days,1)
+-- so inflated value paired with an honest confidence cannot game the ranking.
+--
+-- FIRST EVOLUTION CYCLE (real, $0.027, 6 proposed, 0 rejected):
+--   The engine correctly identified 3 of its own proposals as BLOCKED on Founder gates
+--   (pricing x2, customer_comms x1) and did NOT stall on them.
+--   It selected as NEXT UNBLOCKED BUILD (priority 16.72, confidence 95%):
+--     "Full AI Cost Accounting — instrument every agent dispatch to emit a cost row,
+--      making true burn knowable and controllable"
+--   Defect cited: measured spend is a FLOOR; 963 dispatches were never costed.
+--   This is the exact gap flagged in the handoff. The engine found it unaided.
