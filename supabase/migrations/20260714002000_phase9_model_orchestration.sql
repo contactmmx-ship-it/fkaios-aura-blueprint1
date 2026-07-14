@@ -1,0 +1,31 @@
+-- SOFTWARE FACTORY — PHASE 9: EVIDENCE-BASED MODEL ORCHESTRATION. Prod 2026-07-14.
+--
+-- THE DEFECT FIXED IS MY OWN: every engine I built hardcodes 'claude-sonnet-4-6'.
+-- The Constitution says "never use one model because it is available." I did exactly
+-- that, ten times over. Model choice is now a decision WITH EVIDENCE, not a habit.
+--
+-- model_registry     — declared strengths/weaknesses + real token prices
+-- v_model_performance— MEASURED success %, latency and cost per model per task type
+-- compute_model_choice(capability) — picks the CHEAPEST AVAILABLE model that is
+--                      genuinely good at the task, and must justify it
+--
+-- VERIFIED — the router differentiates instead of always answering the same thing:
+--   'architecture'        -> claude-sonnet-4-6
+--   'bulk_classification' -> claude-3-haiku-20240307  (12x cheaper in AND out)
+--   'vision'              -> NO_CAPABLE_MODEL_AVAILABLE (refuses to pick a bad model)
+-- That last one is the important one: it would rather admit a gap than route work to a
+-- model that cannot do it.
+--
+-- HONESTY ABOUT REACH — THE PART THAT MATTERS:
+-- This enterprise holds ONE provider credential (ANTHROPIC_API_KEY). GPT, Gemini,
+-- DeepSeek, Qwen, Llama, Mistral and Grok are REGISTERED and marked BLOCKED — not
+-- because they are worse, but because THE SYSTEM HAS NO KEY FOR THEM. Claiming to
+-- "orchestrate across providers" while physically able to call one would be simulated
+-- capability, which the Truth Constitution forbids. The routing is already correct for
+-- the day a key arrives; it is not pretended today.
+--
+-- NOT DONE, AND NOT CLAIMED: I did NOT auto-switch the qualifier to Haiku to book a
+-- cost saving. evidence_status reads "NO MEASURED EVIDENCE YET" — the choice rests on
+-- DECLARED strengths. Switching a production engine on an unproven claim would be
+-- exactly the "use a model because it is cheap" error, inverted. It needs an A/B, and
+-- the A/B does not exist yet.
