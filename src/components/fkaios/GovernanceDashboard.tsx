@@ -41,6 +41,12 @@ interface GovData {
   department_activity: { dept: string; total: number; pending: number }[];
   recent_activity: { from_agent: string; to_agent: string; task_description: string; status: string; created_at: string }[];
   workforce?: WorkforceMember[];
+  workforce_truth?: {
+    total_employees: number; producing_24h: number; dormant: number; nameplate: number;
+    burning: number; total_llm_spend_usd: number; headline: string; burning_warning: string | null;
+    employees: { name: string; department: string; verdict: string; lifetime_tasks: number;
+      output_24h: number; spend_usd: number; llm_calls: number; llm_failures: number; last_active_at: string | null }[];
+  };
   blockers?: {
     revenue_inr: number; headline: string; exit_that_needs_no_new_data: string;
     chain: { stage: string; count: number; owner_role: string; owner_agent: string; alive: boolean; note?: string }[];
@@ -102,7 +108,10 @@ export default function GovernanceDashboard() {
       // "What is blocking revenue?" — answered from live data, with the OWNING
       // executive named. The Founder should never have to ask this twice.
       const { data: blockers } = await supabase.rpc('compute_revenue_blockers');
-      setData({ ...(d as GovData), economics: econ ?? undefined, blockers: blockers ?? undefined });
+      // EXECUTIVE KPI: grade the workforce against real evidence. "41 AI employees"
+      // is a vanity metric if 37 of them have never completed a task.
+      const { data: workforceTruth } = await supabase.rpc('compute_workforce_truth');
+      setData({ ...(d as GovData), economics: econ ?? undefined, blockers: blockers ?? undefined, workforce_truth: workforceTruth ?? undefined });
       setError(null);
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (e) {

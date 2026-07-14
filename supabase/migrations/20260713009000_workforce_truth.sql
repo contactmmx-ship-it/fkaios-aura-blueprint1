@@ -1,0 +1,20 @@
+-- EXECUTIVE KPI & EMPLOYEE OPERATING SYSTEM (Executive Office engine). Prod 2026-07-13.
+--
+-- THE PROBLEM: 41 AI employees sit on the roster. FOUR have ever produced output. The
+-- org chart is 90% nameplates and nothing in the product admitted it. A Founder reading
+-- "41 AI employees" was reading a vanity metric.
+--
+-- compute_workforce_truth() grades EVERY employee against real evidence — lifetime
+-- output, 24h output, LLM spend, failures, last activity — with deliberately harsh
+-- verdicts. No agent is flattered:
+--   PRODUCING  — completed a dispatch in the last 24h
+--   DORMANT    — has produced before, nothing in 24h
+--   NAMEPLATE  — has NEVER completed a single task in its existence
+--   BURNING    — has spent money and produced NOTHING, ever (the worst class)
+--
+-- LIVE VERDICT (2026-07-13):
+--   "41 AI employees on the roster. 4 produced work in the last 24h. 37 have NEVER
+--    completed a single task. '41 employees' is a vanity metric until that gap closes."
+--
+-- Surfaced on TODAY via the EXISTING LineagePanel — no duplicate dashboard was built.
+-- Reuse, not rebuild.

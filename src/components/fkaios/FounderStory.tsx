@@ -43,8 +43,15 @@ interface Blockers {
   chain: { stage: string; count: number; owner_role: string; owner_agent: string; alive: boolean; note?: string }[];
   first_break?: { stage: string; count: number; owner_role: string; owner_agent: string; note?: string };
 }
+interface WorkforceTruth {
+  total_employees: number; producing_24h: number; dormant: number; nameplate: number;
+  burning: number; total_llm_spend_usd: number; headline: string; burning_warning: string | null;
+  employees: { name: string; department: string; verdict: string; lifetime_tasks: number;
+    output_24h: number; spend_usd: number; llm_calls: number; llm_failures: number; last_active_at: string | null }[];
+}
 interface StoryData {
   revenue?: Revenue;
+  workforce_truth?: WorkforceTruth;
   mission?: Mission;
   economics?: Economics;
   blockers?: Blockers;
@@ -92,6 +99,26 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
   const mission = data.mission;
   const econ = data.economics;
   const blk = data.blockers;
+  const wt = data.workforce_truth;
+
+  // EXECUTIVE KPI: every employee graded against evidence, not roster membership.
+  // PRODUCING / DORMANT / NAMEPLATE / BURNING. No agent is flattered.
+  const workforceLineage = (w: WorkforceTruth): LineageSpec => ({
+    title: 'The AI workforce, graded',
+    value: `${w.producing_24h} of ${w.total_employees} producing`,
+    source: 'public.compute_workforce_truth() over ai_agents × agent_dispatch_log × agent_performance_metrics',
+    derivation:
+      `PRODUCING = completed a dispatch in the last 24h. DORMANT = has produced before, but nothing in 24h. ` +
+      `NAMEPLATE = has NEVER completed a single task in its existence. BURNING = has spent money and produced nothing, ever (the worst class). ` +
+      `${w.headline}` + (w.burning_warning ? ` ⚠ ${w.burning_warning}` : ''),
+    reconciles: false,
+    rows: w.employees.slice(0, 45).map(e => ({
+      primary: e.name,
+      secondary: `${e.department} · ${e.verdict}`,
+      status: e.verdict === 'PRODUCING' ? 'completed' : e.verdict === 'BURNING' ? 'failed' : 'pending',
+      meta: `${e.lifetime_tasks} lifetime · ${e.output_24h} in 24h${e.spend_usd > 0 ? ` · $${Number(e.spend_usd).toFixed(4)}` : ''}${e.llm_failures > 0 ? ` · ${e.llm_failures} LLM failures` : ''}`,
+    } as LineageRow)),
+  });
 
   // "What is blocking revenue?" — a standing, always-current answer with the
   // OWNING EXECUTIVE named. Constitution: every number drills down to source,
@@ -413,6 +440,30 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
               <p className="text-[10px] text-emerald-300/70 leading-snug mt-1.5">
                 Exit that needs no new data: {blk.exit_that_needs_no_new_data}
               </p>
+            </button>
+          )}
+
+          {/* ── EXECUTIVE KPI: the workforce, graded honestly ── */}
+          {wt && (
+            <button onClick={() => setLineage(workforceLineage(wt))}
+              className="mt-2 w-full text-left rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 hover:border-slate-700 cursor-pointer">
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="text-[10px] uppercase tracking-wider text-slate-500">AI workforce</span>
+                <span className={`text-sm font-bold tabular-nums ${wt.producing_24h > 0 ? 'text-emerald-400' : 'text-amber-300'}`}>
+                  {wt.producing_24h}
+                </span>
+                <span className="text-xs text-slate-500">producing of</span>
+                <span className="text-sm font-bold text-white tabular-nums">{wt.total_employees}</span>
+                {wt.nameplate > 0 && (
+                  <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-900">
+                    {wt.nameplate} NAMEPLATE
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-400 leading-snug mt-1">{wt.headline}</p>
+              {wt.burning_warning && (
+                <p className="text-[10px] text-red-400/80 leading-snug mt-0.5">{wt.burning_warning}</p>
+              )}
             </button>
           )}
 
