@@ -62,3 +62,46 @@ it cannot forge a row in `user_roles`.
   Low impact — contacts without a dealer are orphans by definition.
 - `leads.lead_score` and `bant_scores.total` can drift. A trigger to sync them is
   queued for wave 2 rather than bolted on here.
+
+---
+
+# Wave 2 — Backend (9 tasks) — Adversarial Review
+
+## 🔴 BUG 1 — cross-tenant data leak in `/api/leads` dedupe
+The dedupe check used the **service-role** client, which **bypasses RLS**. If a
+*different* owner already held that phone number, the route returned **their**
+`lead_id` to this caller.
+
+A cross-tenant identifier leak, dressed as a harmless dedupe check. It would have
+passed casual review because "dedupe" sounds read-only and benign.
+
+**Fixed:** dedupe now runs through the caller's own RLS context. We can only see, and
+only deduplicate against, rows this user owns.
+
+## 🔴 BUG 2 — unused imports (`chooseModel`, `logLlmCost`) in the leads route
+A compile error, not a style nit. **Fixed.**
+
+## Service-role audit — every `admin()` call must justify itself
+| Call | Justification |
+|---|---|
+| `rpc('public_dealer_directory')` | Public, column-safe SECURITY DEFINER. Commercial columns unreachable. |
+| `llm_cost_ledger.insert` | The ledger must record a call even when there is no user context. An uncosted call is a leak. |
+| `activities.insert` | `owner_user_id` is always passed from `requireUser()` — never from the request body. |
+
+**Rule established:** a service-role call that cannot justify itself in one line is a
+vulnerability waiting to be found by someone else.
+
+## What these routes REFUSE (the design, stated plainly)
+- **Qualifier:** LLM unreachable / unparseable / no reasoning → the lead stays
+  **UNSCORED**. No score is ever invented. A failed call is still **costed** — hiding a
+  failure understates burn exactly where it hurts most.
+- **Qualifier:** no capable model → **503**. It will never silently downgrade to a model
+  that cannot do the job.
+- **Invoice send:** no email provider credential → **503, and the invoice is NOT marked
+  sent.** Marking an invoice sent that nobody sent is the exact fabrication this company
+  exists to refuse.
+- **Lead capture:** unreachable lead → **422**. A lead nobody can contact is not a lead.
+
+## ⚠️ NOT VERIFIED
+Routes are written and reviewed but **not executed** — no Dealer CRM Supabase project
+exists to run them against. **BLOCKED on credentials.**
