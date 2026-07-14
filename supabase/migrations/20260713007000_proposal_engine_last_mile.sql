@@ -1,0 +1,27 @@
+-- PROPOSAL ENGINE — THE FUNNEL'S LAST MILE (Delivery + Finance). Prod 2026-07-13.
+--
+-- THE GAP: a lead that scored >= 40 advanced to 'contacted' and then NOTHING happened.
+-- There was no path from a qualified lead to a proposal, a project, or an invoice.
+-- The company had a mouth (/franchise) and a cash register (Revenue Desk) and nothing
+-- connecting them.
+--
+-- NOW: qualified lead -> drafted proposal (scope, deliverables, assumptions, UNKNOWNS)
+--      -> client_projects row (status 'proposal') -> Founder PRICING GATE.
+-- cron 'proposal-engine-hourly' (jobid 36, :15 past each hour).
+--
+-- THE HARD RULE — PRICING IS A FOUNDER APPROVAL GATE:
+-- The engine is FORBIDDEN from inventing a price. contract_value_inr is written NULL;
+-- the proposal states "PRICE: UNKNOWN — PENDING FOUNDER". A model guessing
+-- "Rs 4,50,000" would be fabricating a COMMERCIAL COMMITMENT — exactly what the Truth
+-- Policy forbids. It is likewise forbidden from inventing facts about the enquirer,
+-- market data, ROI figures or payback periods. Everything it does not know goes into
+-- an explicit UNKNOWNS list, which is the most valuable part of the document.
+-- Nothing is ever sent to a customer by this function.
+--
+-- VERIFIED IN PRODUCTION: with zero qualified leads it returned
+--   {"drafted":0,"message":"No lead has scored >= 40 ... This is a REAL check, not a
+--    skipped one — the funnel is empty because no qualifying enquiry has arrived yet."}
+-- Honest emptiness, not manufactured work. This is the discipline ai-engine lacked
+-- when it fabricated 5,970 completions.
+--
+-- ROTATION NOTE: 15 crons now embed secret=kjhgfdsa.
