@@ -1,0 +1,27 @@
+-- THE REVENUE DEPARTMENT IS NOW OPERATIONAL — the money chain is closed.
+--
+-- Before this: lead -> qualified -> [NOTHING, FOREVER]. 0 client_projects and
+-- 0 invoices had EVER existed. A ₹25L franchisee could enquire, score 60, advance
+-- to 'contacted', and the company would do nothing at all. The Revenue Desk was a
+-- cash register nobody could walk to.
+--
+-- SHIPPED: proposals table + proposal-engine + compute_money_chain() + hourly cron
+-- (jobid 35). A lead clearing BANT>=40 now gets a real client_project opened and a
+-- real proposal drafted from its OWN stated facts and the brand's REAL terms.
+--
+-- THE ONE THING THE ENGINE WILL NOT DO: SET A PRICE.
+-- price_inr stays NULL; price_status = 'UNKNOWN_AWAITING_FOUNDER'. Commercial
+-- pricing is a Founder Approval Gate. A proposal carrying an AI-invented price is a
+-- FABRICATED COMMERCIAL COMMITMENT — the most dangerous artefact this system could
+-- produce, because it looks authoritative and could reach a real customer.
+-- The LLM is explicitly forbidden from stating any fee, ROI promise, payback period
+-- or 'typical franchisee earns X' — we hold no such data. Everything unverifiable
+-- goes into an `assumptions` list that protects the Founder.
+--
+-- VERIFIED: run with an empty pipeline returned "No lead has cleared BANT 40 —
+-- a real check, not a skipped one." It did NOT invent a prospect to look busy.
+--
+-- THE CHAIN NOW READS: enquiry 0 -> qualified 0 -> project 0 -> proposal 0 ->
+-- priced 0 -> invoiced 0 -> paid 0.
+-- "The chain is COMPLETE and EMPTY. Every link now exists. The bottleneck is no
+--  longer capability. It is traffic."
