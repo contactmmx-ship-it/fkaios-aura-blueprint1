@@ -1,0 +1,32 @@
+-- MULTI-EXECUTIVE INTELLIGENCE + ENTERPRISE BRAIN. Prod 2026-07-13.
+-- cron 'executive-brain-daily' (jobid 38, 04:30 UTC).
+--
+-- NOT A DUPLICATE OF evolution-engine (the Constitution forbids duplicate capability,
+-- so this must justify itself):
+--   evolution-engine = ONE voice optimising enterprise value.
+--   executive-brain  = A BOARD. Each executive reasons ONLY from its own narrow mandate
+--                      and is REQUIRED to name who it conflicts with.
+--
+-- WHY THE DISAGREEMENT IS THE PRODUCT: a CFO mandated to PROTECT MARGIN and a CRO
+-- mandated to ACQUIRE REVENUE reach OPPOSITE conclusions from identical telemetry. A
+-- single reasoner averages that tension into "improve cost tracking while pursuing
+-- growth" — advice nobody can act on, and wrong in a specific expensive direction.
+--
+-- THE BRAIN DOES NOT PICK A WINNER. A genuine clash between two mandates is a FOUNDER
+-- decision, not an arithmetic one. compute_brain_arbitration() SURFACES conflicts
+-- unaveraged. It also warns if the board reaches ZERO conflicts — unanimity in a board
+-- is usually a bug, not health.
+--
+-- FIRST BOARD (real, $0.038, 6 executives, 0 rejected) — SPLIT 4-2:
+--   CTO  99% HALT dispatch until cost instrumentation is mandatory      (vs CRO)
+--   CPO  98% 8 of 8 assets UNPRICED = 100% of library is dead capital   (vs CRO, pricing gate)
+--   CFO  97% FREEZE all AI dispatch until cost coverage = 100%          (vs CRO)
+--   COO  96% CULL the ghost workforce: 37 of 41 never completed a task  (vs CRO)
+--   CRO  95% BYPASS the funnel, bill a counterparty we already have     (vs CFO, comms gate)
+--   CMO  93% Both channels live, crawlable, ZERO traffic                (vs CFO, comms gate)
+--
+-- FOUR executives want to fix the house. TWO want to go get money. That is the real
+-- strategic decision facing this company, and it is now legible instead of averaged.
+--
+-- THE CFO'S FREEZE WAS NOT EXECUTED. No engine may halt the company on its own
+-- authority. The Brain surfaces; the Founder arbitrates.
