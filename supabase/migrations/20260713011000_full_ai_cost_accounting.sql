@@ -1,0 +1,35 @@
+-- FULL AI COST ACCOUNTING — built because the EVOLUTION ENGINE selected it
+-- (priority 16.72, confidence 95%, unblocked). NOT chosen by an engineer.
+-- Prod 2026-07-13.
+--
+-- ROOT CAUSE FOUND WHILE BUILDING IT — deeper than the engine knew:
+--   agent_performance_metrics.agent_id holds ENGINE SLUGS  ('lead-qualifier','ceo-engine')
+--   ai_agents.name                     holds HUMAN NAMES   ('Lead Qualifier AI','CEO AI')
+--   THEY NEVER JOIN.
+-- Cost could NEVER be attributed to an employee no matter how many functions were
+-- instrumented. My own first coverage view reported the qualifier at 0% coverage while
+-- 14 cost rows and $0.0247 of real spend sat right there. I caught it because the number
+-- contradicted something I had personally verified — and I did not ship it.
+--
+-- The enterprise's cost ledger and its workforce were two systems that could not see
+-- each other. An enterprise in that state cannot answer the CFO question that matters:
+-- "WHICH EMPLOYEE IS BURNING MONEY?"
+--
+-- SHIPPED:
+--   agent_aliases      — slug -> employee map. No live table renamed (Constitution
+--                        forbids gratuitous renames); no engine rewritten.
+--   v_cost_coverage    — coverage % per agent, computed on RESOLVED identity.
+--   log_llm_cost()     — one RPC; instrumenting a remaining engine is now a one-liner.
+--                        Central model rates: a price change is ONE edit, not twelve.
+--   compute_cost_coverage() — the number the CFO drives to 100%.
+--
+-- HONESTY, NON-NEGOTIABLE:
+--   An UNKNOWN model price yields a NULL cost, never a guessed 0. A zero would silently
+--   UNDERSTATE burn — worse than admitting ignorance.
+--   The 1,188 historical uncosted dispatches are NOT back-estimated. Their cost is
+--   UNKNOWN and stays UNKNOWN forever. Inventing a retroactive figure is precisely the
+--   sin that produced 5,970 fabricated job completions.
+--
+-- TRUE STARTING POSITION (measured, ugly, real):
+--   Cost coverage: 9.1%. Known spend $5.75 is a FLOOR.
+--   executive-intelligence + research-engine LOG but do not COST — spend UNKNOWN.
