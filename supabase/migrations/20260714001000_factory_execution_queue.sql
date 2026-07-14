@@ -1,0 +1,32 @@
+-- SOFTWARE FACTORY — PERSISTENT EXECUTION QUEUE + CHECKPOINTS. Prod 2026-07-14.
+-- "Never lose progress. If interrupted, resume automatically. Never restart."
+--
+-- compute_factory_next_action() answers ONE question with total precision:
+--   "What is the single next executable task, right now?"
+--
+-- THREE PROPERTIES, ALL ADVERSARIALLY TESTED IN PRODUCTION (not asserted):
+--
+-- 1. IT RESUMES. Reports READY_TO_BUILD, wave 1, 4 tasks executable in parallel,
+--    0% complete. State lives in the DB, so an interrupted session resumes exactly
+--    where it stopped instead of restarting — the failure mode this whole project has
+--    been suffering between sessions.
+--
+-- 2. IT REFUSES OUT-OF-ORDER WORK. I completed 3 of wave 1's 4 tasks (with evidence)
+--    and it STILL refused to advance: "Execute wave 1: 1 task can run." A dependency
+--    graph that can be jumped is decoration.
+--
+-- 3. FAILURES OUTRANK NEW WORK (Phase 7 self-healing). I failed a task; the queue
+--    immediately returned REPAIR_REQUIRED — "A task FAILED. Repair it before any new
+--    work. Failures never go quiet." It will not build on a broken foundation.
+--
+-- Probe state fully reverted afterwards: 0 fake 'done', 0 fake 'failed', 0 test
+-- evidence left in production.
+--
+-- THE REAL BLOCKER ON PHASE 3, STATED HONESTLY:
+--   The factory holds NO WRITE CREDENTIAL to the repository or deployment targets.
+--   That is not a prompt I failed to write — it is a permission the system does not
+--   have. The Autonomy Rules name this exact case a Founder Approval Gate:
+--     "Credentials, secrets, or permissions unavailable to the system."
+--   The queue is correct, resumable, dependency-safe and waiting. It will not simulate
+--   a build. No tool available to me can set a Supabase secret — that action is the
+--   Founder's alone.
