@@ -1,0 +1,19 @@
+-- REVENUE ACTION (2026-07-13). The funnel is built end-to-end and EMPTY. The only
+-- action that moves money is putting the /franchise front door in front of humans.
+--
+-- 1) 6 franchise campaign drafts staged as PENDING APPROVALS, one per real franchise
+--    brand (GoMax, Chawla Laboratory, Chaat Masters, Arofur, Gio Paints, Mr. Chick'n).
+--    NOTHING SENT — customer communication is a Founder Approval Gate.
+--    ZERO FABRICATION: every claim is read from the brands table. If a brand has no
+--    investment_range on record, the message asserts none. No invented ROI promises.
+--
+-- 2) FRONT DOOR VERIFIED LIVE from the public internet via pg_net:
+--    GET /franchise -> HTTP 200, page renders, captures investment capacity,
+--    and 'royalty' does NOT appear in the HTML. The link in the drafts is real.
+--
+-- 3) cron 'ceo-think-daily' (jobid 34, 03:30 UTC / 09:00 IST) -> opportunity-engine.
+--    The Constitution requires the backlog never be empty and the CEO think daily.
+--    opportunity-engine had NO CRON — the CEO would have thought ONCE and stopped.
+--    ~$0.05/cycle, fully attributed in the LLM execution graph.
+--
+-- ROTATION NOTE: this is now the 14th cron embedding secret=kjhgfdsa.
