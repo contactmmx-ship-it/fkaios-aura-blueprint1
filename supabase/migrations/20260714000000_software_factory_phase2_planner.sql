@@ -1,0 +1,23 @@
+-- SOFTWARE FACTORY — PHASE 2: THE MANUFACTURING PLANNER. Prod 2026-07-14.
+--
+-- Approved architecture -> epics -> features -> tasks -> dependencies -> parallel
+-- execution WAVES -> AI employee assignment. A wave is a set of mutually independent
+-- tasks: what the factory COULD run simultaneously once Phase 3 exists. That is the
+-- difference between a manufacturing plan and a to-do list.
+--
+-- THE CONSTRAINT THAT MAKES THIS A FACTORY AND NOT THEATRE:
+--   CONSTRAINT done_requires_evidence
+--     CHECK (status <> 'done' OR length(trim(coalesce(evidence,''))) > 8)
+--
+-- ADVERSARIALLY TESTED IN PRODUCTION — I tried to fabricate a completion exactly as the
+-- old ai-engine did 5,970 times:
+--   UPDATE factory_tasks SET status='done' WHERE id = (...);
+--   ERROR: 23514: new row violates check constraint "done_requires_evidence"
+-- A machine in this company can NO LONGER mark work done without an artefact behind it,
+-- even if a future prompt instructs it to. The lesson is a CONSTRAINT, not a promise.
+--
+-- VERIFIED — "Build a Dealer CRM." decomposed:
+--   29 tasks · 132 hours · 5 parallel waves · 15 tasks reuse existing components
+--   0 hallucinated reuse claims (guard held)
+--   0 tasks done. Nothing built. Phase 3 does not exist yet, and the factory SAYS SO
+--   rather than simulating progress.
