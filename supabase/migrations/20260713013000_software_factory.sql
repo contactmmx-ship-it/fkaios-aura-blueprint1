@@ -1,0 +1,29 @@
+-- SOFTWARE FACTORY — Component Marketplace + Manufacturing Intake. Prod 2026-07-13.
+--
+-- SCOPE HONESTY, STATED FIRST: this ships the INTAKE + PLANNING half of the factory —
+-- the half that can be built truthfully today and VERIFIED. Autonomous code generation,
+-- testing and deployment are NOT shipped and are NOT claimed. Every project is stamped
+-- automation_status = 'PLAN ONLY'. A machine will never mark a project 'deployed' that
+-- it did not deploy — that is exactly the fabrication that produced 5,970 fake job
+-- completions, and the factory is built to be incapable of repeating it.
+--
+-- component_library: 10 REAL reusable components, each carrying EVIDENCE
+--   (CHECK constraint refuses one without it). "Reuse before rebuild" is unenforceable
+--   without an inventory.
+-- software_projects: the manufacturing record. price_inr NULL (Founder gate).
+-- factory-intake v2: Founder sentence -> business analysis, architecture, data model,
+--   API surface, UI scope, REUSE decisions, effort, LLM cost, and a mandatory UNKNOWNS
+--   list. Raises an approval. Builds nothing.
+--
+-- FALSE POSITIVE IN MY OWN GUARD, CAUGHT ON THE FIRST REAL RUN (v1 -> v2):
+--   The prompt listed components as "- Public Lead Capture [pipeline]: ...", so the
+--   model echoed names WITH the [kind] suffix. My exact-match hallucination guard then
+--   declared ALL TEN REAL COMPONENTS "DOES NOT EXIST" and reclassified them as new.
+--   Left alone the factory would have reported 0% reuse FOREVER and rebuilt everything
+--   the company already owns — destroying the precise margin it exists to protect.
+--   Names are now NORMALISED (strip [kind], trim, case-insensitive). The guard remains;
+--   it simply no longer fires on my own formatting.
+--
+-- VERIFIED — "Build a Dealer CRM.":
+--   10 components REUSED, 3 new required, 8 UNKNOWNS, 18 days. 77% reuse.
+--   Price: UNKNOWN — Founder gate. Nothing built.
