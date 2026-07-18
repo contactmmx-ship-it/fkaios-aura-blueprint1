@@ -703,6 +703,45 @@ export async function getGoals(userId: string): Promise<Goal[]> {
   return rows.filter((r) => r.content?.kind === "goal").map((r) => r.content as unknown as Goal);
 }
 
+// ──────────────────────────────────────────────
+// Working Memory wiring for think() — EVOLUTION AUDIT FINDING (2026-07-18):
+// same pattern as the goal-hierarchy and knowledge-retrieval fixes.
+// founderMemory.working.get()/.set() has existed since Sprint 2, backed by
+// real brain_messages/brain_conversations tables, and had ZERO callers
+// anywhere in the codebase — grep-confirmed before writing this. "Working
+// Memory" is explicitly named in the Constitution's cognition list as
+// something that should exist; it existed and was simply never connected.
+//
+// RISK, handled explicitly rather than assumed away: brain_messages.
+// conversation_id almost certainly has a real foreign key to
+// brain_conversations.id (brain-engine's own code always creates a
+// conversation via insert().select().single() before referencing it by
+// id, never by an arbitrary string) — so working memory can't just be
+// keyed by a fixed string like "founder-brain-internal-monologue" without
+// a real row existing first. This helper finds-or-creates that one real
+// row, and is wrapped so that if brain_conversations has constraints this
+// guess doesn't satisfy (e.g. a user_id FK to auth.users this synthetic
+// "founder" identity can't satisfy), the failure is caught and think()
+// simply proceeds without working-memory context that cycle — exactly the
+// same graceful-degradation pattern every other memory call in this file
+// already uses. Never breaks reasoning to gain a memory feature.
+let cachedBrainMonologueId: string | null | undefined; // undefined = not yet attempted this process lifetime
+async function getOrCreateBrainMonologueConversation(): Promise<string | null> {
+  if (cachedBrainMonologueId !== undefined) return cachedBrainMonologueId;
+  try {
+    const client = getFounderBrainClient();
+    const { data: existing } = await client.from("brain_conversations").select("id").eq("title", "Founder Brain Internal Monologue").limit(1).maybeSingle();
+    if (existing?.id) { cachedBrainMonologueId = existing.id; return existing.id; }
+    const { data: created, error } = await client.from("brain_conversations").insert({ title: "Founder Brain Internal Monologue" }).select("id").single();
+    if (error || !created?.id) { cachedBrainMonologueId = null; return null; }
+    cachedBrainMonologueId = created.id;
+    return created.id;
+  } catch {
+    cachedBrainMonologueId = null;
+    return null;
+  }
+}
+
 // ── think() — synthesize current state from grounded context + recent
 //    episodic history + stored goals. Stores the insight, doesn't just
 //    return it — this is memory-as-cognition, not memory-as-lookup. ──
@@ -716,19 +755,24 @@ export async function think(userId: string, topic = "current state of the busine
   // learned or ingested. This closes that: relevant knowledge is now
   // retrieved automatically as part of thinking, not as a separate step
   // something has to remember to ask for.
-  const [context, goals, recentEvents, relevantKnowledge] = await Promise.all([
+  const monologueId = await getOrCreateBrainMonologueConversation();
+  const [context, goals, recentEvents, relevantKnowledge, priorThoughts] = await Promise.all([
     buildContext({ userId }, correlationId),
     getGoals(userId),
     founderMemory.episodic.query({}),
     founderMemory.knowledge.search(topic),
+    monologueId ? founderMemory.working.get(monologueId) : Promise.resolve(null),
   ]);
   const result = await reason(
-    "You are the Founder Brain thinking — not answering a question, reasoning about the business proactively. Ground every claim in the provided context, goals, recent activity, and relevant prior knowledge. If something is missing data, say so instead of guessing.",
-    `THINK ABOUT: ${topic}\n\nGOALS:\n${JSON.stringify(goals)}\n\nRECENT ACTIVITY (last 50 events):\n${JSON.stringify(recentEvents.slice(0, 20))}\n\nRELEVANT PRIOR KNOWLEDGE:\n${JSON.stringify(relevantKnowledge).slice(0, 2000)}\n\nGROUNDED CONTEXT:\n${JSON.stringify(context).slice(0, 6000)}`,
+    "You are the Founder Brain thinking — not answering a question, reasoning about the business proactively. Ground every claim in the provided context, goals, recent activity, and relevant prior knowledge. If you were just thinking about something related, build on it rather than repeating it. If something is missing data, say so instead of guessing.",
+    `THINK ABOUT: ${topic}\n\nWHAT I WAS JUST THINKING (short-term/working memory):\n${JSON.stringify(priorThoughts).slice(0, 1500)}\n\nGOALS:\n${JSON.stringify(goals)}\n\nRECENT ACTIVITY (last 50 events):\n${JSON.stringify(recentEvents.slice(0, 20))}\n\nRELEVANT PRIOR KNOWLEDGE:\n${JSON.stringify(relevantKnowledge).slice(0, 2000)}\n\nGROUNDED CONTEXT:\n${JSON.stringify(context).slice(0, 6000)}`,
     1200,
     correlationId,
   );
   try { await founderMemory.permanent.set(userId, { kind: "insight", topic, text: result.text, created_at: new Date().toISOString() }); } catch { /* logged inside permanent.set */ }
+  if (monologueId) {
+    try { await founderMemory.working.set(monologueId, { role: "assistant", content: `[${topic}] ${result.text}`.slice(0, 2000) }); } catch { /* logged inside working.set; never blocks think()'s real return value */ }
+  }
   return result.text;
 }
 
