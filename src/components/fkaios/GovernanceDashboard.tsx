@@ -102,13 +102,14 @@ export default function GovernanceDashboard() {
   const [brainBrief, setBrainBrief] = useState<{
     priorities: any[]; observations: any[]; learning: any[]; recommendations: any[];
     assignedWork: any[]; pendingApprovals: any[]; activeProjects: any[]; departments: any[]; workforce: any[];
+    velocity: { last24h: number; last7d: number };
   } | null>(null);
   const [brainBriefLoading, setBrainBriefLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
-        const [memRes, workRes, apprRes, projRes, deptRes, deptObjRes, agentRes] = await Promise.all([
+        const [memRes, workRes, apprRes, projRes, deptRes, deptObjRes, agentRes, velocity24Res, velocity7Res] = await Promise.all([
           supabase.from('founder_memory').select('content, updated_at').order('updated_at', { ascending: false }).limit(50),
           supabase.from('orchestrator_requests').select('id, raw_request, department_code, status, created_at').eq('requested_by', 'founder-brain').order('created_at', { ascending: false }).limit(6),
           supabase.from('approvals').select('id, action_type, reason, risk_level, created_at').eq('status', 'pending').order('created_at', { ascending: false }).limit(6),
@@ -116,6 +117,9 @@ export default function GovernanceDashboard() {
           supabase.from('departments').select('code, name, automation_level').eq('is_active', true),
           supabase.from('orchestrator_requests').select('department_code, status').eq('requested_by', 'founder-brain'),
           supabase.from('ai_agents').select('id, name, department, dept, status, is_active, autonomy_level, success_rate, total_tasks_completed').eq('is_active', true).order('name').limit(30),
+          // SPRINT 9 (M1-S9) — Work Engine velocity: real completed-job counts, not a fabricated trend.
+          supabase.from('ai_jobs').select('id', { count: 'exact', head: true }).eq('status', 'completed').eq('type', 'work_engine_task').gte('updated_at', new Date(Date.now() - 86400000).toISOString()),
+          supabase.from('ai_jobs').select('id', { count: 'exact', head: true }).eq('status', 'completed').eq('type', 'work_engine_task').gte('updated_at', new Date(Date.now() - 7 * 86400000).toISOString()),
         ]);
         const mem = (memRes.data || []).map((r: any) => r.content).filter(Boolean);
         // Progress per project — real aggregation from orchestration_tasks, not a fabricated number.
@@ -148,6 +152,7 @@ export default function GovernanceDashboard() {
           activeProjects,
           departments,
           workforce,
+          velocity: { last24h: velocity24Res.count || 0, last7d: velocity7Res.count || 0 },
         });
       } catch (e) {
         console.error('Founder Brain brief load failed:', e);
@@ -210,7 +215,10 @@ export default function GovernanceDashboard() {
     <div className="p-6 space-y-6">
       {!brainBriefLoading && brainBrief && (
         <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-blue-900/40 rounded-xl p-5 space-y-4">
-          <h2 className="text-sm font-semibold text-white flex items-center gap-2"><Brain size={16} className="text-blue-400" /> Founder Brain Brief</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-white flex items-center gap-2"><Brain size={16} className="text-blue-400" /> Founder Brain Brief</h2>
+            <div className="text-xs text-slate-400">Work velocity: <span className="text-emerald-400">{brainBrief.velocity.last24h}</span>/24h · <span className="text-emerald-400">{brainBrief.velocity.last7d}</span>/7d</div>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
             <div>
               <div className="text-slate-500 uppercase tracking-wide mb-1.5">Today's priorities</div>
