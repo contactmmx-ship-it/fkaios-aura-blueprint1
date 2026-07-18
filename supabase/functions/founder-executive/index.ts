@@ -38,6 +38,26 @@ import {
   verifyEnvSecrets,
   verifyJWT,
 } from "../_shared/utils.ts";
+// SPRINT 1 (M1-S1) — FOUNDER BRAIN CANONICALIZATION.
+// This function is the most complete existing "founder brain" logic in the
+// codebase (real data grounding + honesty protocol), so it was chosen as the
+// source the canonical shared service (`_shared/founder-brain.ts`) was
+// ported FROM. This import closes the loop: founder-executive now delegates
+// to that shared service instead of keeping its own duplicate copy, per the
+// frozen rule "never create duplicate implementations." Every call site
+// below (fetchRevenueData(brandId, cid), callLLM(...), etc.) is unchanged —
+// only the function BODIES a few lines down now delegate instead of
+// reimplementing.
+import {
+  fetchRevenueDataFor,
+  fetchLeadPipelineFor,
+  fetchMeetingsFor,
+  fetchMilestonesFor,
+  fetchPaymentsFor,
+  fetchFounderMemoryFor,
+  fetchKnowledgeBaseFor,
+  callLLMFor,
+} from "../_shared/founder-brain.ts";
 import { recordMetric } from "../_shared/metrics.ts";
 
 // ──────────────────────────────────────────────
@@ -91,7 +111,10 @@ interface RevenueReviewRequest {
 
 interface DataSourceResult {
   source: string;
-  status: "success" | "error" | "no_data";
+  // SPRINT 1: widened to match _shared/founder-brain.ts's DataSourceResult
+  // ("unconfigured" added) since fetch* functions now return that shared
+  // type directly.
+  status: "success" | "error" | "no_data" | "unconfigured";
   data?: unknown;
   error?: string;
 }
@@ -129,108 +152,15 @@ async function callLLM(
   maxTokens: number,
   cid: string
 ): Promise<LLMResult> {
-  if (anthropicApiKey) {
-    try {
-      const model = "claude-3-haiku-20240307";
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "x-api-key": anthropicApiKey,
-          "anthropic-version": "2023-06-01",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: maxTokens,
-          system: systemPrompt,
-          messages: [{ role: "user", content: userContent }],
-        }),
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        structuredLog("ERROR", "Anthropic API error", { status: response.status, body: text.substring(0, 500) }, cid);
-        throw new Error(`Anthropic API error: ${response.status} ${text.substring(0, 200)}`);
-      }
-
-      const data = await response.json();
-      const inputTokens = data?.usage?.input_tokens ?? 0;
-      const outputTokens = data?.usage?.output_tokens ?? 0;
-
-      await recordMetric(supabase, "ai_tokens_used", inputTokens + outputTokens, {
-        function: "founder-executive",
-        model,
-        provider: "anthropic",
-        endpoint: "ask",
-      });
-
-      return {
-        text: data?.content?.[0]?.text ?? "",
-        inputTokens,
-        outputTokens,
-        model,
-        provider: "anthropic",
-      };
-    } catch (err) {
-      if (err instanceof Error && err.message.startsWith("Anthropic API error")) throw err;
-      structuredLog("ERROR", "Anthropic fetch failed", { error: err instanceof Error ? err.message : "unknown" }, cid);
-      throw err;
-    }
-  }
-
-  if (openaiApiKey) {
-    try {
-      const model = "gpt-4o-mini";
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${openaiApiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: maxTokens,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userContent },
-          ],
-        }),
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        structuredLog("ERROR", "OpenAI API error", { status: response.status, body: text.substring(0, 500) }, cid);
-        throw new Error(`OpenAI API error: ${response.status} ${text.substring(0, 200)}`);
-      }
-
-      const data = await response.json();
-      const inputTokens = data?.usage?.prompt_tokens ?? 0;
-      const outputTokens = data?.usage?.completion_tokens ?? 0;
-
-      await recordMetric(supabase, "ai_tokens_used", inputTokens + outputTokens, {
-        function: "founder-executive",
-        model,
-        provider: "openai",
-        endpoint: "ask",
-      });
-
-      return {
-        text: data?.choices?.[0]?.message?.content ?? "",
-        inputTokens,
-        outputTokens,
-        model,
-        provider: "openai",
-      };
-    } catch (err) {
-      if (err instanceof Error && err.message.startsWith("OpenAI API error")) throw err;
-      structuredLog("ERROR", "OpenAI fetch failed", { error: err instanceof Error ? err.message : "unknown" }, cid);
-      throw err;
-    }
-  }
-
-  throw new Error(
-    "No LLM API key configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY as Edge Function secrets."
-  );
+  // SPRINT 1: delegates to the canonical Founder Brain reason() (shared
+  // module) instead of the inline Anthropic/OpenAI logic that used to live
+  // here. The shared version is a strict superset (adds a Gemini fallback
+  // between Anthropic and OpenAI) so this call site keeps working unchanged.
+  // recordMetric()/token-accounting that lived in the old inline branches is
+  // intentionally NOT duplicated here — that instrumentation stays owned by
+  // the shared module going forward, not re-added per-caller.
+  const result = await callLLMFor(systemPrompt, userContent, maxTokens, cid);
+  return { text: result.text, inputTokens: result.inputTokens, outputTokens: result.outputTokens, model: result.model, provider: result.provider === "gemini" ? "anthropic" : result.provider };
 }
 
 // ──────────────────────────────────────────────
@@ -241,44 +171,9 @@ async function fetchKnowledgeBase(
   brandId: string | null,
   cid: string
 ): Promise<DataSourceResult> {
-  try {
-    const { data: brands } = await supabase
-      .from("brands")
-      .select("id")
-      .limit(5);
-
-    const brandIds = brandId
-      ? [brandId]
-      : (brands ?? []).map((b: { id: string }) => b.id);
-
-    // Query knowledge chunks directly from the database
-    // (mimics knowledge-search without requiring the edge function to be deployed)
-    const results: Array<Record<string, unknown>> = [];
-
-    for (const bid of brandIds.slice(0, 3)) {
-      const { data: chunks } = await supabase
-        .from("knowledge_chunks")
-        .select("content, chunk_index, document_id, documents(title), knowledge_sources(name)")
-        .eq("brand_id", bid)
-        .limit(3);
-
-      if (chunks) {
-        for (const chunk of chunks) {
-          results.push(chunk);
-        }
-      }
-    }
-
-    if (results.length === 0) {
-      return { source: "knowledge_base", status: "no_data", data: null, error: "No matching knowledge entries found" };
-    }
-
-    return { source: "knowledge_base", status: "success", data: results };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    structuredLog("ERROR", "Knowledge base fetch failed", { error: msg }, cid);
-    return { source: "knowledge_base", status: "error", data: null, error: msg };
-  }
+  // SPRINT 1 (M1-S1): delegates to the canonical Founder Brain shared
+  // service instead of a local duplicate implementation.
+  return await fetchKnowledgeBaseFor(question, brandId, cid);
 }
 
 // ──────────────────────────────────────────────
@@ -288,30 +183,9 @@ async function fetchRevenueData(
   brandId: string | null,
   cid: string
 ): Promise<DataSourceResult> {
-  try {
-    // Fetch from revenue_snapshots
-    let query = supabase
-      .from("revenue_snapshots")
-      .select("*, brands(name)")
-      .order("period_start", { ascending: false })
-      .limit(6);
-
-    if (brandId) {
-      query = query.eq("brand_id", brandId);
-    }
-
-    const { data: snapshots } = await query;
-
-    if (!snapshots || snapshots.length === 0) {
-      return { source: "revenue_snapshots", status: "no_data", data: null, error: "No revenue snapshots found" };
-    }
-
-    return { source: "revenue_snapshots", status: "success", data: snapshots };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    structuredLog("ERROR", "Revenue data fetch failed", { error: msg }, cid);
-    return { source: "revenue_snapshots", status: "error", data: null, error: msg };
-  }
+  // SPRINT 1 (M1-S1): delegates to the canonical Founder Brain shared
+  // service instead of a local duplicate implementation.
+  return await fetchRevenueDataFor(brandId, cid);
 }
 
 // ──────────────────────────────────────────────
@@ -321,52 +195,9 @@ async function fetchLeadPipeline(
   brandId: string | null,
   cid: string
 ): Promise<DataSourceResult> {
-  try {
-    let query = supabase
-      .from("leads")
-      .select("id, name, stage, brand_id, assigned_to, created_at, investment_capacity, brands(name)")
-      .eq("is_active", true)
-      .order("created_at", { ascending: false })
-      .limit(20);
-
-    if (brandId) {
-      query = query.eq("brand_id", brandId);
-    }
-
-    const { data: leads } = await query;
-
-    if (!leads || leads.length === 0) {
-      return { source: "lead_pipeline", status: "no_data", data: null, error: "No active leads found" };
-    }
-
-    // Also fetch lifecycle data
-    const leadIds = leads.map((l: { id: string }) => l.id);
-    const { data: lifecycles } = await supabase
-      .from("lead_lifecycle")
-      .select("*, agent_lifecycle_stages(name)")
-      .in("lead_id", leadIds);
-
-    const pipelineData = {
-      leads,
-      lifecycles: lifecycles ?? [],
-      summary: {
-        total: leads.length,
-        byStage: leads.reduce(
-          (acc: Record<string, number>, l: { stage: string }) => {
-            acc[l.stage] = (acc[l.stage] || 0) + 1;
-            return acc;
-          },
-          {} as Record<string, number>
-        ),
-      },
-    };
-
-    return { source: "lead_pipeline", status: "success", data: pipelineData };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    structuredLog("ERROR", "Lead pipeline fetch failed", { error: msg }, cid);
-    return { source: "lead_pipeline", status: "error", data: null, error: msg };
-  }
+  // SPRINT 1 (M1-S1): delegates to the canonical Founder Brain shared
+  // service instead of a local duplicate implementation.
+  return await fetchLeadPipelineFor(brandId, cid);
 }
 
 // ──────────────────────────────────────────────
@@ -376,33 +207,9 @@ async function fetchMeetings(
   consultantId: string | null,
   cid: string
 ): Promise<DataSourceResult> {
-  try {
-    const today = new Date().toISOString().split("T")[0];
-    const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
-
-    let query = supabase
-      .from("meetings")
-      .select("*, leads(name, brands(name)), consultants(name)")
-      .gte("scheduled_at", today)
-      .lte("scheduled_at", tomorrow)
-      .order("scheduled_at", { ascending: true });
-
-    if (consultantId) {
-      query = query.eq("consultant_id", consultantId);
-    }
-
-    const { data: meetings } = await query;
-
-    if (!meetings || meetings.length === 0) {
-      return { source: "meetings", status: "no_data", data: null, error: "No meetings today or tomorrow" };
-    }
-
-    return { source: "meetings", status: "success", data: meetings };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    structuredLog("ERROR", "Meetings fetch failed", { error: msg }, cid);
-    return { source: "meetings", status: "error", data: null, error: msg };
-  }
+  // SPRINT 1 (M1-S1): delegates to the canonical Founder Brain shared
+  // service instead of a local duplicate implementation.
+  return await fetchMeetingsFor(consultantId, cid);
 }
 
 // ──────────────────────────────────────────────
@@ -412,29 +219,9 @@ async function fetchMilestones(
   brandId: string | null,
   cid: string
 ): Promise<DataSourceResult> {
-  try {
-    let query = supabase
-      .from("strategic_milestones")
-      .select("*, brands(name)")
-      .neq("status", "cancelled")
-      .order("target_date", { ascending: true });
-
-    if (brandId) {
-      query = query.eq("brand_id", brandId);
-    }
-
-    const { data: milestones } = await query;
-
-    if (!milestones || milestones.length === 0) {
-      return { source: "strategic_milestones", status: "no_data", data: null, error: "No active milestones found" };
-    }
-
-    return { source: "strategic_milestones", status: "success", data: milestones };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    structuredLog("ERROR", "Milestones fetch failed", { error: msg }, cid);
-    return { source: "strategic_milestones", status: "error", data: null, error: msg };
-  }
+  // SPRINT 1 (M1-S1): delegates to the canonical Founder Brain shared
+  // service instead of a local duplicate implementation.
+  return await fetchMilestonesFor(brandId, cid);
 }
 
 // ──────────────────────────────────────────────
@@ -444,29 +231,9 @@ async function fetchPayments(
   brandId: string | null,
   cid: string
 ): Promise<DataSourceResult> {
-  try {
-    let query = supabase
-      .from("payments")
-      .select("*, invoices(id, amount, status), leads(name, brands(name))")
-      .order("created_at", { ascending: false })
-      .limit(15);
-
-    if (brandId) {
-      query = query.eq("brand_id", brandId);
-    }
-
-    const { data: payments } = await query;
-
-    if (!payments || payments.length === 0) {
-      return { source: "payments", status: "no_data", data: null, error: "No recent payments found" };
-    }
-
-    return { source: "payments", status: "success", data: payments };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    structuredLog("ERROR", "Payments fetch failed", { error: msg }, cid);
-    return { source: "payments", status: "error", data: null, error: msg };
-  }
+  // SPRINT 1 (M1-S1): delegates to the canonical Founder Brain shared
+  // service instead of a local duplicate implementation.
+  return await fetchPaymentsFor(brandId, cid);
 }
 
 // ──────────────────────────────────────────────
@@ -476,24 +243,9 @@ async function fetchFounderMemory(
   userId: string,
   cid: string
 ): Promise<DataSourceResult> {
-  try {
-    const { data: memories } = await supabase
-      .from("founder_memory")
-      .select("*")
-      .eq("created_by", userId)
-      .order("updated_at", { ascending: false })
-      .limit(20);
-
-    if (!memories || memories.length === 0) {
-      return { source: "founder_memory", status: "no_data", data: null, error: "No stored memory entries" };
-    }
-
-    return { source: "founder_memory", status: "success", data: memories };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    structuredLog("ERROR", "Founder memory fetch failed", { error: msg }, cid);
-    return { source: "founder_memory", status: "error", data: null, error: msg };
-  }
+  // SPRINT 1 (M1-S1): delegates to the canonical Founder Brain shared
+  // service instead of a local duplicate implementation.
+  return await fetchFounderMemoryFor(userId, cid);
 }
 
 // ──────────────────────────────────────────────
