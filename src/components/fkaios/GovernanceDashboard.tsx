@@ -101,18 +101,20 @@ export default function GovernanceDashboard() {
   // approvals (blockers now share the same pending-approvals list).
   const [brainBrief, setBrainBrief] = useState<{
     priorities: any[]; observations: any[]; learning: any[]; recommendations: any[];
-    assignedWork: any[]; pendingApprovals: any[]; activeProjects: any[];
+    assignedWork: any[]; pendingApprovals: any[]; activeProjects: any[]; departments: any[];
   } | null>(null);
   const [brainBriefLoading, setBrainBriefLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
-        const [memRes, workRes, apprRes, projRes] = await Promise.all([
+        const [memRes, workRes, apprRes, projRes, deptRes, deptObjRes] = await Promise.all([
           supabase.from('founder_memory').select('content, updated_at').order('updated_at', { ascending: false }).limit(50),
           supabase.from('orchestrator_requests').select('id, raw_request, department_code, status, created_at').eq('requested_by', 'founder-brain').order('created_at', { ascending: false }).limit(6),
           supabase.from('approvals').select('id, action_type, reason, risk_level, created_at').eq('status', 'pending').order('created_at', { ascending: false }).limit(6),
           supabase.from('orchestration_projects').select('id, request, status').like('request', '[objective:%').order('id', { ascending: false }).limit(6),
+          supabase.from('departments').select('code, name, automation_level').eq('is_active', true),
+          supabase.from('orchestrator_requests').select('department_code, status').eq('requested_by', 'founder-brain'),
         ]);
         const mem = (memRes.data || []).map((r: any) => r.content).filter(Boolean);
         // Progress per project — real aggregation from orchestration_tasks, not a fabricated number.
@@ -123,6 +125,14 @@ export default function GovernanceDashboard() {
           const done = (tasks || []).filter((t: any) => t.status === 'done' || t.status === 'approved').length;
           return { ...p, total, done, percent: total > 0 ? Math.round((done / total) * 100) : 0 };
         }));
+        // SPRINT 7 (M1-S7) — AI Departments workload: real counts of what the
+        // Founder Brain has actually assigned to each department, traced
+        // from orchestrator_requests.department_code (no new table).
+        const deptObjectives = deptObjRes.data || [];
+        const departments = (deptRes.data || []).map((d: any) => {
+          const own = deptObjectives.filter((o: any) => o.department_code === d.code);
+          return { ...d, active: own.filter((o: any) => o.status === 'processing').length, total: own.length };
+        });
         setBrainBrief({
           priorities: mem.filter((c: any) => c.kind === 'goal'),
           observations: mem.filter((c: any) => c.kind === 'insight' || c.kind === 'imagination').slice(0, 3),
@@ -131,6 +141,7 @@ export default function GovernanceDashboard() {
           assignedWork: workRes.data || [],
           pendingApprovals: apprRes.data || [],
           activeProjects,
+          departments,
         });
       } catch (e) {
         console.error('Founder Brain brief load failed:', e);
@@ -238,6 +249,20 @@ export default function GovernanceDashboard() {
                   </div>
                 ))}
             </div>
+          </div>
+          <div className="pt-2 border-t border-slate-800">
+            <div className="text-slate-500 uppercase tracking-wide mb-1.5 text-xs">AI Departments</div>
+            {brainBrief.departments.length === 0 ? <div className="text-slate-600 text-xs">No active departments configured</div> : (
+              <div className="flex flex-wrap gap-2">
+                {brainBrief.departments.map((d: any) => (
+                  <div key={d.code} className="bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-1.5 text-xs">
+                    <span className="text-slate-300 font-medium">{d.name}</span>
+                    <span className="text-slate-600"> · L{d.automation_level}</span>
+                    {d.total > 0 && <span className="text-blue-400"> · {d.active} active / {d.total} total</span>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
