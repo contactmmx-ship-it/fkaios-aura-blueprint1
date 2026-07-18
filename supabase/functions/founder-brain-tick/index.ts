@@ -77,6 +77,15 @@ Deno.serve(async (req: Request) => {
     // that exact same failure-isolation while actually running them
     // concurrently instead of one-at-a-time. This does not change what
     // each function does — only when they run relative to each other.
+    // MEASUREMENT, not fabrication: real wall-clock time for the parallel
+    // block below, so the tick's response can honestly report a Parallel
+    // Execution Summary (explicitly requested) — tasks executed, how many
+    // succeeded/failed, and how long the concurrent batch actually took.
+    // Deliberately does NOT claim a "vs sequential" savings number — that
+    // would require summing 5 individual per-task durations this code
+    // doesn't capture, and estimating one would be exactly the kind of
+    // fabricated value the Token Economy section explicitly forbids.
+    const parallelStartedAt = Date.now();
     const [escalateResult, reassignResult, returnResult, reflectResult, intuitionResult] = await Promise.allSettled([
       escalateBlocked(result.correlationId),
       reassignStuckWork(),
@@ -84,6 +93,14 @@ Deno.serve(async (req: Request) => {
       reflect("founder", result.correlationId),
       buildIntuition("founder"),
     ]);
+    const parallelWallClockMs = Date.now() - parallelStartedAt;
+    const parallelResults = [escalateResult, reassignResult, returnResult, reflectResult, intuitionResult];
+    const parallelExecutionSummary = {
+      tasksExecuted: parallelResults.length,
+      tasksSucceeded: parallelResults.filter((r) => r.status === "fulfilled").length,
+      tasksFailed: parallelResults.filter((r) => r.status === "rejected").length,
+      wallClockMs: parallelWallClockMs,
+    };
 
     // SPRINT 6: check for blocked work every cycle, not just when the brain
     // happens to assign something new this tick.
@@ -117,7 +134,7 @@ Deno.serve(async (req: Request) => {
     if (intuitionResult.status === "fulfilled") intuitionPatterns = intuitionResult.value.length;
     else console.error("founder-brain-tick: buildIntuition failed", intuitionResult.reason instanceof Error ? intuitionResult.reason.message : String(intuitionResult.reason));
 
-    return new Response(JSON.stringify({ ...result, planned, allocated, escalated, reassigned, returned, dispatched, reflection, intuitionPatterns }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ ...result, planned, allocated, escalated, reassigned, returned, dispatched, reflection, intuitionPatterns, parallelExecutionSummary }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("founder-brain-tick error:", msg);
