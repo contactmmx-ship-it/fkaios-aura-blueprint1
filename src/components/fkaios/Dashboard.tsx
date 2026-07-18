@@ -84,51 +84,6 @@ export default function Dashboard() {
   const [targets, setTargets] = useState<any[]>([]);
   const [actuals, setActuals] = useState<any[]>([]);
 
-  // SPRINT 5 (M1-S5) — Founder Workspace. This is the Founder Brain's own
-  // output (founder_memory / orchestrator_requests / approvals /
-  // departments / ai_agents — all tables the brain already reads/writes,
-  // per Sprint 2-4), surfaced here so Dashboard becomes the home screen the
-  // founder actually asked for, instead of a new "Founder Workspace"
-  // component. No new table, no new backend call, no new file.
-  const [brainBrief, setBrainBrief] = useState<{
-    priorities: any[]; observations: any[]; learning: any[]; recommendations: any[];
-    assignedWork: any[]; pendingApprovals: any[]; activeDepartments: number; activeAgents: number;
-  } | null>(null);
-  const [brainBriefLoading, setBrainBriefLoading] = useState(true);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const [memRes, workRes, apprRes, deptRes, agentRes] = await Promise.all([
-          supabase.from('founder_memory').select('content, updated_at').order('updated_at', { ascending: false }).limit(50),
-          supabase.from('orchestrator_requests').select('id, raw_request, department_code, status, created_at').eq('requested_by', 'founder-brain').order('created_at', { ascending: false }).limit(8),
-          supabase.from('approvals').select('id, action_type, reason, risk_level, created_at').eq('status', 'pending').order('created_at', { ascending: false }).limit(8),
-          supabase.from('departments').select('id', { count: 'exact', head: true }).eq('is_active', true),
-          supabase.from('ai_agents').select('id', { count: 'exact', head: true }).eq('is_active', true),
-        ]);
-        const mem = (memRes.data || []).map((r: any) => r.content).filter(Boolean);
-        setBrainBrief({
-          // "Today's priorities" — the goal hierarchy the brain evaluates every decision against (Sprint 3).
-          priorities: mem.filter((c: any) => c.kind === 'goal'),
-          // Risks/opportunities the brain has actually surfaced — real insight/imagination entries, not a fabricated split the data doesn't support.
-          observations: mem.filter((c: any) => c.kind === 'insight' || c.kind === 'imagination').slice(0, 4),
-          // "Recent learning" — real worldLearn() output (Sprint 3), only ever written when genuinely new (deduped before storage).
-          learning: mem.filter((c: any) => c.kind === 'world_learning').slice(0, 4),
-          // "Strategic recommendations" — versioned, explainable Constitution amendments (Sprint 3's proposeAmendment()).
-          recommendations: mem.filter((c: any) => c.kind === 'constitution_amendment').slice(0, 4),
-          assignedWork: workRes.data || [],
-          pendingApprovals: apprRes.data || [],
-          activeDepartments: deptRes.count || 0,
-          activeAgents: agentRes.count || 0,
-        });
-      } catch (e) {
-        console.error('Founder Brain brief load failed:', e);
-      } finally {
-        setBrainBriefLoading(false);
-      }
-    })();
-  }, []);
-
   useEffect(() => {
     supabase.from('companies').select('id, name, company_type').then(({ data }) => setCompanies(data || []));
     supabase.from('company_annual_targets').select('company_id, year, revenue_target_inr').then(({ data }) => setTargets(data || []));
@@ -283,69 +238,6 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      {/* SPRINT 5 (M1-S5) — Founder Brain Brief. This is the home-screen
-          content the founder asked for: what the brain currently thinks
-          deserves attention, surfaced from real data the brain itself
-          already writes (Sprints 2-4) — not a new dashboard, not a mock. */}
-      {!brainBriefLoading && brainBrief && (
-        <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-blue-900/40 rounded-xl p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-              <Zap size={16} className="text-blue-400" /> Founder Brain Brief
-            </h2>
-            <div className="flex gap-4 text-xs text-slate-400">
-              <span>{brainBrief.activeDepartments} active departments</span>
-              <span>{brainBrief.activeAgents} active AI employees</span>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
-            <div>
-              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Today's priorities (goal hierarchy)</div>
-              {brainBrief.priorities.length === 0 ? <div className="text-slate-600">No goals seeded yet</div> :
-                brainBrief.priorities.map((g: any, i: number) => (
-                  <div key={i} className="text-slate-300 mb-1">• {g.description} {g.deadline ? <span className="text-slate-500">({g.deadline})</span> : null}</div>
-                ))}
-            </div>
-            <div>
-              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Assigned work (this cycle)</div>
-              {brainBrief.assignedWork.length === 0 ? <div className="text-slate-600">Nothing assigned yet</div> :
-                brainBrief.assignedWork.slice(0, 4).map((w: any) => (
-                  <div key={w.id} className="text-slate-300 mb-1 truncate">• {w.raw_request} <span className="text-slate-500">[{w.department_code || '—'}/{w.status}]</span></div>
-                ))}
-            </div>
-            <div>
-              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Pending approvals</div>
-              {brainBrief.pendingApprovals.length === 0 ? <div className="text-slate-600">None pending</div> :
-                brainBrief.pendingApprovals.slice(0, 4).map((a: any) => (
-                  <div key={a.id} className="text-amber-400/90 mb-1 truncate">• {a.action_type} <span className="text-slate-500">({a.risk_level})</span></div>
-                ))}
-            </div>
-            <div>
-              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Recent observations</div>
-              {brainBrief.observations.length === 0 ? <div className="text-slate-600">Nothing observed yet</div> :
-                brainBrief.observations.map((o: any, i: number) => (
-                  <div key={i} className="text-slate-300 mb-1 line-clamp-2">• {(o.text || '').slice(0, 140)}</div>
-                ))}
-            </div>
-            <div>
-              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Recent learning</div>
-              {brainBrief.learning.length === 0 ? <div className="text-slate-600">Nothing learned yet</div> :
-                brainBrief.learning.map((l: any, i: number) => (
-                  <div key={i} className="text-slate-300 mb-1 line-clamp-2">• [{l.source}] {(l.text || '').slice(0, 120)}</div>
-                ))}
-            </div>
-            <div>
-              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Strategic recommendations</div>
-              {brainBrief.recommendations.length === 0 ? <div className="text-slate-600">No amendments proposed yet</div> :
-                brainBrief.recommendations.map((r: any, i: number) => (
-                  <div key={i} className="text-slate-300 mb-1 line-clamp-2">• v{r.version} [{r.area}] {(r.change || '').slice(0, 120)}</div>
-                ))}
-            </div>
-          </div>
-          <div className="text-[10px] text-slate-600">Revenue, leads, and company health are below — this brief is the Founder Brain's own reasoning, not a duplicate of it.</div>
-        </div>
-      )}
-
       <div className="flex flex-wrap items-center gap-2">
         <button onClick={() => setSelectedCompanyId('all')}
           className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${selectedCompanyId === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}>

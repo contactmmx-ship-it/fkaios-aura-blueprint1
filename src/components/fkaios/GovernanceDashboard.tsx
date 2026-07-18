@@ -95,21 +95,34 @@ export default function GovernanceDashboard() {
   // (founder_memory / orchestrator_requests / approvals — Sprints 2-4),
   // additive to the existing governance-dashboard fetch below, not a
   // replacement of it.
+  // SPRINT 6 (M1-S6): extended with the Executive Planner's output —
+  // orchestration_projects/orchestration_tasks (the existing orchestrator's
+  // own tables, reused, not a new "projects" system) and escalated
+  // approvals (blockers now share the same pending-approvals list).
   const [brainBrief, setBrainBrief] = useState<{
     priorities: any[]; observations: any[]; learning: any[]; recommendations: any[];
-    assignedWork: any[]; pendingApprovals: any[];
+    assignedWork: any[]; pendingApprovals: any[]; activeProjects: any[];
   } | null>(null);
   const [brainBriefLoading, setBrainBriefLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
-        const [memRes, workRes, apprRes] = await Promise.all([
+        const [memRes, workRes, apprRes, projRes] = await Promise.all([
           supabase.from('founder_memory').select('content, updated_at').order('updated_at', { ascending: false }).limit(50),
           supabase.from('orchestrator_requests').select('id, raw_request, department_code, status, created_at').eq('requested_by', 'founder-brain').order('created_at', { ascending: false }).limit(6),
           supabase.from('approvals').select('id, action_type, reason, risk_level, created_at').eq('status', 'pending').order('created_at', { ascending: false }).limit(6),
+          supabase.from('orchestration_projects').select('id, request, status').like('request', '[objective:%').order('id', { ascending: false }).limit(6),
         ]);
         const mem = (memRes.data || []).map((r: any) => r.content).filter(Boolean);
+        // Progress per project — real aggregation from orchestration_tasks, not a fabricated number.
+        const projects = projRes.data || [];
+        const activeProjects = await Promise.all(projects.map(async (p: any) => {
+          const { data: tasks } = await supabase.from('orchestration_tasks').select('status').eq('project_id', p.id);
+          const total = tasks?.length || 0;
+          const done = (tasks || []).filter((t: any) => t.status === 'done' || t.status === 'approved').length;
+          return { ...p, total, done, percent: total > 0 ? Math.round((done / total) * 100) : 0 };
+        }));
         setBrainBrief({
           priorities: mem.filter((c: any) => c.kind === 'goal'),
           observations: mem.filter((c: any) => c.kind === 'insight' || c.kind === 'imagination').slice(0, 3),
@@ -117,6 +130,7 @@ export default function GovernanceDashboard() {
           recommendations: mem.filter((c: any) => c.kind === 'constitution_amendment').slice(0, 3),
           assignedWork: workRes.data || [],
           pendingApprovals: apprRes.data || [],
+          activeProjects,
         });
       } catch (e) {
         console.error('Founder Brain brief load failed:', e);
@@ -210,6 +224,19 @@ export default function GovernanceDashboard() {
               <div className="text-slate-500 uppercase tracking-wide mb-1.5">Strategic recommendations</div>
               {brainBrief.recommendations.length === 0 ? <div className="text-slate-600">No amendments proposed yet</div> :
                 brainBrief.recommendations.map((r: any, i: number) => <div key={i} className="text-slate-300 mb-1 line-clamp-2">• v{r.version} [{r.area}] {(r.change || '').slice(0, 120)}</div>)}
+            </div>
+            <div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Active projects (Executive Planner)</div>
+              {brainBrief.activeProjects.length === 0 ? <div className="text-slate-600">No projects planned yet</div> :
+                brainBrief.activeProjects.map((p: any) => (
+                  <div key={p.id} className="mb-1.5">
+                    <div className="text-slate-300 truncate">• {p.request.replace(/^\[objective:[^\]]+\]\s*/, '')} <span className="text-slate-500">[{p.status}]</span></div>
+                    <div className="h-1 bg-slate-800 rounded-full mt-0.5 overflow-hidden">
+                      <div className="h-full bg-blue-500" style={{ width: `${p.percent}%` }} />
+                    </div>
+                    <div className="text-slate-600 text-[10px]">{p.done}/{p.total} tasks done</div>
+                  </div>
+                ))}
             </div>
           </div>
         </div>
