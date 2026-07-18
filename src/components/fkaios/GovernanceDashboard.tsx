@@ -105,6 +105,7 @@ export default function GovernanceDashboard() {
     velocity: { last24h: number; last7d: number };
     companyOs: { successCount: number; errorCount: number; successRate: number | null; recentFailures: any[] };
     reflections: any[];
+    intuition: any[];
   } | null>(null);
   const [brainBriefLoading, setBrainBriefLoading] = useState(true);
 
@@ -155,6 +156,7 @@ export default function GovernanceDashboard() {
           learning: mem.filter((c: any) => c.kind === 'world_learning').slice(0, 3),
           recommendations: mem.filter((c: any) => c.kind === 'constitution_amendment').slice(0, 3),
           reflections: mem.filter((c: any) => c.kind === 'reflection').slice(0, 2),
+          intuition: (mem.find((c: any) => c.kind === 'intuition')?.patterns || []).slice(0, 5),
           assignedWork: workRes.data || [],
           pendingApprovals: apprRes.data || [],
           activeProjects,
@@ -282,6 +284,16 @@ export default function GovernanceDashboard() {
                     <div className="text-emerald-400/90 line-clamp-1">✓ {(r.whatWorked || '').slice(0, 100)}</div>
                     <div className="text-red-400/80 line-clamp-1">✗ {(r.whatFailed || '').slice(0, 100)}</div>
                     <div className="text-slate-400 line-clamp-1">→ {(r.recommendedChange || '').slice(0, 100)}</div>
+                  </div>
+                ))}
+            </div>
+            <div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Business intuition (statistical, min. 5 observations)</div>
+              {brainBrief.intuition.length === 0 ? <div className="text-slate-600">Not enough recorded outcomes yet to form intuition</div> :
+                brainBrief.intuition.map((p: any, i: number) => (
+                  <div key={i} className="text-slate-300 mb-1 flex items-center justify-between gap-2">
+                    <span className="truncate">{p.taskType}</span>
+                    <span className={p.confidence >= 60 ? 'text-emerald-400' : p.confidence >= 40 ? 'text-amber-400' : 'text-red-400'}>{p.confidence}% <span className="text-slate-600">({p.sampleSize})</span></span>
                   </div>
                 ))}
             </div>
