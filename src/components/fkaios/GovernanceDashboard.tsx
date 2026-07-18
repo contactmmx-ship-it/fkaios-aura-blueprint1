@@ -101,20 +101,21 @@ export default function GovernanceDashboard() {
   // approvals (blockers now share the same pending-approvals list).
   const [brainBrief, setBrainBrief] = useState<{
     priorities: any[]; observations: any[]; learning: any[]; recommendations: any[];
-    assignedWork: any[]; pendingApprovals: any[]; activeProjects: any[]; departments: any[];
+    assignedWork: any[]; pendingApprovals: any[]; activeProjects: any[]; departments: any[]; workforce: any[];
   } | null>(null);
   const [brainBriefLoading, setBrainBriefLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
-        const [memRes, workRes, apprRes, projRes, deptRes, deptObjRes] = await Promise.all([
+        const [memRes, workRes, apprRes, projRes, deptRes, deptObjRes, agentRes] = await Promise.all([
           supabase.from('founder_memory').select('content, updated_at').order('updated_at', { ascending: false }).limit(50),
           supabase.from('orchestrator_requests').select('id, raw_request, department_code, status, created_at').eq('requested_by', 'founder-brain').order('created_at', { ascending: false }).limit(6),
           supabase.from('approvals').select('id, action_type, reason, risk_level, created_at').eq('status', 'pending').order('created_at', { ascending: false }).limit(6),
           supabase.from('orchestration_projects').select('id, request, status').like('request', '[objective:%').order('id', { ascending: false }).limit(6),
           supabase.from('departments').select('code, name, automation_level').eq('is_active', true),
           supabase.from('orchestrator_requests').select('department_code, status').eq('requested_by', 'founder-brain'),
+          supabase.from('ai_agents').select('id, name, department, dept, status, is_active, autonomy_level, success_rate, total_tasks_completed').eq('is_active', true).order('name').limit(30),
         ]);
         const mem = (memRes.data || []).map((r: any) => r.content).filter(Boolean);
         // Progress per project — real aggregation from orchestration_tasks, not a fabricated number.
@@ -133,6 +134,10 @@ export default function GovernanceDashboard() {
           const own = deptObjectives.filter((o: any) => o.department_code === d.code);
           return { ...d, active: own.filter((o: any) => o.status === 'processing').length, total: own.length };
         });
+        // SPRINT 8 (M1-S8) — AI Employees: the existing ai_agents workforce,
+        // grouped by department. Not a new table — same one 15+ engines
+        // already write to (ai-engine, auto-agents-engine, orchestrator...).
+        const workforce = agentRes.data || [];
         setBrainBrief({
           priorities: mem.filter((c: any) => c.kind === 'goal'),
           observations: mem.filter((c: any) => c.kind === 'insight' || c.kind === 'imagination').slice(0, 3),
@@ -142,6 +147,7 @@ export default function GovernanceDashboard() {
           pendingApprovals: apprRes.data || [],
           activeProjects,
           departments,
+          workforce,
         });
       } catch (e) {
         console.error('Founder Brain brief load failed:', e);
@@ -259,6 +265,25 @@ export default function GovernanceDashboard() {
                     <span className="text-slate-300 font-medium">{d.name}</span>
                     <span className="text-slate-600"> · L{d.automation_level}</span>
                     {d.total > 0 && <span className="text-blue-400"> · {d.active} active / {d.total} total</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="pt-2 border-t border-slate-800">
+            <div className="text-slate-500 uppercase tracking-wide mb-1.5 text-xs">AI Employees</div>
+            {brainBrief.workforce.length === 0 ? <div className="text-slate-600 text-xs">No active employees found</div> : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-1.5">
+                {brainBrief.workforce.map((e: any) => (
+                  <div key={e.id} className="bg-slate-900/60 border border-slate-800 rounded-lg px-2.5 py-1.5 text-[11px] flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-slate-300 truncate">{e.name}</div>
+                      <div className="text-slate-600 truncate">{e.department || e.dept || '—'} · {e.status || 'idle'}</div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-blue-400">{e.success_rate != null ? `${Math.round(e.success_rate)}%` : '—'}</div>
+                      <div className="text-slate-600">{e.total_tasks_completed ?? 0} done</div>
+                    </div>
                   </div>
                 ))}
               </div>
