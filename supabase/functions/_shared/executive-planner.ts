@@ -767,6 +767,7 @@ export interface BrainState {
   confidence: IntuitionPattern[];
   recentReflection: Reflection | null;
   learningTrend: LearningTrend;
+  intelligenceIndex: BrainIntelligenceIndex;
   runningTasks: { pendingTasks: number; assignedTasks: number; pendingJobs: number; runningJobs: number };
   pendingApprovals: { total: number; highOrCritical: number };
   executiveAttention: AttentionItem[];
@@ -776,16 +777,18 @@ export interface BrainState {
 export async function getBrainState(userId = "founder"): Promise<BrainState> {
   const client = getClient();
 
-  const [currentGoals, capabilityHealth, confidence, reflectionHistory, learningTrend, taskCounts, jobCounts, approvalsData] = await Promise.all([
+  const [currentGoals, capabilityHealth, confidence, reflectionHistory, learningTrend, providerPerformance, taskCounts, jobCounts, approvalsData] = await Promise.all([
     getGoals(userId),
     getCapabilityGraph(),
     buildIntuition(userId),
     getReflectionHistory(userId),
     getLearningTrend(),
+    getProviderPerformance(),
     client.from("orchestration_tasks").select("status").in("status", ["pending", "assigned"]),
     client.from("ai_jobs").select("status").in("status", ["pending", "running"]).eq("type", "work_engine_task"),
     client.from("approvals").select("id, risk_level").eq("status", "pending"),
   ]);
+  const intelligenceIndex = computeBrainIntelligenceIndex(learningTrend, confidence, providerPerformance, currentGoals);
 
   const tasks = taskCounts.data ?? [];
   const jobs = jobCounts.data ?? [];
@@ -810,6 +813,7 @@ export async function getBrainState(userId = "founder"): Promise<BrainState> {
     confidence,
     recentReflection: reflectionHistory.length > 0 ? reflectionHistory[reflectionHistory.length - 1] : null,
     learningTrend,
+    intelligenceIndex,
     runningTasks: {
       pendingTasks: tasks.filter((t: { status: string }) => t.status === "pending").length,
       assignedTasks: tasks.filter((t: { status: string }) => t.status === "assigned").length,
@@ -857,4 +861,76 @@ export async function getLearningTrend(windowHours = 24): Promise<LearningTrend>
   // recordOutcome() records success as value 1, failure as value 0 (see the
   // work-engine.ts fix this same commit) — avg IS the success rate directly.
   return { windowHours, totalOutcomes: summary.count, successRate: Math.round(summary.avg * 100) };
+}
+
+// ============================================================================
+// BRAIN INTELLIGENCE INDEX — measured from real evidence, honest about gaps
+// ============================================================================
+// "Every capability receives a score from real evidence. Never estimate.
+// Never fabricate." Taken literally: most of the requested dimensions
+// (Thinking, Reasoning, Creativity, Curiosity, Reflection quality, Self
+// Awareness, Wisdom, Risk Awareness quality) have NO quantitative signal
+// anywhere in this codebase — they produce text, not a measurable score.
+// Rather than invent a number for them, this function scores ONLY the
+// dimensions that have real, existing, evidence-backed metrics — every
+// other dimension is returned as `null` with an explicit reason, not a
+// guessed value. A BII with 5 real numbers and 11 honest "no evidence"
+// entries is more useful, and more honest, than 16 numbers where 11 are
+// invented to fill the format.
+//
+// REUSE, not new instrumentation: every score below comes from a function
+// that already existed before this commit (getLearningTrend, buildIntuition,
+// getProviderPerformance, getGoals). Nothing new is measured here — this
+// is the first thing that reads several existing measurements together.
+export interface BrainIntelligenceIndex {
+  learning: { score: number | null; basis: string };
+  confidence: { score: number | null; basis: string };
+  executionReliability: { score: number | null; basis: string };
+  missionAlignment: { score: number | null; basis: string };
+  unmeasured: string[]; // dimensions with no real evidence — named honestly, not scored
+  computedAt: string;
+}
+
+export function computeBrainIntelligenceIndex(learningTrend: LearningTrend, patterns: IntuitionPattern[], providers: ProviderPerformance[], goals: Goal[]): BrainIntelligenceIndex {
+  const confidenceScores = patterns.filter((p) => p.confidence !== null).map((p) => p.confidence as number);
+  const avgConfidence = confidenceScores.length > 0 ? Math.round(confidenceScores.reduce((a, b) => a + b, 0) / confidenceScores.length) : null;
+
+  const providerRates = providers.filter((p) => p.successRate !== null).map((p) => p.successRate as number);
+  const avgProviderReliability = providerRates.length > 0 ? Math.round(providerRates.reduce((a, b) => a + b, 0) / providerRates.length) : null;
+
+  // Mission alignment: literal, not estimated — the milestones ARE the two
+  // goals seedGoalHierarchy() writes (₹5 Cr, ₹1,100 Cr). Score = whether
+  // they're actually present, not a qualitative judgment of "how aligned."
+  const milestoneKeywords = ["5 crore", "1,100 crore", "1100 crore"];
+  const milestonesPresent = milestoneKeywords.filter((kw) => goals.some((g) => g.description.toLowerCase().includes(kw))).length;
+  const missionAlignmentScore = goals.length > 0 ? Math.round((Math.min(milestonesPresent, 2) / 2) * 100) : null;
+
+  return {
+    learning: { score: learningTrend.successRate, basis: learningTrend.successRate !== null ? `${learningTrend.totalOutcomes} real outcomes, last 24h` : `only ${learningTrend.totalOutcomes} outcomes recorded — below the evidence floor` },
+    confidence: { score: avgConfidence, basis: confidenceScores.length > 0 ? `averaged across ${confidenceScores.length} task-type patterns with sufficient sample size` : "no task type has reached the 5-observation floor yet" },
+    executionReliability: { score: avgProviderReliability, basis: providerRates.length > 0 ? `averaged across ${providerRates.length} reasoning providers with sufficient call history` : "no provider has reached the 5-call floor yet" },
+    missionAlignment: { score: missionAlignmentScore, basis: goals.length > 0 ? `${milestonesPresent}/2 stated milestones (₹5 Cr, ₹1,100 Cr) present in the goal hierarchy` : "goal hierarchy is empty" },
+    unmeasured: [
+      "Thinking (produces text, not a score)", "Reasoning quality (no ground-truth to grade against)",
+      "Prediction accuracy (predictions aren't checked against real outcomes yet)", "Planning quality (no completion-vs-plan comparison exists)",
+      "Creativity/Curiosity (no evaluation criteria defined)", "Reflection quality (reflect() output isn't scored, only generated)",
+      "Risk Awareness quality (assessedRisk exists but isn't checked against real incident outcomes)", "Self Awareness (Brain State exists but isn't itself scored)",
+      "Wisdom (no long-horizon outcome-tracking exists to measure this against)",
+    ],
+    computedAt: new Date().toISOString(),
+  };
+}
+
+// Standalone entry point — fetches fresh data. Only call this directly
+// (e.g. from a future dedicated report endpoint), never from inside
+// getBrainState(), which already has all 4 inputs and calls
+// computeBrainIntelligenceIndex() directly on its own already-fetched data.
+export async function getBrainIntelligenceIndex(userId = "founder"): Promise<BrainIntelligenceIndex> {
+  const [learningTrend, patterns, providers, goals] = await Promise.all([
+    getLearningTrend(),
+    buildIntuition(userId),
+    getProviderPerformance(),
+    getGoals(userId),
+  ]);
+  return computeBrainIntelligenceIndex(learningTrend, patterns, providers, goals);
 }
