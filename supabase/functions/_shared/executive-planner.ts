@@ -771,7 +771,7 @@ export async function getCapabilityGraph(): Promise<CapabilityGraph> {
 // papered over with an invented urgency score.
 // ============================================================================
 export interface AttentionItem {
-  type: "approval" | "goal";
+  type: "approval" | "goal" | "learning";
   description: string;
   urgency: "urgent" | "normal";
   reason: string;
@@ -816,6 +816,16 @@ export async function getBrainState(userId = "founder"): Promise<BrainState> {
   const executiveAttention: AttentionItem[] = [];
   for (const a of highRiskApprovals.slice(0, 3)) {
     executiveAttention.push({ type: "approval", description: `Pending ${a.risk_level}-risk approval (${a.id})`, urgency: "urgent", reason: "high/critical risk items outrank everything else the Brain is tracking" });
+  }
+  // COGNITION FIRST LAW test 3 (Influences Cognition), applied to Learning
+  // specifically: before this, learningTrend only ever appeared in
+  // reports (Brain State, Brain Intelligence Index) — it never changed
+  // what the Brain considered worth attending to. A real, evidence-backed
+  // decline (not a guess — same 5-sample floor as everywhere else in this
+  // file) now becomes an urgent attention item, second only to pending
+  // risk approvals.
+  if (learningTrend.successRate !== null && learningTrend.successRate < 50) {
+    executiveAttention.push({ type: "learning", description: `Recent execution success rate has dropped to ${learningTrend.successRate}% (${learningTrend.totalOutcomes} outcomes, last ${learningTrend.windowHours}h)`, urgency: "urgent", reason: "a declining success rate is evidence something in execution needs review, not just a number to report later" });
   }
   if (executiveAttention.length === 0 && currentGoals.length > 0) {
     // Honest fallback, not an invented ranking: if nothing urgent is
