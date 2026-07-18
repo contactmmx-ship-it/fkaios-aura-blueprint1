@@ -104,6 +104,7 @@ export default function GovernanceDashboard() {
     assignedWork: any[]; pendingApprovals: any[]; activeProjects: any[]; departments: any[]; workforce: any[];
     velocity: { last24h: number; last7d: number };
     companyOs: { successCount: number; errorCount: number; successRate: number | null; recentFailures: any[] };
+    reflections: any[];
   } | null>(null);
   const [brainBriefLoading, setBrainBriefLoading] = useState(true);
 
@@ -153,6 +154,7 @@ export default function GovernanceDashboard() {
           observations: mem.filter((c: any) => c.kind === 'insight' || c.kind === 'imagination').slice(0, 3),
           learning: mem.filter((c: any) => c.kind === 'world_learning').slice(0, 3),
           recommendations: mem.filter((c: any) => c.kind === 'constitution_amendment').slice(0, 3),
+          reflections: mem.filter((c: any) => c.kind === 'reflection').slice(0, 2),
           assignedWork: workRes.data || [],
           pendingApprovals: apprRes.data || [],
           activeProjects,
@@ -271,6 +273,17 @@ export default function GovernanceDashboard() {
               <div className="text-slate-500 uppercase tracking-wide mb-1.5">Strategic recommendations</div>
               {brainBrief.recommendations.length === 0 ? <div className="text-slate-600">No amendments proposed yet</div> :
                 brainBrief.recommendations.map((r: any, i: number) => <div key={i} className="text-slate-300 mb-1 line-clamp-2">• v{r.version} [{r.area}] {(r.change || '').slice(0, 120)}</div>)}
+            </div>
+            <div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Reflection — what the company learned (24h)</div>
+              {brainBrief.reflections.length === 0 ? <div className="text-slate-600">No reflection yet — needs real activity to reflect on</div> :
+                brainBrief.reflections.map((r: any, i: number) => (
+                  <div key={i} className="mb-1.5">
+                    <div className="text-emerald-400/90 line-clamp-1">✓ {(r.whatWorked || '').slice(0, 100)}</div>
+                    <div className="text-red-400/80 line-clamp-1">✗ {(r.whatFailed || '').slice(0, 100)}</div>
+                    <div className="text-slate-400 line-clamp-1">→ {(r.recommendedChange || '').slice(0, 100)}</div>
+                  </div>
+                ))}
             </div>
             <div>
               <div className="text-slate-500 uppercase tracking-wide mb-1.5">Active projects (Executive Planner)</div>
