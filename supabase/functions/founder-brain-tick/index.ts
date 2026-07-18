@@ -66,54 +66,56 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // PARALLEL EXECUTION (permanent constitution rule 8): escalateBlocked,
+    // reassignStuckWork, returnCompletedWork, reflect, and buildIntuition
+    // read/write DIFFERENT data (blocked orchestration_tasks/projects;
+    // failed ai_jobs; completed ai_jobs; execution_log+agent_performance_
+    // metrics+orchestration_tasks; agent_performance_metrics) and none of
+    // their outputs feed each other's inputs within this tick — they were
+    // already independently try/catch'd (one failing never blocked the
+    // others), just needlessly sequential. Promise.allSettled preserves
+    // that exact same failure-isolation while actually running them
+    // concurrently instead of one-at-a-time. This does not change what
+    // each function does — only when they run relative to each other.
+    const [escalateResult, reassignResult, returnResult, reflectResult, intuitionResult] = await Promise.allSettled([
+      escalateBlocked(result.correlationId),
+      reassignStuckWork(),
+      returnCompletedWork(),
+      reflect("founder", result.correlationId),
+      buildIntuition("founder"),
+    ]);
+
     // SPRINT 6: check for blocked work every cycle, not just when the brain
     // happens to assign something new this tick.
     let escalated = 0;
-    try {
-      escalated = (await escalateBlocked(result.correlationId)).escalated;
-    } catch (err) {
-      console.error("founder-brain-tick: escalateBlocked failed", err instanceof Error ? err.message : String(err));
-    }
+    if (escalateResult.status === "fulfilled") escalated = escalateResult.value.escalated;
+    else console.error("founder-brain-tick: escalateBlocked failed", escalateResult.reason instanceof Error ? escalateResult.reason.message : String(escalateResult.reason));
 
     // SPRINT 9: Work Engine housekeeping — runs every cycle regardless of
     // whether anything new was assigned this tick, same as escalation.
     let reassigned = 0;
+    if (reassignResult.status === "fulfilled") reassigned = reassignResult.value.reassigned;
+    else console.error("founder-brain-tick: reassignStuckWork failed", reassignResult.reason instanceof Error ? reassignResult.reason.message : String(reassignResult.reason));
+
     let returned = 0;
     let dispatched = 0;
-    try {
-      reassigned = (await reassignStuckWork()).reassigned;
-    } catch (err) {
-      console.error("founder-brain-tick: reassignStuckWork failed", err instanceof Error ? err.message : String(err));
-    }
-    try {
-      // SPRINT 11: returnCompletedWork() now also reports how many
-      // completions triggered a real Company OS business-action dispatch.
-      const workReturn = await returnCompletedWork();
-      returned = workReturn.returned;
-      dispatched = workReturn.dispatched;
-    } catch (err) {
-      console.error("founder-brain-tick: returnCompletedWork failed", err instanceof Error ? err.message : String(err));
-    }
+    // SPRINT 11: returnCompletedWork() also reports how many completions
+    // triggered a real Company OS business-action dispatch.
+    if (returnResult.status === "fulfilled") { returned = returnResult.value.returned; dispatched = returnResult.value.dispatched; }
+    else console.error("founder-brain-tick: returnCompletedWork failed", returnResult.reason instanceof Error ? returnResult.reason.message : String(returnResult.reason));
 
     // SPRINT 13: company-wide Reflection every cycle — a single reason()
     // call, cheap enough for the hot loop (unlike Curiosity's paid Apify
     // dispatches, deliberately kept on a separate slower schedule).
     let reflection: { version: number; recommendedChange: string } | null = null;
-    try {
-      const r = await reflect("founder", result.correlationId);
-      if (r) reflection = { version: r.version, recommendedChange: r.recommendedChange };
-    } catch (err) {
-      console.error("founder-brain-tick: reflect failed", err instanceof Error ? err.message : String(err));
-    }
+    if (reflectResult.status === "fulfilled" && reflectResult.value) reflection = { version: reflectResult.value.version, recommendedChange: reflectResult.value.recommendedChange };
+    else if (reflectResult.status === "rejected") console.error("founder-brain-tick: reflect failed", reflectResult.reason instanceof Error ? reflectResult.reason.message : String(reflectResult.reason));
 
     // SPRINT 14: Business Intuition — pure statistical aggregation over
     // agent_performance_metrics, no LLM call, no cost concern for the hot loop.
     let intuitionPatterns = 0;
-    try {
-      intuitionPatterns = (await buildIntuition("founder")).length;
-    } catch (err) {
-      console.error("founder-brain-tick: buildIntuition failed", err instanceof Error ? err.message : String(err));
-    }
+    if (intuitionResult.status === "fulfilled") intuitionPatterns = intuitionResult.value.length;
+    else console.error("founder-brain-tick: buildIntuition failed", intuitionResult.reason instanceof Error ? intuitionResult.reason.message : String(intuitionResult.reason));
 
     return new Response(JSON.stringify({ ...result, planned, allocated, escalated, reassigned, returned, dispatched, reflection, intuitionPatterns }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err) {
