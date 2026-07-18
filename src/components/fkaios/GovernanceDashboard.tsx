@@ -217,7 +217,12 @@ export default function GovernanceDashboard() {
         <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-blue-900/40 rounded-xl p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-white flex items-center gap-2"><Brain size={16} className="text-blue-400" /> Founder Brain Brief</h2>
-            <div className="text-xs text-slate-400">Work velocity: <span className="text-emerald-400">{brainBrief.velocity.last24h}</span>/24h · <span className="text-emerald-400">{brainBrief.velocity.last7d}</span>/7d</div>
+            <div className="text-xs text-slate-400 text-right">
+              <div>Work velocity: <span className={brainBrief.velocity.last7d > 0 ? 'text-emerald-400' : 'text-amber-400'}>{brainBrief.velocity.last24h}</span>/24h · <span className={brainBrief.velocity.last7d > 0 ? 'text-emerald-400' : 'text-amber-400'}>{brainBrief.velocity.last7d}</span>/7d</div>
+              {brainBrief.velocity.last7d === 0 && brainBrief.assignedWork.length > 0 && (
+                <div className="text-amber-500/80 text-[10px]">work assigned but nothing completing — check execution pipeline</div>
+              )}
+            </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
             <div>
