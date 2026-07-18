@@ -258,7 +258,12 @@ export default function GovernanceDashboard() {
                 brainBrief.observations.map((o: any, i: number) => <div key={i} className="text-slate-300 mb-1 line-clamp-2">• {(o.text || '').slice(0, 140)}</div>)}
             </div>
             <div>
-              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Recent learning</div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
+                Recent learning
+                {brainBrief.learning.filter((l: any) => l.source === 'research-engine').length > 0 && (
+                  <span className="normal-case text-blue-400/80 text-[10px]">({brainBrief.learning.filter((l: any) => l.source === 'research-engine').length} via Curiosity)</span>
+                )}
+              </div>
               {brainBrief.learning.length === 0 ? <div className="text-slate-600">Nothing learned yet</div> :
                 brainBrief.learning.map((l: any, i: number) => <div key={i} className="text-slate-300 mb-1 line-clamp-2">• [{l.source}] {(l.text || '').slice(0, 120)}</div>)}
             </div>
