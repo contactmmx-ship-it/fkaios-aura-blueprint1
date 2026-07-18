@@ -789,10 +789,28 @@ export async function think(userId: string, topic = "current state of the busine
 //    imagination is deliberately allowed to speculate, but every output is
 //    tagged 'imagination' in memory so nothing downstream can mistake it
 //    for a grounded answer). ──
+// COGNITION FIRST LAW (2026-07-18): getImaginationHistory() moved HERE from
+// executive-planner.ts, where it had been wired straight into Brain State
+// (visibility) without ever passing through Step 3 (influences cognition)
+// first — exactly the mistake this law exists to prevent. Co-located with
+// imagine(), the function that writes what this reads, for the same reason
+// getGoals() already lives here rather than in the reporting layer.
+export interface ImaginationEntry { prompt: string; text: string; created_at: string }
+export async function getImaginationHistory(userId: string): Promise<ImaginationEntry[]> {
+  const rows = (await founderMemory.permanent.get(userId)) as Array<{ content?: { kind?: string } }> | null;
+  if (!rows) return [];
+  return rows.filter((r) => r.content?.kind === "imagination").map((r) => r.content as unknown as ImaginationEntry);
+}
+
 export async function imagine(userId: string, prompt: string, correlationId: string = cid()): Promise<string> {
+  // STEP 3 FIRST, NOT STEP 7: past imaginings now genuinely inform new
+  // imagination — the Brain builds on what it has already speculated about
+  // instead of starting cold every time, rather than merely being logged
+  // for a dashboard to display later.
+  const priorImaginings = await getImaginationHistory(userId);
   const result = await reason(
-    "You are the Founder Brain imagining — open-ended, speculative, exploratory. This is explicitly NOT a grounded factual answer; label it as an idea/possibility, never as a fact or a number that looks like real business data.",
-    prompt,
+    "You are the Founder Brain imagining — open-ended, speculative, exploratory. This is explicitly NOT a grounded factual answer; label it as an idea/possibility, never as a fact or a number that looks like real business data. If you have imagined something related before, build on or explicitly diverge from it rather than repeating it — say which.",
+    `NEW PROMPT: ${prompt}\n\nPRIOR IMAGININGS (build on or diverge from these, don't just repeat):\n${JSON.stringify(priorImaginings.slice(-5))}`,
     1000,
     correlationId,
   );

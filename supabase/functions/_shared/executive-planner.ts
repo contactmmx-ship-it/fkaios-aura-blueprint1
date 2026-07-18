@@ -24,7 +24,7 @@
 // ============================================================================
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-import { reason, getGoals, founderMemory, type Goal } from "./founder-brain.ts";
+import { reason, getGoals, founderMemory, type Goal, getImaginationHistory, type ImaginationEntry } from "./founder-brain.ts";
 import { CAPABILITY_REGISTRY } from "./company-os.ts";
 import { getMetricSummary } from "./metrics.ts";
 
@@ -408,13 +408,14 @@ export async function getReflectionHistory(userId: string): Promise<Reflection[]
 // assessment: a capability that writes and is never read isn't 0% built,
 // it's 100% built and 0% connected — a different problem with the same fix
 // applied three times already this session.
-export interface ImaginationEntry { prompt: string; text: string; created_at: string }
-export async function getImaginationHistory(userId: string): Promise<ImaginationEntry[]> {
-  const rows = (await founderMemory.permanent.get(userId)) as Array<{ content?: { kind?: string } }> | null;
-  if (!rows) return [];
-  return rows.filter((r) => r.content?.kind === "imagination").map((r) => r.content as unknown as ImaginationEntry);
-}
-
+// EVOLUTION AUDIT FINDING #4 (2026-07-18): imagine() (founder-brain.ts) has
+// written kind:'imagination' entries to permanent memory since it was
+// built, and NOTHING anywhere read them back — grep-confirmed before
+// writing this, same as goals/working-memory/learning before it. Fixed at
+// the source (founder-brain.ts's imagine() now uses its own history) per
+// the Cognition First Law — getImaginationHistory/ImaginationEntry are
+// imported from there below, not redefined here, to avoid the exact
+// duplicate-logic mistake this file's first draft made.
 function countBy(rows: Array<Record<string, unknown>>, field: string): Record<string, number> {
   const out: Record<string, number> = {};
   for (const r of rows) {
