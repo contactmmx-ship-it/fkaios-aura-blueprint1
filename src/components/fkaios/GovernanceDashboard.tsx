@@ -106,13 +106,14 @@ export default function GovernanceDashboard() {
     companyOs: { successCount: number; errorCount: number; successRate: number | null; recentFailures: any[] };
     reflections: any[];
     intuition: any[];
+    executiveAttention: any[];
   } | null>(null);
   const [brainBriefLoading, setBrainBriefLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
-        const [memRes, workRes, apprRes, projRes, deptRes, deptObjRes, agentRes, velocity24Res, velocity7Res, osLogRes] = await Promise.all([
+        const [memRes, workRes, apprRes, projRes, deptRes, deptObjRes, agentRes, velocity24Res, velocity7Res, osLogRes, brainStateRes] = await Promise.all([
           supabase.from('founder_memory').select('content, updated_at').order('updated_at', { ascending: false }).limit(50),
           supabase.from('orchestrator_requests').select('id, raw_request, department_code, status, created_at').eq('requested_by', 'founder-brain').order('created_at', { ascending: false }).limit(6),
           supabase.from('approvals').select('id, action_type, reason, risk_level, created_at').eq('status', 'pending').order('created_at', { ascending: false }).limit(6),
@@ -125,6 +126,10 @@ export default function GovernanceDashboard() {
           // SPRINT 11 (M1-S11) — Company OS: real dispatch outcomes from
           // execution_log (same table 11+ other engines already write to).
           supabase.from('execution_log').select('action, status, error, created_at').eq('function_name', 'company-os').gte('created_at', new Date(Date.now() - 86400000).toISOString()).order('created_at', { ascending: false }).limit(100),
+          // Brain State — real synthesis (getBrainState(), executive-planner.ts),
+          // called via its own thin endpoint (founder-brain-state) rather than
+          // duplicated here. Only Executive Attention is surfaced for now.
+          supabase.functions.invoke('founder-brain-state'),
         ]);
         const mem = (memRes.data || []).map((r: any) => r.content).filter(Boolean);
         // Progress per project — real aggregation from orchestration_tasks, not a fabricated number.
@@ -169,6 +174,7 @@ export default function GovernanceDashboard() {
             successRate: (osSuccess + osError) > 0 ? Math.round((osSuccess / (osSuccess + osError)) * 100) : null,
             recentFailures: osLogs.filter((r: any) => r.status === 'error').slice(0, 3),
           },
+          executiveAttention: brainStateRes?.data?.executiveAttention || [],
         });
       } catch (e) {
         console.error('Founder Brain brief load failed:', e);
@@ -240,6 +246,20 @@ export default function GovernanceDashboard() {
               )}
             </div>
           </div>
+          {brainBrief.executiveAttention.length > 0 && (
+            <div className="bg-amber-950/30 border border-amber-800/40 rounded-lg p-3 space-y-1">
+              <div className="text-amber-400/90 uppercase tracking-wide text-[10px] font-semibold">Executive Attention — what deserves focus right now</div>
+              {brainBrief.executiveAttention.map((a: any, i: number) => (
+                <div key={i} className="text-xs flex items-start gap-2">
+                  <span className={a.urgency === 'urgent' ? 'text-red-400' : 'text-slate-400'}>{a.urgency === 'urgent' ? '●' : '○'}</span>
+                  <div>
+                    <div className="text-slate-200">{a.description}</div>
+                    <div className="text-slate-500 text-[10px]">{a.reason}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
             <div>
               <div className="text-slate-500 uppercase tracking-wide mb-1.5">Today's priorities</div>
