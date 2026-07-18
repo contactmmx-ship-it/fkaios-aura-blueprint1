@@ -707,14 +707,24 @@ export async function getGoals(userId: string): Promise<Goal[]> {
 //    episodic history + stored goals. Stores the insight, doesn't just
 //    return it — this is memory-as-cognition, not memory-as-lookup. ──
 export async function think(userId: string, topic = "current state of the business", correlationId: string = cid()): Promise<string> {
-  const [context, goals, recentEvents] = await Promise.all([
+  // MEMORY MODEL: "the Brain should naturally retrieve information without
+  // explicit instructions" — founderMemory.knowledge.search() already
+  // existed (Sprint 2) but think() never called it; only 2 narrow explicit
+  // call sites did (founderAgent.requestKnowledge — itself never called by
+  // anything — and worldLearn()'s own dedup check). Every cognitiveTick
+  // cycle was "thinking" without ever recalling anything it had previously
+  // learned or ingested. This closes that: relevant knowledge is now
+  // retrieved automatically as part of thinking, not as a separate step
+  // something has to remember to ask for.
+  const [context, goals, recentEvents, relevantKnowledge] = await Promise.all([
     buildContext({ userId }, correlationId),
     getGoals(userId),
     founderMemory.episodic.query({}),
+    founderMemory.knowledge.search(topic),
   ]);
   const result = await reason(
-    "You are the Founder Brain thinking — not answering a question, reasoning about the business proactively. Ground every claim in the provided context, goals, and recent activity. If something is missing data, say so instead of guessing.",
-    `THINK ABOUT: ${topic}\n\nGOALS:\n${JSON.stringify(goals)}\n\nRECENT ACTIVITY (last 50 events):\n${JSON.stringify(recentEvents.slice(0, 20))}\n\nGROUNDED CONTEXT:\n${JSON.stringify(context).slice(0, 6000)}`,
+    "You are the Founder Brain thinking — not answering a question, reasoning about the business proactively. Ground every claim in the provided context, goals, recent activity, and relevant prior knowledge. If something is missing data, say so instead of guessing.",
+    `THINK ABOUT: ${topic}\n\nGOALS:\n${JSON.stringify(goals)}\n\nRECENT ACTIVITY (last 50 events):\n${JSON.stringify(recentEvents.slice(0, 20))}\n\nRELEVANT PRIOR KNOWLEDGE:\n${JSON.stringify(relevantKnowledge).slice(0, 2000)}\n\nGROUNDED CONTEXT:\n${JSON.stringify(context).slice(0, 6000)}`,
     1200,
     correlationId,
   );
