@@ -92,7 +92,7 @@ export interface FounderContext {
 // reason() — the ONE LLM call path.
 // Anthropic (claude-sonnet-4-6) -> Gemini (2.5-flash) -> OpenAI (gpt-4o-mini)
 // ──────────────────────────────────────────────
-export async function reason(
+async function reasonCore(
   systemPrompt: string,
   userContent: string,
   maxTokens = 1500,
@@ -181,6 +181,71 @@ export async function reason(
   }
 
   throw new Error("Founder Brain: no LLM provider succeeded (checked Anthropic, Gemini, OpenAI). Verify ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY secrets.");
+}
+
+// ──────────────────────────────────────────────
+// reason() — public entry point. Evolution (not addition): wraps
+// reasonCore() (the unchanged 3-provider fallback logic above) with
+// self-recording into agent_performance_metrics — the SAME table
+// auto-agents-engine and others already write to (confirmed real schema:
+// agent_id/task_type/input_tokens/output_tokens/success/model/provider/
+// error_message). This closes the exact gap getTokenEconomyReport()
+// (executive-planner.ts) stated in its own caveat field: the Founder
+// Brain's own token spend was previously invisible to that report because
+// nothing here wrote to the table it reads from. Now it does.
+// Recording is best-effort and NEVER blocks or fails the actual reasoning
+// call — a metrics-write failure is caught and logged, never re-thrown,
+// matching the pattern already established in every other engine that
+// writes to this table (auto-agents-engine's own comment: "a failed LLM
+// call still burns money, and hiding that would understate spend").
+// estimated_cost_usd is deliberately left null, not computed — no
+// per-model pricing table exists anywhere in this codebase, and guessing
+// a cost figure would violate the Token Economy's own "never fabricate
+// numbers" rule. getTokenEconomyReport() already treats a null/missing
+// cost honestly (sums whatever IS present, doesn't invent the rest).
+// ──────────────────────────────────────────────
+export async function reason(
+  systemPrompt: string,
+  userContent: string,
+  maxTokens = 1500,
+  correlationId: string = cid(),
+): Promise<LLMResult> {
+  const startedAt = Date.now();
+  try {
+    const result = await reasonCore(systemPrompt, userContent, maxTokens, correlationId);
+    try {
+      const client = getFounderBrainClient();
+      await client.from("agent_performance_metrics").insert({
+        agent_id: "founder-brain",
+        task_type: "founder_brain_reasoning",
+        latency_ms: Date.now() - startedAt,
+        input_tokens: result.inputTokens,
+        output_tokens: result.outputTokens,
+        success: true,
+        model: result.model,
+        provider: result.provider,
+        prompt_version: "reason-v1",
+        retries: 0,
+      });
+    } catch (metricsErr) {
+      log("ERROR", "reason(): self-recording to agent_performance_metrics failed (non-blocking)", { error: metricsErr instanceof Error ? metricsErr.message : String(metricsErr) }, correlationId);
+    }
+    return result;
+  } catch (err) {
+    try {
+      const client = getFounderBrainClient();
+      await client.from("agent_performance_metrics").insert({
+        agent_id: "founder-brain",
+        task_type: "founder_brain_reasoning",
+        latency_ms: Date.now() - startedAt,
+        success: false,
+        error_message: err instanceof Error ? err.message.slice(0, 500) : String(err).slice(0, 500),
+        prompt_version: "reason-v1",
+        retries: 0,
+      });
+    } catch { /* recording failure never masks the real error below */ }
+    throw err;
+  }
 }
 
 // ──────────────────────────────────────────────
