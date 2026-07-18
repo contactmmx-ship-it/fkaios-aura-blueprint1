@@ -89,6 +89,95 @@ export default function GovernanceDashboard() {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
+  // SPRINT 5 (M1-S5) — Founder Workspace. Command Center is the screen the
+  // founder actually lands on (see AppShell's activePage default). This is
+  // the Founder Brain's own output, read from tables it already owns
+  // (founder_memory / orchestrator_requests / approvals — Sprints 2-4),
+  // additive to the existing governance-dashboard fetch below, not a
+  // replacement of it.
+  // SPRINT 6 (M1-S6): extended with the Executive Planner's output —
+  // orchestration_projects/orchestration_tasks (the existing orchestrator's
+  // own tables, reused, not a new "projects" system) and escalated
+  // approvals (blockers now share the same pending-approvals list).
+  const [brainBrief, setBrainBrief] = useState<{
+    priorities: any[]; observations: any[]; learning: any[]; recommendations: any[];
+    assignedWork: any[]; pendingApprovals: any[]; activeProjects: any[]; departments: any[]; workforce: any[];
+    velocity: { last24h: number; last7d: number };
+    companyOs: { successCount: number; errorCount: number; successRate: number | null; recentFailures: any[] };
+    reflections: any[];
+    intuition: any[];
+  } | null>(null);
+  const [brainBriefLoading, setBrainBriefLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [memRes, workRes, apprRes, projRes, deptRes, deptObjRes, agentRes, velocity24Res, velocity7Res, osLogRes] = await Promise.all([
+          supabase.from('founder_memory').select('content, updated_at').order('updated_at', { ascending: false }).limit(50),
+          supabase.from('orchestrator_requests').select('id, raw_request, department_code, status, created_at').eq('requested_by', 'founder-brain').order('created_at', { ascending: false }).limit(6),
+          supabase.from('approvals').select('id, action_type, reason, risk_level, created_at').eq('status', 'pending').order('created_at', { ascending: false }).limit(6),
+          supabase.from('orchestration_projects').select('id, request, status').like('request', '[objective:%').order('id', { ascending: false }).limit(6),
+          supabase.from('departments').select('code, name, automation_level').eq('is_active', true),
+          supabase.from('orchestrator_requests').select('department_code, status').eq('requested_by', 'founder-brain'),
+          supabase.from('ai_agents').select('id, name, department, dept, status, is_active, autonomy_level, success_rate, total_tasks_completed').eq('is_active', true).order('name').limit(30),
+          supabase.from('ai_jobs').select('id', { count: 'exact', head: true }).eq('status', 'completed').eq('type', 'work_engine_task').gte('updated_at', new Date(Date.now() - 86400000).toISOString()),
+          supabase.from('ai_jobs').select('id', { count: 'exact', head: true }).eq('status', 'completed').eq('type', 'work_engine_task').gte('updated_at', new Date(Date.now() - 7 * 86400000).toISOString()),
+          // SPRINT 11 (M1-S11) — Company OS: real dispatch outcomes from
+          // execution_log (same table 11+ other engines already write to).
+          supabase.from('execution_log').select('action, status, error, created_at').eq('function_name', 'company-os').gte('created_at', new Date(Date.now() - 86400000).toISOString()).order('created_at', { ascending: false }).limit(100),
+        ]);
+        const mem = (memRes.data || []).map((r: any) => r.content).filter(Boolean);
+        // Progress per project — real aggregation from orchestration_tasks, not a fabricated number.
+        const projects = projRes.data || [];
+        const activeProjects = await Promise.all(projects.map(async (p: any) => {
+          const { data: tasks } = await supabase.from('orchestration_tasks').select('status').eq('project_id', p.id);
+          const total = tasks?.length || 0;
+          const done = (tasks || []).filter((t: any) => t.status === 'done' || t.status === 'approved').length;
+          return { ...p, total, done, percent: total > 0 ? Math.round((done / total) * 100) : 0 };
+        }));
+        // SPRINT 7 (M1-S7) — AI Departments workload: real counts of what the
+        // Founder Brain has actually assigned to each department, traced
+        // from orchestrator_requests.department_code (no new table).
+        const deptObjectives = deptObjRes.data || [];
+        const departments = (deptRes.data || []).map((d: any) => {
+          const own = deptObjectives.filter((o: any) => o.department_code === d.code);
+          return { ...d, active: own.filter((o: any) => o.status === 'processing').length, total: own.length };
+        });
+        // SPRINT 8 (M1-S8) — AI Employees: the existing ai_agents workforce,
+        // grouped by department. Not a new table — same one 15+ engines
+        // already write to (ai-engine, auto-agents-engine, orchestrator...).
+        const workforce = agentRes.data || [];
+        const osLogs = osLogRes.data || [];
+        const osSuccess = osLogs.filter((r: any) => r.status === 'success').length;
+        const osError = osLogs.filter((r: any) => r.status === 'error').length;
+        setBrainBrief({
+          priorities: mem.filter((c: any) => c.kind === 'goal'),
+          observations: mem.filter((c: any) => c.kind === 'insight' || c.kind === 'imagination').slice(0, 3),
+          learning: mem.filter((c: any) => c.kind === 'world_learning').slice(0, 3),
+          recommendations: mem.filter((c: any) => c.kind === 'constitution_amendment').slice(0, 3),
+          reflections: mem.filter((c: any) => c.kind === 'reflection').slice(0, 2),
+          intuition: (mem.find((c: any) => c.kind === 'intuition')?.patterns || []).slice(0, 5),
+          assignedWork: workRes.data || [],
+          pendingApprovals: apprRes.data || [],
+          activeProjects,
+          departments,
+          workforce,
+          velocity: { last24h: velocity24Res.count || 0, last7d: velocity7Res.count || 0 },
+          companyOs: {
+            successCount: osSuccess,
+            errorCount: osError,
+            successRate: (osSuccess + osError) > 0 ? Math.round((osSuccess / (osSuccess + osError)) * 100) : null,
+            recentFailures: osLogs.filter((r: any) => r.status === 'error').slice(0, 3),
+          },
+        });
+      } catch (e) {
+        console.error('Founder Brain brief load failed:', e);
+      } finally {
+        setBrainBriefLoading(false);
+      }
+    })();
+  }, []);
+
   const load = useCallback(async () => {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -140,6 +229,143 @@ export default function GovernanceDashboard() {
 
   return (
     <div className="p-6 space-y-6">
+      {!brainBriefLoading && brainBrief && (
+        <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-blue-900/40 rounded-xl p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-white flex items-center gap-2"><Brain size={16} className="text-blue-400" /> Founder Brain Brief</h2>
+            <div className="text-xs text-slate-400 text-right">
+              <div>Work velocity: <span className={brainBrief.velocity.last7d > 0 ? 'text-emerald-400' : 'text-amber-400'}>{brainBrief.velocity.last24h}</span>/24h · <span className={brainBrief.velocity.last7d > 0 ? 'text-emerald-400' : 'text-amber-400'}>{brainBrief.velocity.last7d}</span>/7d</div>
+              {brainBrief.velocity.last7d === 0 && brainBrief.assignedWork.length > 0 && (
+                <div className="text-amber-500/80 text-[10px]">work assigned but nothing completing — check execution pipeline</div>
+              )}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+            <div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Today's priorities</div>
+              {brainBrief.priorities.length === 0 ? <div className="text-slate-600">No goals seeded yet</div> :
+                brainBrief.priorities.map((g: any, i: number) => <div key={i} className="text-slate-300 mb-1">• {g.description} {g.deadline ? <span className="text-slate-500">({g.deadline})</span> : null}</div>)}
+            </div>
+            <div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Assigned work</div>
+              {brainBrief.assignedWork.length === 0 ? <div className="text-slate-600">Nothing assigned yet</div> :
+                brainBrief.assignedWork.slice(0, 4).map((w: any) => <div key={w.id} className="text-slate-300 mb-1 truncate">• {w.raw_request} <span className="text-slate-500">[{w.department_code || '—'}/{w.status}]</span></div>)}
+            </div>
+            <div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Pending approvals</div>
+              {brainBrief.pendingApprovals.length === 0 ? <div className="text-slate-600">None pending</div> :
+                brainBrief.pendingApprovals.slice(0, 4).map((a: any) => <div key={a.id} className="text-amber-400/90 mb-1 truncate">• {a.action_type} <span className="text-slate-500">({a.risk_level})</span></div>)}
+            </div>
+            <div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Recent observations</div>
+              {brainBrief.observations.length === 0 ? <div className="text-slate-600">Nothing observed yet</div> :
+                brainBrief.observations.map((o: any, i: number) => <div key={i} className="text-slate-300 mb-1 line-clamp-2">• {(o.text || '').slice(0, 140)}</div>)}
+            </div>
+            <div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
+                Recent learning
+                {brainBrief.learning.filter((l: any) => l.source === 'research-engine').length > 0 && (
+                  <span className="normal-case text-blue-400/80 text-[10px]">({brainBrief.learning.filter((l: any) => l.source === 'research-engine').length} via Curiosity)</span>
+                )}
+              </div>
+              {brainBrief.learning.length === 0 ? <div className="text-slate-600">Nothing learned yet</div> :
+                brainBrief.learning.map((l: any, i: number) => <div key={i} className="text-slate-300 mb-1 line-clamp-2">• [{l.source}] {(l.text || '').slice(0, 120)}</div>)}
+            </div>
+            <div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Strategic recommendations</div>
+              {brainBrief.recommendations.length === 0 ? <div className="text-slate-600">No amendments proposed yet</div> :
+                brainBrief.recommendations.map((r: any, i: number) => <div key={i} className="text-slate-300 mb-1 line-clamp-2">• v{r.version} [{r.area}] {(r.change || '').slice(0, 120)}</div>)}
+            </div>
+            <div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Reflection — what the company learned (24h)</div>
+              {brainBrief.reflections.length === 0 ? <div className="text-slate-600">No reflection yet — needs real activity to reflect on</div> :
+                brainBrief.reflections.map((r: any, i: number) => (
+                  <div key={i} className="mb-1.5">
+                    <div className="text-emerald-400/90 line-clamp-1">✓ {(r.whatWorked || '').slice(0, 100)}</div>
+                    <div className="text-red-400/80 line-clamp-1">✗ {(r.whatFailed || '').slice(0, 100)}</div>
+                    <div className="text-slate-400 line-clamp-1">→ {(r.recommendedChange || '').slice(0, 100)}</div>
+                  </div>
+                ))}
+            </div>
+            <div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Business intuition (statistical, min. 5 observations)</div>
+              {brainBrief.intuition.length === 0 ? <div className="text-slate-600">Not enough recorded outcomes yet to form intuition</div> :
+                brainBrief.intuition.map((p: any, i: number) => (
+                  <div key={i} className="text-slate-300 mb-1 flex items-center justify-between gap-2">
+                    <span className="truncate">{p.taskType}</span>
+                    <span className={p.confidence >= 60 ? 'text-emerald-400' : p.confidence >= 40 ? 'text-amber-400' : 'text-red-400'}>{p.confidence}% <span className="text-slate-600">({p.sampleSize})</span></span>
+                  </div>
+                ))}
+            </div>
+            <div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Active projects (Executive Planner)</div>
+              {brainBrief.activeProjects.length === 0 ? <div className="text-slate-600">No projects planned yet</div> :
+                brainBrief.activeProjects.map((p: any) => (
+                  <div key={p.id} className="mb-1.5">
+                    <div className="text-slate-300 truncate">• {p.request.replace(/^\[objective:[^\]]+\]\s*/, '')} <span className="text-slate-500">[{p.status}]</span></div>
+                    <div className="h-1 bg-slate-800 rounded-full mt-0.5 overflow-hidden">
+                      <div className="h-full bg-blue-500" style={{ width: `${p.percent}%` }} />
+                    </div>
+                    <div className="text-slate-600 text-[10px]">{p.done}/{p.total} tasks done</div>
+                  </div>
+                ))}
+            </div>
+          </div>
+          <div className="pt-2 border-t border-slate-800">
+            <div className="text-slate-500 uppercase tracking-wide mb-1.5 text-xs">AI Departments</div>
+            {brainBrief.departments.length === 0 ? <div className="text-slate-600 text-xs">No active departments configured</div> : (
+              <div className="flex flex-wrap gap-2">
+                {brainBrief.departments.map((d: any) => (
+                  <div key={d.code} className="bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-1.5 text-xs">
+                    <span className="text-slate-300 font-medium">{d.name}</span>
+                    <span className="text-slate-600"> · L{d.automation_level}</span>
+                    {d.total > 0 && <span className="text-blue-400"> · {d.active} active / {d.total} total</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="pt-2 border-t border-slate-800">
+            <div className="text-slate-500 uppercase tracking-wide mb-1.5 text-xs">AI Employees</div>
+            {brainBrief.workforce.length === 0 ? <div className="text-slate-600 text-xs">No active employees found</div> : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-1.5">
+                {brainBrief.workforce.map((e: any) => (
+                  <div key={e.id} className="bg-slate-900/60 border border-slate-800 rounded-lg px-2.5 py-1.5 text-[11px] flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-slate-300 truncate">{e.name}</div>
+                      <div className="text-slate-600 truncate">{e.department || e.dept || '—'} · {e.status || 'idle'}</div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-blue-400">{e.success_rate != null ? `${Math.round(e.success_rate)}%` : '—'}</div>
+                      <div className="text-slate-600">{e.total_tasks_completed ?? 0} done</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="pt-2 border-t border-slate-800">
+            <div className="text-slate-500 uppercase tracking-wide mb-1.5 text-xs">Company OS — business system dispatches (24h)</div>
+            {brainBrief.companyOs.successCount === 0 && brainBrief.companyOs.errorCount === 0 ? (
+              <div className="text-slate-600 text-xs">No business-system actions dispatched yet</div>
+            ) : (
+              <div className="flex items-center gap-4 text-xs">
+                <span className="text-emerald-400">{brainBrief.companyOs.successCount} succeeded</span>
+                <span className="text-red-400">{brainBrief.companyOs.errorCount} failed</span>
+                {brainBrief.companyOs.successRate != null && <span className="text-slate-500">({brainBrief.companyOs.successRate}% success rate)</span>}
+              </div>
+            )}
+            {brainBrief.companyOs.recentFailures.length > 0 && (
+              <div className="mt-1 space-y-0.5">
+                {brainBrief.companyOs.recentFailures.map((f: any, i: number) => (
+                  <div key={i} className="text-red-400/80 text-[10px] truncate">• {f.action}: {(f.error || '').slice(0, 100)}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-2">
         <div className="flex items-center gap-2">

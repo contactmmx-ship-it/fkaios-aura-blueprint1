@@ -8,6 +8,9 @@
 // the whole request.
 // ============================================================
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+// SPRINT 4 (M1-S4): Founder Voice now routes its LLM call through the
+// canonical Founder Brain instead of its own local callClaude.
+import { reason as founderBrainReason } from '../_shared/founder-brain.ts';
 const corsHeaders = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey, X-Correlation-ID' };
 function cid(): string { return crypto.randomUUID().slice(0, 8); }
 function log(level: string, message: string, data?: Record<string, unknown>, id?: string) { console.log(JSON.stringify({ timestamp: new Date().toISOString(), level, correlationId: id || '', message, ...(data ? { data } : {}) })); }
@@ -25,12 +28,9 @@ async function verifyJWT(authHeader: string | null, supabaseUrl: string): Promis
   } catch { return null; }
 }
 async function callClaude(system: string, messages: { role: string; content: string }[], maxTokens = 800): Promise<string> {
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not configured as a Supabase secret');
-  const res = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: maxTokens, system, messages }) });
-  if (!res.ok) { const t = await res.text(); throw new Error(`Anthropic API error ${res.status}: ${t.slice(0, 500)}`); }
-  const data = await res.json() as { content: { type: string; text?: string }[] };
-  return data.content.filter((b) => b.type === 'text').map((b) => b.text || '').join('\n');
+  const transcript = messages.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
+  const result = await founderBrainReason(system, transcript, maxTokens);
+  return result.text;
 }
 
 // Anthropic requires messages[0].role === 'user'. Drop any leading
