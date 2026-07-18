@@ -550,6 +550,77 @@ export async function getTokenEconomyReport(windowHours = 24): Promise<TokenEcon
     claudeTokensConsumed: anthropicUsage ? anthropicUsage.totalInputTokens + anthropicUsage.totalOutputTokens : null,
     claudeTokensRemaining: "unavailable",
     totalEstimatedCostUsd: Math.round(totalCost * 10000) / 10000,
-    caveat: "This report reflects agent_performance_metrics only — calls made through other engines (auto-agents-engine, etc). The Founder Brain's own reason() calls (cognitiveTick/reflect/buildIntuition/curiosityTick) are NOT yet instrumented into this table and do not appear here. Real gap, not hidden.",
+    caveat: "Reflects agent_performance_metrics — includes the Founder Brain's own reason() calls (self-recorded since commit 5ba06fc: cognitiveTick/reflect/buildIntuition/curiosityTick all now write here under agent_id='founder-brain') alongside every other engine that writes to this table. estimated_cost_usd is only populated where the writing engine computed it — founder-brain's own rows currently have no cost figure (no per-model pricing table exists anywhere in this codebase), so totalEstimatedCostUsd understates true spend by exactly that much. Stated honestly, not silently rounded away.",
   };
+}
+
+// ============================================================================
+// PROVIDER PERFORMANCE (evidence-based, not assumed) — Tool Selection Engine
+// ============================================================================
+// Constitution rule 11: "The Brain continuously learns which provider is
+// fastest/cheapest/most accurate... using historical evidence, not
+// assumptions." And a founder addition: "a provider selection layer should
+// choose the best available provider based on capability, cost, latency,
+// availability, and confidence."
+//
+// HONEST SCOPE, stated plainly rather than overclaimed: this is NOT a
+// multi-provider selection layer across Claude/Gemini/OpenAI/DeepSeek/Grok/
+// Perplexity/Mistral/Ollama/n8n. Only Anthropic, Gemini, and OpenAI have any
+// API key referenced anywhere in this codebase (founder-brain.ts's
+// reasonCore() fallback chain) — no credentials for the others exist here.
+// Building a selector across providers with no real credentials would
+// violate the same document's own rule 8 ("No Placeholders... never fake
+// data"). What this DOES do, honestly: surface which of the 3 REAL,
+// configured providers has actually performed best, using the real data
+// reason() has self-recorded since commit 5ba06fc — turning "historical
+// evidence" from an aspiration into an actual queryable fact. Does NOT
+// change reasonCore()'s fixed Anthropic->Gemini->OpenAI fallback order —
+// that stays as the reliability chain it always was; re-ordering it based
+// on this data is real follow-up work, not done in this pass (the fallback
+// chain is on every reasoning call in the codebase; changing its order
+// deserves its own dedicated, carefully-verified change, not a same-commit
+// bundle with a new reporting function).
+export interface ProviderPerformance {
+  provider: string;
+  calls: number;
+  successRate: number | null; // null below the sample-size floor — same honesty pattern as buildIntuition()
+  avgLatencyMs: number | null;
+  evidence: string;
+}
+
+const PROVIDER_MIN_SAMPLE = 5; // same floor buildIntuition() uses — below this, a rate is noise, not evidence
+
+export async function getProviderPerformance(windowHours = 168): Promise<ProviderPerformance[]> {
+  const client = getClient();
+  const since = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString();
+  const { data } = await client
+    .from("agent_performance_metrics")
+    .select("provider, success, latency_ms")
+    .eq("agent_id", "founder-brain")
+    .gte("created_at", since)
+    .limit(2000);
+
+  const rows = data ?? [];
+  const byProvider = new Map<string, { calls: number; success: number; latencySum: number; latencyCount: number }>();
+  for (const r of rows as Array<{ provider: string | null; success: boolean; latency_ms: number | null }>) {
+    const p = r.provider ?? "unknown";
+    const e = byProvider.get(p) ?? { calls: 0, success: 0, latencySum: 0, latencyCount: 0 };
+    e.calls++;
+    if (r.success) e.success++;
+    if (r.latency_ms != null) { e.latencySum += r.latency_ms; e.latencyCount++; }
+    byProvider.set(p, e);
+  }
+
+  return Array.from(byProvider.entries()).map(([provider, e]) => {
+    const belowFloor = e.calls < PROVIDER_MIN_SAMPLE;
+    return {
+      provider,
+      calls: e.calls,
+      successRate: belowFloor ? null : Math.round((e.success / e.calls) * 100),
+      avgLatencyMs: e.latencyCount > 0 ? Math.round(e.latencySum / e.latencyCount) : null,
+      evidence: belowFloor
+        ? `only ${e.calls} calls in the last ${windowHours}h — below the ${PROVIDER_MIN_SAMPLE}-call floor, not enough evidence to report a rate`
+        : `${e.success} of ${e.calls} founder-brain calls succeeded in the last ${windowHours}h`,
+    };
+  }).sort((a, b) => b.calls - a.calls);
 }
