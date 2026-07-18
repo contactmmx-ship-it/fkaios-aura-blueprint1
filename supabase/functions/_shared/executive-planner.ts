@@ -24,7 +24,7 @@
 // ============================================================================
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-import { reason, getGoals, founderMemory } from "./founder-brain.ts";
+import { reason, getGoals, founderMemory, type Goal } from "./founder-brain.ts";
 import { CAPABILITY_REGISTRY } from "./company-os.ts";
 
 function getClient() {
@@ -719,4 +719,101 @@ export async function getCapabilityGraph(): Promise<CapabilityGraph> {
   }
 
   return { nodes, edges, builtAt: new Date().toISOString() };
+}
+
+// ============================================================================
+// BRAIN STATE — the Brain's consciousness, not another capability
+// ============================================================================
+// Founder's explicit direction: "Stop building individual capabilities.
+// Begin building the Brain's internal state model... Brain State should
+// become the central context from which all cognition emerges."
+//
+// This is deliberately a SYNTHESIS, not new infrastructure — every field
+// below is assembled from functions that already existed before this
+// commit (getGoals from founder-brain.ts; getCapabilityGraph, buildIntuition,
+// getReflectionHistory, all above in this same file) plus two small direct
+// reads of tables already in active use elsewhere (orchestration_tasks/
+// ai_jobs for running work — same tables Work Engine already reads;
+// approvals — same table the Founder Workspace Brief already reads).
+// Nothing here is a new subsystem. It exists because the Brain had all of
+// these signals already and had never once looked at them together.
+//
+// ARCHITECTURAL NOTE on placement: this lives in executive-planner.ts, not
+// founder-brain.ts, for a real technical reason — executive-planner.ts
+// already imports from founder-brain.ts (reason/getGoals/founderMemory), so
+// putting Brain State assembly in founder-brain.ts would create a circular
+// import the moment it needed anything defined in this file. Not a style
+// choice; a constraint.
+//
+// executiveAttention is a computed HEURISTIC over the assembled state
+// below — deliberately NOT another reason() call. Pending approvals with
+// risk_level high/critical outrank everything; then goals with no recent
+// reflection touching them; then nothing else, honestly, because this
+// codebase doesn't yet have a "task age" signal precise enough to rank
+// stuck work against goals without guessing. That gap is stated, not
+// papered over with an invented urgency score.
+// ============================================================================
+export interface AttentionItem {
+  type: "approval" | "goal";
+  description: string;
+  urgency: "urgent" | "normal";
+  reason: string;
+}
+
+export interface BrainState {
+  currentGoals: Goal[];
+  capabilityHealth: CapabilityGraph;
+  confidence: IntuitionPattern[];
+  recentReflection: Reflection | null;
+  runningTasks: { pendingTasks: number; assignedTasks: number; pendingJobs: number; runningJobs: number };
+  pendingApprovals: { total: number; highOrCritical: number };
+  executiveAttention: AttentionItem[];
+  computedAt: string;
+}
+
+export async function getBrainState(userId = "founder"): Promise<BrainState> {
+  const client = getClient();
+
+  const [currentGoals, capabilityHealth, confidence, reflectionHistory, taskCounts, jobCounts, approvalsData] = await Promise.all([
+    getGoals(userId),
+    getCapabilityGraph(),
+    buildIntuition(userId),
+    getReflectionHistory(userId),
+    client.from("orchestration_tasks").select("status").in("status", ["pending", "assigned"]),
+    client.from("ai_jobs").select("status").in("status", ["pending", "running"]).eq("type", "work_engine_task"),
+    client.from("approvals").select("id, risk_level").eq("status", "pending"),
+  ]);
+
+  const tasks = taskCounts.data ?? [];
+  const jobs = jobCounts.data ?? [];
+  const approvalsRows = (approvalsData.data ?? []) as Array<{ id: string; risk_level: string | null }>;
+  const highRiskApprovals = approvalsRows.filter((a) => a.risk_level === "high" || a.risk_level === "critical");
+
+  const executiveAttention: AttentionItem[] = [];
+  for (const a of highRiskApprovals.slice(0, 3)) {
+    executiveAttention.push({ type: "approval", description: `Pending ${a.risk_level}-risk approval (${a.id})`, urgency: "urgent", reason: "high/critical risk items outrank everything else the Brain is tracking" });
+  }
+  if (executiveAttention.length === 0 && currentGoals.length > 0) {
+    // Honest fallback, not an invented ranking: if nothing urgent is
+    // pending, surface the goal hierarchy itself as what deserves
+    // attention — there is no real "which goal is most stalled" signal
+    // in this codebase yet to rank among them.
+    executiveAttention.push({ type: "goal", description: currentGoals[0].description, urgency: "normal", reason: "no urgent approvals pending — surfacing the top goal, not a ranked stalled-goal analysis this codebase can't yet support honestly" });
+  }
+
+  return {
+    currentGoals,
+    capabilityHealth,
+    confidence,
+    recentReflection: reflectionHistory.length > 0 ? reflectionHistory[reflectionHistory.length - 1] : null,
+    runningTasks: {
+      pendingTasks: tasks.filter((t: { status: string }) => t.status === "pending").length,
+      assignedTasks: tasks.filter((t: { status: string }) => t.status === "assigned").length,
+      pendingJobs: jobs.filter((j: { status: string }) => j.status === "pending").length,
+      runningJobs: jobs.filter((j: { status: string }) => j.status === "running").length,
+    },
+    pendingApprovals: { total: approvalsRows.length, highOrCritical: highRiskApprovals.length },
+    executiveAttention,
+    computedAt: new Date().toISOString(),
+  };
 }
