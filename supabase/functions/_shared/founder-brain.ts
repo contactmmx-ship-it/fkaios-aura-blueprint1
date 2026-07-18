@@ -962,6 +962,7 @@ export interface TickResult {
   decision: "act" | "wait";
   strategySelected: Strategy | null;
   strategiesRejected: number;
+  assessedRisk: "low" | "medium" | "high" | "critical" | null;
   assignedDepartment: string | null;
   assigned: { taskId: string } | null;
   reviewed: number;
@@ -1072,6 +1073,32 @@ export async function cognitiveTick(userId: string): Promise<TickResult> {
     }
   }
 
+  // 7b. RISK ASSESSMENT — "Fear is not emotion, it is intelligent risk
+  //    awareness" (permanent cognitive directive). Previously this cycle
+  //    hardcoded risk_level:"low" on every single assignment — meaning
+  //    createTask()'s existing high/critical->awaiting_approval gate
+  //    (built Sprint 2b) never actually triggered from cognitiveTick,
+  //    because nothing upstream ever fed it a real assessment. This closes
+  //    that gap with the gate that already existed, not a new one.
+  let assessedRisk: "low" | "medium" | "high" | "critical" = "low";
+  if (decision === "act" && strategySelected) {
+    try {
+      const riskResult = await reason(
+        "You are the Founder Brain assessing risk before acting — not emotion, intelligent caution. Consider financial, legal, operational, execution, security, and reputation risk in the action described. Answer with ONLY one word: low, medium, high, or critical.",
+        strategySelected.description,
+        10,
+        correlationId,
+      );
+      const word = riskResult.text.trim().toLowerCase();
+      if (word.startsWith("critical")) assessedRisk = "critical";
+      else if (word.startsWith("high")) assessedRisk = "high";
+      else if (word.startsWith("medium")) assessedRisk = "medium";
+      else assessedRisk = "low"; // honest default — an unparseable answer is treated as needing caution, not escalated to false alarm
+    } catch (err) {
+      log("ERROR", "cycle: risk assessment failed, defaulting to low", { error: err instanceof Error ? err.message : String(err) }, correlationId);
+    }
+  }
+
   // 8+9. ASSIGN + EXECUTE — SPRINT 3: real department routing instead of
   //    the hardcoded "EXECUTIVE" string. Still hands off, never executes.
   let assignedDepartment: string | null = null;
@@ -1079,7 +1106,7 @@ export async function cognitiveTick(userId: string): Promise<TickResult> {
   if (decision === "act" && strategySelected) {
     try {
       assignedDepartment = await routeToDepartment(strategySelected.description, correlationId);
-      const result = await createTask(userId, { description: strategySelected.description.slice(0, 500), department_code: assignedDepartment, risk_level: "low" }, correlationId);
+      const result = await createTask(userId, { description: strategySelected.description.slice(0, 500), department_code: assignedDepartment, risk_level: assessedRisk }, correlationId);
       const row = result.data as { id?: string } | null;
       if (result.status === "success" && row?.id) assigned = { taskId: row.id };
     } catch (err) {
@@ -1140,6 +1167,6 @@ export async function cognitiveTick(userId: string): Promise<TickResult> {
 
   return {
     observed, thought, imagined, learnedFromPast: pastOutcomes.length, predicted, goalEvaluation, decision,
-    strategySelected, strategiesRejected, assignedDepartment, assigned, reviewed: reviewedCount, improved, correlationId,
+    strategySelected, strategiesRejected, assessedRisk: decision === "act" && strategySelected ? assessedRisk : null, assignedDepartment, assigned, reviewed: reviewedCount, improved, correlationId,
   };
 }
