@@ -466,3 +466,90 @@ export async function buildIntuition(userId = "founder"): Promise<IntuitionPatte
 
   return patterns;
 }
+
+// ============================================================================
+// TOKEN ECONOMY TRANSPARENCY — Evolution Phase B (post-Sprint-14)
+// ============================================================================
+// Evolution Before Addition: does this capability already exist somewhere,
+// waiting to be extended? YES — agent_performance_metrics already has
+// input_tokens/output_tokens/estimated_cost_usd/model/provider/latency_ms
+// columns (found during the Sprint 8 audit, actively written by
+// auto-agents-engine and others). This function only READS it. No new
+// table, no new instrumentation added here.
+//
+// HONEST GAP, stated not hidden: founder-brain.ts's reason() (the actual
+// Founder Brain reasoning path used by cognitiveTick/reflect/buildIntuition/
+// curiosityTick/etc.) does NOT currently write to agent_performance_metrics
+// — it's a separate LLM-calling path from the one instrumented here. This
+// report can only show what's ALREADY tracked (other engines' calls), not
+// the Founder Brain's own token spend. Making reason() itself instrumented
+// is real follow-up work, not done in this pass — flagged, not silently
+// left out of the report's own caveats.
+// ============================================================================
+export interface ProviderUsage {
+  provider: string;
+  calls: number;
+  successCount: number;
+  failureCount: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCostUsd: number;
+  avgLatencyMs: number | null;
+}
+
+export interface TokenEconomyReport {
+  windowHours: number;
+  providers: ProviderUsage[];
+  claudeTokensConsumed: number | null; // null = "unavailable", never fabricated
+  claudeTokensRemaining: "unavailable"; // no budget/quota table exists anywhere in this codebase — stated honestly, not guessed
+  totalEstimatedCostUsd: number;
+  caveat: string;
+}
+
+export async function getTokenEconomyReport(windowHours = 24): Promise<TokenEconomyReport> {
+  const client = getClient();
+  const since = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString();
+  const { data } = await client
+    .from("agent_performance_metrics")
+    .select("provider, success, input_tokens, output_tokens, estimated_cost_usd, latency_ms")
+    .gte("created_at", since)
+    .limit(2000);
+
+  const rows = data ?? [];
+  const byProvider = new Map<string, { calls: number; success: number; failure: number; inTok: number; outTok: number; cost: number; latencySum: number; latencyCount: number }>();
+
+  for (const r of rows as Array<{ provider: string | null; success: boolean; input_tokens: number | null; output_tokens: number | null; estimated_cost_usd: number | null; latency_ms: number | null }>) {
+    const p = r.provider ?? "unknown";
+    const e = byProvider.get(p) ?? { calls: 0, success: 0, failure: 0, inTok: 0, outTok: 0, cost: 0, latencySum: 0, latencyCount: 0 };
+    e.calls++;
+    if (r.success) e.success++; else e.failure++;
+    e.inTok += r.input_tokens ?? 0;
+    e.outTok += r.output_tokens ?? 0;
+    e.cost += r.estimated_cost_usd ?? 0;
+    if (r.latency_ms != null) { e.latencySum += r.latency_ms; e.latencyCount++; }
+    byProvider.set(p, e);
+  }
+
+  const providers: ProviderUsage[] = Array.from(byProvider.entries()).map(([provider, e]) => ({
+    provider,
+    calls: e.calls,
+    successCount: e.success,
+    failureCount: e.failure,
+    totalInputTokens: e.inTok,
+    totalOutputTokens: e.outTok,
+    totalCostUsd: Math.round(e.cost * 10000) / 10000,
+    avgLatencyMs: e.latencyCount > 0 ? Math.round(e.latencySum / e.latencyCount) : null,
+  })).sort((a, b) => b.calls - a.calls);
+
+  const anthropicUsage = providers.find((p) => p.provider === "anthropic");
+  const totalCost = providers.reduce((sum, p) => sum + p.totalCostUsd, 0);
+
+  return {
+    windowHours,
+    providers,
+    claudeTokensConsumed: anthropicUsage ? anthropicUsage.totalInputTokens + anthropicUsage.totalOutputTokens : null,
+    claudeTokensRemaining: "unavailable",
+    totalEstimatedCostUsd: Math.round(totalCost * 10000) / 10000,
+    caveat: "This report reflects agent_performance_metrics only — calls made through other engines (auto-agents-engine, etc). The Founder Brain's own reason() calls (cognitiveTick/reflect/buildIntuition/curiosityTick) are NOT yet instrumented into this table and do not appear here. Real gap, not hidden.",
+  };
+}
