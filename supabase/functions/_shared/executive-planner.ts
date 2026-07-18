@@ -400,6 +400,21 @@ export async function getReflectionHistory(userId: string): Promise<Reflection[]
   return rows.filter((r) => r.content?.kind === "reflection").map((r) => r.content as unknown as Reflection);
 }
 
+// EVOLUTION AUDIT FINDING #4 (2026-07-18): imagine() (founder-brain.ts) has
+// written kind:'imagination' entries to permanent memory since it was
+// built, and NOTHING anywhere read them back — grep-confirmed before
+// writing this, same as goals/working-memory/learning before it. Directly
+// relevant to Phase 5 (Imagination) of the founder's own honest self-
+// assessment: a capability that writes and is never read isn't 0% built,
+// it's 100% built and 0% connected — a different problem with the same fix
+// applied three times already this session.
+export interface ImaginationEntry { prompt: string; text: string; created_at: string }
+export async function getImaginationHistory(userId: string): Promise<ImaginationEntry[]> {
+  const rows = (await founderMemory.permanent.get(userId)) as Array<{ content?: { kind?: string } }> | null;
+  if (!rows) return [];
+  return rows.filter((r) => r.content?.kind === "imagination").map((r) => r.content as unknown as ImaginationEntry);
+}
+
 function countBy(rows: Array<Record<string, unknown>>, field: string): Record<string, number> {
   const out: Record<string, number> = {};
   for (const r of rows) {
@@ -766,6 +781,7 @@ export interface BrainState {
   capabilityHealth: CapabilityGraph;
   confidence: IntuitionPattern[];
   recentReflection: Reflection | null;
+  recentImagination: ImaginationEntry[];
   learningTrend: LearningTrend;
   intelligenceIndex: BrainIntelligenceIndex;
   runningTasks: { pendingTasks: number; assignedTasks: number; pendingJobs: number; runningJobs: number };
@@ -777,11 +793,12 @@ export interface BrainState {
 export async function getBrainState(userId = "founder"): Promise<BrainState> {
   const client = getClient();
 
-  const [currentGoals, capabilityHealth, confidence, reflectionHistory, learningTrend, providerPerformance, taskCounts, jobCounts, approvalsData] = await Promise.all([
+  const [currentGoals, capabilityHealth, confidence, reflectionHistory, imaginationHistory, learningTrend, providerPerformance, taskCounts, jobCounts, approvalsData] = await Promise.all([
     getGoals(userId),
     getCapabilityGraph(),
     buildIntuition(userId),
     getReflectionHistory(userId),
+    getImaginationHistory(userId),
     getLearningTrend(),
     getProviderPerformance(),
     client.from("orchestration_tasks").select("status").in("status", ["pending", "assigned"]),
@@ -812,6 +829,7 @@ export async function getBrainState(userId = "founder"): Promise<BrainState> {
     capabilityHealth,
     confidence,
     recentReflection: reflectionHistory.length > 0 ? reflectionHistory[reflectionHistory.length - 1] : null,
+    recentImagination: imaginationHistory.slice(-3),
     learningTrend,
     intelligenceIndex,
     runningTasks: {
