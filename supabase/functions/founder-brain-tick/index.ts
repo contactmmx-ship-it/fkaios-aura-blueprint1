@@ -23,7 +23,7 @@
 // silently activate.
 // ============================================================================
 
-import { cognitiveTick } from "../_shared/founder-brain.ts";
+import { cognitiveTick, getGoals, seedGoalHierarchy } from "../_shared/founder-brain.ts";
 import { planObjective, escalateBlocked, reflect, buildIntuition } from "../_shared/executive-planner.ts";
 import { allocateProjectWork, reassignStuckWork, returnCompletedWork } from "../_shared/work-engine.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
@@ -40,6 +40,28 @@ Deno.serve(async (req: Request) => {
     // "founder" is the single-founder placeholder used consistently with
     // founder_memory.created_by elsewhere in this codebase (no multi-user
     // concept exists yet in FKAIOS's data model).
+    // EVOLUTION AUDIT FINDING (2026-07-18): seedGoalHierarchy() has existed
+    // since Sprint 3 but was NEVER called anywhere in the codebase —
+    // grep-confirmed only its own definition referenced it. This means
+    // getGoals() has been returning [] every single cycle since Sprint 3,
+    // meaning evaluateAgainstGoals(), simulateStrategies()'s scoring, and
+    // Brain State's Executive Attention fallback have all been operating
+    // against an EMPTY goal hierarchy this entire time — the foundation
+    // "every decision must be evaluated against these goals" has silently
+    // never been active. Fixed here with an idempotent guard: seed only if
+    // getGoals() is currently empty, so this runs exactly once (ever), not
+    // on every 15-minute tick forever — founder_memory is append-only, so
+    // an unguarded call would create a new set of goal rows every cycle.
+    try {
+      const existingGoals = await getGoals("founder");
+      if (existingGoals.length === 0) {
+        await seedGoalHierarchy("founder");
+        console.log(JSON.stringify({ level: "INFO", message: "Goal hierarchy was empty — seeded for the first time this session", source: "founder-brain-tick" }));
+      }
+    } catch (err) {
+      console.error("founder-brain-tick: goal hierarchy check/seed failed (non-blocking)", err instanceof Error ? err.message : String(err));
+    }
+
     const result = await cognitiveTick("founder");
 
     // SPRINT 6: if this cycle assigned an objective, plan it immediately —
