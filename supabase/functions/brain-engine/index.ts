@@ -7,50 +7,12 @@
 // carries the llmFetch Claude→Gemini fallback.
 // ============================================================
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
-// ── __LLM_FALLBACK__ v1 (injected) ─────────────────────────────────────────
-// Drop-in replacement for the raw Anthropic fetch: primary claude-sonnet-4-6,
-// fallback gemini-2.5-flash via GEMINI_API_KEY on ANY Anthropic failure
-// (credit exhaustion 400, 401, 429, 529, network). On fallback it returns an
-// ANTHROPIC-SHAPED response body ({content:[{text}], usage:{...}, model}) so
-// every existing parse site downstream works unchanged. model field carries
-// the model that actually served.
-async function llmFetch(apiKey: string, payload: Record<string, unknown>): Promise<Response> {
-  let errMsg = '';
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (res.ok) return res;
-    errMsg = `Anthropic ${res.status}: ${(await res.text()).slice(0, 200)}`;
-  } catch (e) {
-    errMsg = e instanceof Error ? e.message : String(e);
-  }
-  const gKey = Deno.env.get('GEMINI_API_KEY');
-  if (!gKey) return new Response(JSON.stringify({ error: errMsg }), { status: 502, headers: { 'content-type': 'application/json' } });
-  console.log('LLM FALLBACK to gemini-2.5-flash \u2014', errMsg.slice(0, 150));
-  const sys = typeof payload.system === 'string' ? payload.system : '';
-  const msgs = Array.isArray(payload.messages) ? payload.messages : [];
-  const contents = msgs.map((m: any) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) }] }));
-  const gRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
-    method: 'POST',
-    headers: { 'x-goog-api-key': gKey, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      ...(sys ? { systemInstruction: { parts: [{ text: sys }] } } : {}),
-      contents,
-      generationConfig: { maxOutputTokens: Number(payload.max_tokens ?? 1024) + 256, thinkingConfig: { thinkingBudget: 0 } },
-    }),
-  });
-  if (!gRes.ok) return new Response(JSON.stringify({ error: `${errMsg} | Gemini ${gRes.status}: ${(await gRes.text()).slice(0, 200)}` }), { status: 502, headers: { 'content-type': 'application/json' } });
-  const g = await gRes.json() as any;
-  const text = (g.candidates?.[0]?.content?.parts ?? []).map((p: any) => p.text ?? '').join('');
-  const shaped = { model: 'gemini-2.5-flash', content: [{ type: 'text', text }], usage: { input_tokens: g.usageMetadata?.promptTokenCount ?? 0, output_tokens: g.usageMetadata?.candidatesTokenCount ?? 0 } };
-  return new Response(JSON.stringify(shaped), { status: 200, headers: { 'content-type': 'application/json' } });
-}
-// ── end __LLM_FALLBACK__ ───────────────────────────────────────────────────
-
+// SPRINT 4 (M1-S4): Brain Chat now routes its actual LLM call through the
+// canonical Founder Brain instead of its own local llmFetch/callClaude.
+// RAG/context-building here (brand/doc/decision/idea lookups a few lines
+// down) stays as-is — this sprint removes duplicate REASONING, not the
+// conversation-specific retrieval this screen already does well.
+import { reason as founderBrainReason } from '../_shared/founder-brain.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -81,12 +43,14 @@ async function verifyJWT(authHeader: string | null, supabaseUrl: string): Promis
   } catch { return null; }
 }
 async function callClaude(system: string, messages: { role: string; content: string }[], maxTokens = 1500): Promise<string> {
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not configured as a Supabase secret');
-  const res = await llmFetch(apiKey, { model: 'claude-sonnet-4-6', max_tokens: maxTokens, system, messages });
-  if (!res.ok) { const t = await res.text(); throw new Error(`Anthropic API error ${res.status}: ${t.slice(0, 500)}`); }
-  const data = await res.json() as { content: { type: string; text?: string }[] };
-  return data.content.filter((b) => b.type === 'text').map((b) => b.text || '').join('\n');
+  // SPRINT 4: delegates to the canonical Founder Brain reason() instead of
+  // this function's own llmFetch call. reason() is single-turn (system +
+  // one userContent), so multi-turn history is flattened into a transcript
+  // — same information, no native multi-turn API shape, which is the only
+  // behavioral difference from the old inline implementation.
+  const transcript = messages.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
+  const result = await founderBrainReason(system, transcript, maxTokens);
+  return result.text;
 }
 
 Deno.serve(async (req) => {

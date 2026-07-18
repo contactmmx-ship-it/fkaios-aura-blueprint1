@@ -10,32 +10,13 @@
 // models, or images beyond what Gemini's static image generation can do.
 // A 'video_brief' deliverable is a production-ready brief, not a video file.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+// SPRINT 4 (M1-S4): My Brain now routes its LLM call through the canonical
+// Founder Brain instead of its own local llmFetch/callClaude.
+import { reason as founderBrainReason } from '../_shared/founder-brain.ts';
 
-async function llmFetch(apiKey: string, payload: Record<string, unknown>): Promise<Response> {
-  const res = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: JSON.stringify(payload) });
-  if (res.ok) return res;
-  const errMsg = `Anthropic ${res.status}: ${(await res.text()).slice(0, 200)}`;
-  const gKey = Deno.env.get('GEMINI_API_KEY');
-  if (gKey) {
-    const sys = typeof payload.system === 'string' ? payload.system : '';
-    const msgs = Array.isArray(payload.messages) ? payload.messages : [];
-    const contents = msgs.map((m: any) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) }] }));
-    const gRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', { method: 'POST', headers: { 'x-goog-api-key': gKey, 'content-type': 'application/json' }, body: JSON.stringify({ ...(sys ? { systemInstruction: { parts: [{ text: sys }] } } : {}), contents, generationConfig: { maxOutputTokens: Number(payload.max_tokens ?? 1500) + 256 } }) });
-    if (gRes.ok) {
-      const g = await gRes.json() as any;
-      const text = (g.candidates?.[0]?.content?.parts ?? []).map((p: any) => p.text ?? '').join('');
-      return new Response(JSON.stringify({ model: 'gemini-2.5-flash', content: [{ type: 'text', text }] }), { status: 200, headers: { 'content-type': 'application/json' } });
-    }
-  }
-  return new Response(JSON.stringify({ error: errMsg }), { status: 502, headers: { 'content-type': 'application/json' } });
-}
 async function callClaude(system: string, userMsg: string, maxTokens = 1800): Promise<string> {
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
-  const res = await llmFetch(apiKey, { model: 'claude-sonnet-4-6', max_tokens: maxTokens, system, messages: [{ role: 'user', content: userMsg }] });
-  if (!res.ok) throw new Error(`LLM error: ${(await res.text()).slice(0, 300)}`);
-  const data = await res.json() as any;
-  return (data.content ?? []).filter((b: any) => b.type === 'text').map((b: any) => b.text || '').join('\n').trim();
+  const result = await founderBrainReason(system, userMsg, maxTokens);
+  return result.text.trim();
 }
 
 const corsHeaders = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Correlation-ID, x-heartbeat-secret' };
