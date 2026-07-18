@@ -103,13 +103,14 @@ export default function GovernanceDashboard() {
     priorities: any[]; observations: any[]; learning: any[]; recommendations: any[];
     assignedWork: any[]; pendingApprovals: any[]; activeProjects: any[]; departments: any[]; workforce: any[];
     velocity: { last24h: number; last7d: number };
+    companyOs: { successCount: number; errorCount: number; successRate: number | null; recentFailures: any[] };
   } | null>(null);
   const [brainBriefLoading, setBrainBriefLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
-        const [memRes, workRes, apprRes, projRes, deptRes, deptObjRes, agentRes, velocity24Res, velocity7Res] = await Promise.all([
+        const [memRes, workRes, apprRes, projRes, deptRes, deptObjRes, agentRes, velocity24Res, velocity7Res, osLogRes] = await Promise.all([
           supabase.from('founder_memory').select('content, updated_at').order('updated_at', { ascending: false }).limit(50),
           supabase.from('orchestrator_requests').select('id, raw_request, department_code, status, created_at').eq('requested_by', 'founder-brain').order('created_at', { ascending: false }).limit(6),
           supabase.from('approvals').select('id, action_type, reason, risk_level, created_at').eq('status', 'pending').order('created_at', { ascending: false }).limit(6),
@@ -117,9 +118,11 @@ export default function GovernanceDashboard() {
           supabase.from('departments').select('code, name, automation_level').eq('is_active', true),
           supabase.from('orchestrator_requests').select('department_code, status').eq('requested_by', 'founder-brain'),
           supabase.from('ai_agents').select('id, name, department, dept, status, is_active, autonomy_level, success_rate, total_tasks_completed').eq('is_active', true).order('name').limit(30),
-          // SPRINT 9 (M1-S9) — Work Engine velocity: real completed-job counts, not a fabricated trend.
           supabase.from('ai_jobs').select('id', { count: 'exact', head: true }).eq('status', 'completed').eq('type', 'work_engine_task').gte('updated_at', new Date(Date.now() - 86400000).toISOString()),
           supabase.from('ai_jobs').select('id', { count: 'exact', head: true }).eq('status', 'completed').eq('type', 'work_engine_task').gte('updated_at', new Date(Date.now() - 7 * 86400000).toISOString()),
+          // SPRINT 11 (M1-S11) — Company OS: real dispatch outcomes from
+          // execution_log (same table 11+ other engines already write to).
+          supabase.from('execution_log').select('action, status, error, created_at').eq('function_name', 'company-os').gte('created_at', new Date(Date.now() - 86400000).toISOString()).order('created_at', { ascending: false }).limit(100),
         ]);
         const mem = (memRes.data || []).map((r: any) => r.content).filter(Boolean);
         // Progress per project — real aggregation from orchestration_tasks, not a fabricated number.
@@ -142,6 +145,9 @@ export default function GovernanceDashboard() {
         // grouped by department. Not a new table — same one 15+ engines
         // already write to (ai-engine, auto-agents-engine, orchestrator...).
         const workforce = agentRes.data || [];
+        const osLogs = osLogRes.data || [];
+        const osSuccess = osLogs.filter((r: any) => r.status === 'success').length;
+        const osError = osLogs.filter((r: any) => r.status === 'error').length;
         setBrainBrief({
           priorities: mem.filter((c: any) => c.kind === 'goal'),
           observations: mem.filter((c: any) => c.kind === 'insight' || c.kind === 'imagination').slice(0, 3),
@@ -153,6 +159,12 @@ export default function GovernanceDashboard() {
           departments,
           workforce,
           velocity: { last24h: velocity24Res.count || 0, last7d: velocity7Res.count || 0 },
+          companyOs: {
+            successCount: osSuccess,
+            errorCount: osError,
+            successRate: (osSuccess + osError) > 0 ? Math.round((osSuccess / (osSuccess + osError)) * 100) : null,
+            recentFailures: osLogs.filter((r: any) => r.status === 'error').slice(0, 3),
+          },
         });
       } catch (e) {
         console.error('Founder Brain brief load failed:', e);
@@ -298,6 +310,25 @@ export default function GovernanceDashboard() {
                       <div className="text-slate-600">{e.total_tasks_completed ?? 0} done</div>
                     </div>
                   </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="pt-2 border-t border-slate-800">
+            <div className="text-slate-500 uppercase tracking-wide mb-1.5 text-xs">Company OS — business system dispatches (24h)</div>
+            {brainBrief.companyOs.successCount === 0 && brainBrief.companyOs.errorCount === 0 ? (
+              <div className="text-slate-600 text-xs">No business-system actions dispatched yet</div>
+            ) : (
+              <div className="flex items-center gap-4 text-xs">
+                <span className="text-emerald-400">{brainBrief.companyOs.successCount} succeeded</span>
+                <span className="text-red-400">{brainBrief.companyOs.errorCount} failed</span>
+                {brainBrief.companyOs.successRate != null && <span className="text-slate-500">({brainBrief.companyOs.successRate}% success rate)</span>}
+              </div>
+            )}
+            {brainBrief.companyOs.recentFailures.length > 0 && (
+              <div className="mt-1 space-y-0.5">
+                {brainBrief.companyOs.recentFailures.map((f: any, i: number) => (
+                  <div key={i} className="text-red-400/80 text-[10px] truncate">• {f.action}: {(f.error || '').slice(0, 100)}</div>
                 ))}
               </div>
             )}
