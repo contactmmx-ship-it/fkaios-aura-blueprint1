@@ -258,7 +258,16 @@ export async function returnCompletedWork(): Promise<{ returned: number; dispatc
 
     await client.from("orchestration_tasks").update({ status: "done", output: JSON.stringify(finalOutput).slice(0, 5000) }).eq("id", task.id);
     try {
-      await founderMemory.learning.recordOutcome({ function_name: "work-engine", action: "task_completed", success: true, value: 1 });
+      // EVOLUTION AUDIT FINDING (2026-07-18): this previously hardcoded
+      // success:true unconditionally, even when a Company OS dispatch
+      // above had just failed (resultObj.capability was set but
+      // dispatch.status === 'error'). The task still gets marked 'done'
+      // (the LLM reasoning genuinely completed, that part is real) but
+      // Learning should reflect what actually happened to the dispatch,
+      // not paper over it — a false-positive success record would corrupt
+      // any future confidence/wisdom computation that reads it back.
+      const dispatchOutcome = resultObj?.capability ? (finalOutput as { companyOsDispatch?: { status?: string } }).companyOsDispatch?.status === "success" : true;
+      await founderMemory.learning.recordOutcome({ function_name: "work-engine", action: "task_completed", success: dispatchOutcome, value: 1 });
     } catch { /* non-blocking */ }
     returned++;
   }

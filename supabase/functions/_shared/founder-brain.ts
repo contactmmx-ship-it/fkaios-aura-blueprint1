@@ -590,10 +590,18 @@ export const founderMemory: FounderMemory = {
   learning: {
     recordOutcome: async (event: Record<string, unknown>) => {
       const client = getFounderBrainClient();
-      await recordMetric(client, "founder_brain_outcome", (event.value as number) ?? 1, {
+      // EVOLUTION AUDIT FINDING (2026-07-18): this previously recorded
+      // value=(event.value ?? 1) unconditionally — meaning the metric's
+      // VALUE never reflected success/failure at all (success was only a
+      // tag). avg(value) over any window would always be 1.0/100%
+      // regardless of real outcomes — a metric that could never tell the
+      // truth. Now value is derived from success itself, so avg() genuinely
+      // is a success rate, not a constant dressed up as one.
+      const succeeded = (event.success as boolean) ?? true;
+      await recordMetric(client, "founder_brain_outcome", succeeded ? 1 : 0, {
         function: (event.function_name as string) ?? "founder-brain",
         action: (event.action as string) ?? "outcome",
-        success: (event.success as boolean) ?? true,
+        success: succeeded,
       });
     },
   },

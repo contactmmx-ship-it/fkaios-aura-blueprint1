@@ -26,6 +26,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { reason, getGoals, founderMemory, type Goal } from "./founder-brain.ts";
 import { CAPABILITY_REGISTRY } from "./company-os.ts";
+import { getMetricSummary } from "./metrics.ts";
 
 function getClient() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
@@ -765,6 +766,7 @@ export interface BrainState {
   capabilityHealth: CapabilityGraph;
   confidence: IntuitionPattern[];
   recentReflection: Reflection | null;
+  learningTrend: LearningTrend;
   runningTasks: { pendingTasks: number; assignedTasks: number; pendingJobs: number; runningJobs: number };
   pendingApprovals: { total: number; highOrCritical: number };
   executiveAttention: AttentionItem[];
@@ -774,11 +776,12 @@ export interface BrainState {
 export async function getBrainState(userId = "founder"): Promise<BrainState> {
   const client = getClient();
 
-  const [currentGoals, capabilityHealth, confidence, reflectionHistory, taskCounts, jobCounts, approvalsData] = await Promise.all([
+  const [currentGoals, capabilityHealth, confidence, reflectionHistory, learningTrend, taskCounts, jobCounts, approvalsData] = await Promise.all([
     getGoals(userId),
     getCapabilityGraph(),
     buildIntuition(userId),
     getReflectionHistory(userId),
+    getLearningTrend(),
     client.from("orchestration_tasks").select("status").in("status", ["pending", "assigned"]),
     client.from("ai_jobs").select("status").in("status", ["pending", "running"]).eq("type", "work_engine_task"),
     client.from("approvals").select("id, risk_level").eq("status", "pending"),
@@ -806,6 +809,7 @@ export async function getBrainState(userId = "founder"): Promise<BrainState> {
     capabilityHealth,
     confidence,
     recentReflection: reflectionHistory.length > 0 ? reflectionHistory[reflectionHistory.length - 1] : null,
+    learningTrend,
     runningTasks: {
       pendingTasks: tasks.filter((t: { status: string }) => t.status === "pending").length,
       assignedTasks: tasks.filter((t: { status: string }) => t.status === "assigned").length,
@@ -816,4 +820,41 @@ export async function getBrainState(userId = "founder"): Promise<BrainState> {
     executiveAttention,
     computedAt: new Date().toISOString(),
   };
+}
+
+// ============================================================================
+// LEARNING TREND — closing the read side of the Learning capability
+// ============================================================================
+// EVOLUTION AUDIT FINDING (2026-07-18), third instance of the same pattern
+// as the goal-hierarchy and working-memory fixes: founderMemory.learning.
+// recordOutcome() has been writing real data (cognitiveTick's Review phase,
+// work-engine's returnCompletedWork) under metric name 'founder_brain_
+// outcome' since Sprint 2 — but getMetrics()/getMetricSummary() (already
+// built in _shared/metrics.ts, used by other engines for their own
+// telemetry) had ZERO callers reading that specific metric back. Learning
+// was writing to a void.
+//
+// PROPAGATION (per the Constitution's explicit requirement: "improving
+// Memory must improve reasoning/imagination/prediction/confidence/wisdom/
+// planning — if it only improves Memory, the evolution is incomplete"):
+// getLearningTrend() is wired directly into getBrainState() below, so the
+// Brain's own self-awareness now includes whether its recent work has
+// actually been succeeding — not just that work happened.
+export interface LearningTrend {
+  windowHours: number;
+  totalOutcomes: number;
+  successRate: number | null; // null below the evidence floor, same discipline as buildIntuition/getProviderPerformance
+}
+
+const LEARNING_MIN_SAMPLE = 5;
+
+export async function getLearningTrend(windowHours = 24): Promise<LearningTrend> {
+  const client = getClient();
+  const summary = await getMetricSummary(client, "founder_brain_outcome", `${windowHours}h`);
+  if (!summary || summary.count < LEARNING_MIN_SAMPLE) {
+    return { windowHours, totalOutcomes: summary?.count ?? 0, successRate: null };
+  }
+  // recordOutcome() records success as value 1, failure as value 0 (see the
+  // work-engine.ts fix this same commit) — avg IS the success rate directly.
+  return { windowHours, totalOutcomes: summary.count, successRate: Math.round(summary.avg * 100) };
 }
