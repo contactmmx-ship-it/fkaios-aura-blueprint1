@@ -25,6 +25,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { reason, getGoals, founderMemory } from "./founder-brain.ts";
+import { CAPABILITY_REGISTRY } from "./company-os.ts";
 
 function getClient() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
@@ -623,4 +624,99 @@ export async function getProviderPerformance(windowHours = 168): Promise<Provide
         : `${e.success} of ${e.calls} founder-brain calls succeeded in the last ${windowHours}h`,
     };
   }).sort((a, b) => b.calls - a.calls);
+}
+
+// ============================================================================
+// CAPABILITY GRAPH — the Brain's internal representation, not a registry
+// ============================================================================
+// Founder's explicit correction: a "Capability Router" (intent -> registry
+// lookup -> dispatch) is code-upward thinking. The architecture is a GRAPH:
+// nodes are capabilities (reasoning is one, exactly like research or
+// whatsapp_messaging — no special path), edges are weighted relationships
+// the Brain has actually lived through. This is Step 1 only, per the
+// founder's own sequencing: build the representation first, read-only.
+// Provider ROUTING becoming a consequence of graph traversal is deliberate
+// follow-up work, not bundled into this commit.
+//
+// NOT a new store. Building graph_nodes/graph_edges tables would be exactly
+// the "another module" being warned against. This is a COMPUTED VIEW over
+// data the Brain already owns:
+//   - Capability nodes: the same CAPABILITY_REGISTRY entries Company OS
+//     already has (Sprint 11), imported directly — not duplicated — plus
+//     ONE new node: "reasoning" itself, so Claude/Gemini/OpenAI become
+//     edges FROM a capability node instead of a hardcoded special path.
+//   - Capability->provider edge weights for business capabilities: real
+//     success rate from execution_log where function_name='company-os'
+//     (every executeCapability() dispatch has been logging here since
+//     Sprint 11 — this data already existed, just was never read as a
+//     graph before).
+//   - Capability->provider edge weights for "reasoning": getProviderPerformance()
+//     (added last-but-one commit) — reused as-is, not reimplemented. This
+//     IS what makes reasoning a capability like any other: its provider
+//     edges are weighted by the exact same kind of historical evidence as
+//     every other capability's edges, not a separate reliability chain
+//     living in a different mental category.
+//   - No weight where no evidence exists: null, not guessed. Same 5-sample
+//     floor discipline as buildIntuition()/getProviderPerformance().
+export interface CapabilityGraphNode {
+  id: string; // e.g. "research.run", "reasoning" — capability, never a provider name
+  description: string;
+}
+
+export interface CapabilityGraphEdge {
+  from: string; // capability node id
+  to: string; // execution endpoint: an edgeFunction name, or a reasoning provider name
+  weight: number | null; // real success rate 0-100; null = no evidence yet, never guessed
+  sampleSize: number;
+  evidence: string;
+}
+
+export interface CapabilityGraph {
+  nodes: CapabilityGraphNode[];
+  edges: CapabilityGraphEdge[];
+  builtAt: string;
+}
+
+export async function getCapabilityGraph(): Promise<CapabilityGraph> {
+  const client = getClient();
+  const nodes: CapabilityGraphNode[] = [];
+  const edges: CapabilityGraphEdge[] = [];
+
+  // Business capability nodes + edges — from the real registry + real
+  // execution_log outcomes (Company OS dispatches, Sprint 11 onward).
+  for (const [capabilityId, def] of Object.entries(CAPABILITY_REGISTRY)) {
+    if (!def.verified) continue; // unverified capabilities aren't graph edges yet — no confirmed execution endpoint to traverse to
+    nodes.push({ id: capabilityId, description: def.description });
+
+    const { data } = await client.from("execution_log").select("status").eq("function_name", "company-os").eq("action", capabilityId).limit(200);
+    const rows = data ?? [];
+    const total = rows.length;
+    const success = rows.filter((r: { status: string }) => r.status === "success").length;
+    const belowFloor = total < 5;
+
+    edges.push({
+      from: capabilityId,
+      to: def.edgeFunction,
+      weight: belowFloor ? null : Math.round((success / total) * 100),
+      sampleSize: total,
+      evidence: belowFloor ? `only ${total} real dispatches logged — below the 5-call floor, no weight assigned` : `${success} of ${total} real dispatches succeeded`,
+    });
+  }
+
+  // Reasoning capability node + edges — reasoning is a capability like any
+  // other; its providers are its execution endpoints, weighted by the SAME
+  // real historical-evidence function every other capability edge uses.
+  nodes.push({ id: "reasoning", description: "Founder Brain reasoning — grounded, evidence-based thinking (reason())" });
+  const reasoningProviders = await getProviderPerformance();
+  for (const p of reasoningProviders) {
+    edges.push({
+      from: "reasoning",
+      to: p.provider,
+      weight: p.successRate,
+      sampleSize: p.calls,
+      evidence: p.evidence,
+    });
+  }
+
+  return { nodes, edges, builtAt: new Date().toISOString() };
 }
