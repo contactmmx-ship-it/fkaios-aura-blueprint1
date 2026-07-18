@@ -89,6 +89,43 @@ export default function GovernanceDashboard() {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
+  // SPRINT 5 (M1-S5) — Founder Workspace. Command Center is the screen the
+  // founder actually lands on (see AppShell's activePage default). This is
+  // the Founder Brain's own output, read from tables it already owns
+  // (founder_memory / orchestrator_requests / approvals — Sprints 2-4),
+  // additive to the existing governance-dashboard fetch below, not a
+  // replacement of it.
+  const [brainBrief, setBrainBrief] = useState<{
+    priorities: any[]; observations: any[]; learning: any[]; recommendations: any[];
+    assignedWork: any[]; pendingApprovals: any[];
+  } | null>(null);
+  const [brainBriefLoading, setBrainBriefLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [memRes, workRes, apprRes] = await Promise.all([
+          supabase.from('founder_memory').select('content, updated_at').order('updated_at', { ascending: false }).limit(50),
+          supabase.from('orchestrator_requests').select('id, raw_request, department_code, status, created_at').eq('requested_by', 'founder-brain').order('created_at', { ascending: false }).limit(6),
+          supabase.from('approvals').select('id, action_type, reason, risk_level, created_at').eq('status', 'pending').order('created_at', { ascending: false }).limit(6),
+        ]);
+        const mem = (memRes.data || []).map((r: any) => r.content).filter(Boolean);
+        setBrainBrief({
+          priorities: mem.filter((c: any) => c.kind === 'goal'),
+          observations: mem.filter((c: any) => c.kind === 'insight' || c.kind === 'imagination').slice(0, 3),
+          learning: mem.filter((c: any) => c.kind === 'world_learning').slice(0, 3),
+          recommendations: mem.filter((c: any) => c.kind === 'constitution_amendment').slice(0, 3),
+          assignedWork: workRes.data || [],
+          pendingApprovals: apprRes.data || [],
+        });
+      } catch (e) {
+        console.error('Founder Brain brief load failed:', e);
+      } finally {
+        setBrainBriefLoading(false);
+      }
+    })();
+  }, []);
+
   const load = useCallback(async () => {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -140,6 +177,44 @@ export default function GovernanceDashboard() {
 
   return (
     <div className="p-6 space-y-6">
+      {!brainBriefLoading && brainBrief && (
+        <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-blue-900/40 rounded-xl p-5 space-y-4">
+          <h2 className="text-sm font-semibold text-white flex items-center gap-2"><Brain size={16} className="text-blue-400" /> Founder Brain Brief</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+            <div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Today's priorities</div>
+              {brainBrief.priorities.length === 0 ? <div className="text-slate-600">No goals seeded yet</div> :
+                brainBrief.priorities.map((g: any, i: number) => <div key={i} className="text-slate-300 mb-1">• {g.description} {g.deadline ? <span className="text-slate-500">({g.deadline})</span> : null}</div>)}
+            </div>
+            <div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Assigned work</div>
+              {brainBrief.assignedWork.length === 0 ? <div className="text-slate-600">Nothing assigned yet</div> :
+                brainBrief.assignedWork.slice(0, 4).map((w: any) => <div key={w.id} className="text-slate-300 mb-1 truncate">• {w.raw_request} <span className="text-slate-500">[{w.department_code || '—'}/{w.status}]</span></div>)}
+            </div>
+            <div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Pending approvals</div>
+              {brainBrief.pendingApprovals.length === 0 ? <div className="text-slate-600">None pending</div> :
+                brainBrief.pendingApprovals.slice(0, 4).map((a: any) => <div key={a.id} className="text-amber-400/90 mb-1 truncate">• {a.action_type} <span className="text-slate-500">({a.risk_level})</span></div>)}
+            </div>
+            <div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Recent observations</div>
+              {brainBrief.observations.length === 0 ? <div className="text-slate-600">Nothing observed yet</div> :
+                brainBrief.observations.map((o: any, i: number) => <div key={i} className="text-slate-300 mb-1 line-clamp-2">• {(o.text || '').slice(0, 140)}</div>)}
+            </div>
+            <div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Recent learning</div>
+              {brainBrief.learning.length === 0 ? <div className="text-slate-600">Nothing learned yet</div> :
+                brainBrief.learning.map((l: any, i: number) => <div key={i} className="text-slate-300 mb-1 line-clamp-2">• [{l.source}] {(l.text || '').slice(0, 120)}</div>)}
+            </div>
+            <div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Strategic recommendations</div>
+              {brainBrief.recommendations.length === 0 ? <div className="text-slate-600">No amendments proposed yet</div> :
+                brainBrief.recommendations.map((r: any, i: number) => <div key={i} className="text-slate-300 mb-1 line-clamp-2">• v{r.version} [{r.area}] {(r.change || '').slice(0, 120)}</div>)}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between bg-slate-900/50 border border-slate-800 rounded-xl px-4 py-2">
         <div className="flex items-center gap-2">
