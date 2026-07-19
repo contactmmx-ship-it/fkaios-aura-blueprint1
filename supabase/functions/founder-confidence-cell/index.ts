@@ -28,7 +28,7 @@
 // schedule is the founder's decision once the base cron gap is resolved.
 // ============================================================================
 
-import { buildIntuition } from "../_shared/executive-planner.ts";
+import { buildIntuition, getLatestConfidenceState } from "../_shared/executive-planner.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -39,8 +39,33 @@ const corsHeaders = {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
+    // ORGAN MATURITY (2026-07-18): before this, Confidence spoke fresh every
+    // time it was asked, with no memory of what it said last — the same
+    // question asked twice in a row got two independently-computed answers
+    // with no continuity between them. It now reads its own PRIOR state
+    // first, so it can report a real shift ("more confident than last time,"
+    // "still uncertain, unchanged") rather than a stateless number each
+    // cycle. The comparison is real arithmetic against the actual previous
+    // computation — never a narrated guess at direction.
+    const priorState = await getLatestConfidenceState("founder");
+    const priorByType = new Map(priorState.map((p) => [p.taskType, p.confidence]));
+
     const patterns = await buildIntuition("founder");
-    return new Response(JSON.stringify({ cell: "confidence", patternsComputed: patterns.length, patterns }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+    const shifts = patterns.map((p) => {
+      const priorConfidence = priorByType.get(p.taskType) ?? null;
+      let direction: "increased" | "decreased" | "unchanged" | "new" = "new";
+      let delta = 0;
+      if (priorConfidence !== null && p.confidence !== null) {
+        delta = p.confidence - priorConfidence;
+        direction = delta > 0 ? "increased" : delta < 0 ? "decreased" : "unchanged";
+      } else if (priorConfidence === null && p.confidence !== null) {
+        direction = "new"; // first time this task type has crossed the evidence floor
+      }
+      return { taskType: p.taskType, confidence: p.confidence, priorConfidence, direction, delta, evidence: p.evidence };
+    });
+
+    return new Response(JSON.stringify({ cell: "confidence", patternsComputed: patterns.length, shifts }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("founder-confidence-cell error:", msg);

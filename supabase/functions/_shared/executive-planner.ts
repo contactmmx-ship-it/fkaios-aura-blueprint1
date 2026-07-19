@@ -804,7 +804,7 @@ export interface BrainState {
 // run yet (no row exists), returns an empty array rather than silently
 // falling back to a synchronous computation that would defeat the purpose
 // of this change.
-async function getLatestConfidenceState(userId: string): Promise<IntuitionPattern[]> {
+export async function getLatestConfidenceState(userId: string): Promise<IntuitionPattern[]> {
   const rows = (await founderMemory.permanent.get(userId)) as Array<{ content?: { kind?: string; patterns?: IntuitionPattern[] } }> | null;
   if (!rows) return [];
   const intuitionEntries = rows.filter((r) => r.content?.kind === "intuition");
