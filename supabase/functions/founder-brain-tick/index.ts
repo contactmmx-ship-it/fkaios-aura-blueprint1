@@ -24,7 +24,7 @@
 // ============================================================================
 
 import { cognitiveTick, getGoals, seedGoalHierarchy } from "../_shared/founder-brain.ts";
-import { planObjective, escalateBlocked, reflect, buildIntuition } from "../_shared/executive-planner.ts";
+import { planObjective, escalateBlocked, reflect } from "../_shared/executive-planner.ts";
 import { allocateProjectWork, reassignStuckWork, returnCompletedWork } from "../_shared/work-engine.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
@@ -89,34 +89,24 @@ Deno.serve(async (req: Request) => {
     }
 
     // PARALLEL EXECUTION (permanent constitution rule 8): escalateBlocked,
-    // reassignStuckWork, returnCompletedWork, reflect, and buildIntuition
-    // read/write DIFFERENT data (blocked orchestration_tasks/projects;
-    // failed ai_jobs; completed ai_jobs; execution_log+agent_performance_
-    // metrics+orchestration_tasks; agent_performance_metrics) and none of
-    // their outputs feed each other's inputs within this tick — they were
-    // already independently try/catch'd (one failing never blocked the
-    // others), just needlessly sequential. Promise.allSettled preserves
-    // that exact same failure-isolation while actually running them
-    // concurrently instead of one-at-a-time. This does not change what
-    // each function does — only when they run relative to each other.
-    // MEASUREMENT, not fabrication: real wall-clock time for the parallel
-    // block below, so the tick's response can honestly report a Parallel
-    // Execution Summary (explicitly requested) — tasks executed, how many
-    // succeeded/failed, and how long the concurrent batch actually took.
-    // Deliberately does NOT claim a "vs sequential" savings number — that
-    // would require summing 5 individual per-task durations this code
-    // doesn't capture, and estimating one would be exactly the kind of
-    // fabricated value the Token Economy section explicitly forbids.
+    // reassignStuckWork, returnCompletedWork, and reflect read/write
+    // DIFFERENT data and none of their outputs feed each other's inputs
+    // within this tick — they remain here, batched.
+    // ECOSYSTEM STEP (2026-07-18): buildIntuition() has been extracted to
+    // its own independent cell (founder-confidence-cell) — it no longer
+    // runs as part of this pipeline. This is the first real step away from
+    // "one function calls the next in sequence" toward independently
+    // scheduled functions that share state without calling each other.
+    // Confidence now updates on its own schedule, not on this tick's.
     const parallelStartedAt = Date.now();
-    const [escalateResult, reassignResult, returnResult, reflectResult, intuitionResult] = await Promise.allSettled([
+    const [escalateResult, reassignResult, returnResult, reflectResult] = await Promise.allSettled([
       escalateBlocked(result.correlationId),
       reassignStuckWork(),
       returnCompletedWork(),
       reflect("founder", result.correlationId),
-      buildIntuition("founder"),
     ]);
     const parallelWallClockMs = Date.now() - parallelStartedAt;
-    const parallelResults = [escalateResult, reassignResult, returnResult, reflectResult, intuitionResult];
+    const parallelResults = [escalateResult, reassignResult, returnResult, reflectResult];
     const parallelExecutionSummary = {
       tasksExecuted: parallelResults.length,
       tasksSucceeded: parallelResults.filter((r) => r.status === "fulfilled").length,
@@ -150,13 +140,7 @@ Deno.serve(async (req: Request) => {
     if (reflectResult.status === "fulfilled" && reflectResult.value) reflection = { version: reflectResult.value.version, recommendedChange: reflectResult.value.recommendedChange };
     else if (reflectResult.status === "rejected") console.error("founder-brain-tick: reflect failed", reflectResult.reason instanceof Error ? reflectResult.reason.message : String(reflectResult.reason));
 
-    // SPRINT 14: Business Intuition — pure statistical aggregation over
-    // agent_performance_metrics, no LLM call, no cost concern for the hot loop.
-    let intuitionPatterns = 0;
-    if (intuitionResult.status === "fulfilled") intuitionPatterns = intuitionResult.value.length;
-    else console.error("founder-brain-tick: buildIntuition failed", intuitionResult.reason instanceof Error ? intuitionResult.reason.message : String(intuitionResult.reason));
-
-    return new Response(JSON.stringify({ ...result, planned, allocated, escalated, reassigned, returned, dispatched, reflection, intuitionPatterns, parallelExecutionSummary }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ ...result, planned, allocated, escalated, reassigned, returned, dispatched, reflection, parallelExecutionSummary }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("founder-brain-tick error:", msg);
