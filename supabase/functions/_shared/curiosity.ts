@@ -34,6 +34,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { reason, getGoals, founderMemory, worldLearn } from "./founder-brain.ts";
 import { executeCapability } from "./company-os.ts";
+import { getReflectionHistory } from "./executive-planner.ts";
 
 function getClient() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
@@ -51,14 +52,27 @@ export interface KnowledgeGap {
 //    model doesn't return parseable JSON (same discipline as every other
 //    generator in this codebase since Sprint 3). ──
 export async function identifyKnowledgeGaps(userId: string, count = 2, correlationId?: string): Promise<KnowledgeGap[]> {
-  const [goals, recentActivity] = await Promise.all([
+  const [goals, recentActivity, reflectionHistory] = await Promise.all([
     getGoals(userId),
     founderMemory.episodic.query({}),
+    getReflectionHistory(userId),
   ]);
 
+  // INTEGRATION (2026-07-18): second consumer of the Importance signal
+  // (first was Executive Attention, f334b4a). Reuses the SAME real data —
+  // the latest Reflection's assumptionsWrong field — rather than inventing
+  // a second signal. A real, stated contradiction is now an explicit input
+  // to what Curiosity considers worth investigating, not a separate
+  // mechanism. Per the honesty rule: this is Integration, not Emergence —
+  // two organs now consume Importance independently, but "emergence"
+  // requires observing them produce a NEW combined behavior neither
+  // organ has alone, which has not been observed yet.
+  const latestReflection = reflectionHistory.length > 0 ? reflectionHistory[reflectionHistory.length - 1] : null;
+  const contradiction = latestReflection?.assumptionsWrong?.trim() ? latestReflection.assumptionsWrong : null;
+
   const result = await reason(
-    `You are the Founder Brain being curious. Given the goal hierarchy and recent company activity, identify exactly ${count} SPECIFIC knowledge gaps worth researching — things the company doesn't know but needs to, to move toward its goals. Not generic ("learn about marketing") — specific and actionable ("what franchise investment thresholds are competitors offering in Tier-2 cities right now"). Return ONLY a JSON array of {question, reason}.`,
-    `GOALS:\n${JSON.stringify(goals)}\n\nRECENT ACTIVITY (last 50 events):\n${JSON.stringify(recentActivity.slice(0, 20))}`,
+    `You are the Founder Brain being curious. Given the goal hierarchy, recent company activity, and (if present) a contradiction the Brain recently found in its own thinking, identify exactly ${count} SPECIFIC knowledge gaps worth researching — things the company doesn't know but needs to, to move toward its goals. If a contradiction is provided, one of your ${count} gaps MUST be about investigating that specific contradiction — this takes priority over generic gaps. Not generic ("learn about marketing") — specific and actionable ("what franchise investment thresholds are competitors offering in Tier-2 cities right now"). Return ONLY a JSON array of {question, reason}.`,
+    `GOALS:\n${JSON.stringify(goals)}\n\nRECENT ACTIVITY (last 50 events):\n${JSON.stringify(recentActivity.slice(0, 20))}${contradiction ? `\n\nRECENT CONTRADICTION THE BRAIN FOUND IN ITS OWN THINKING (investigate this):\n${contradiction}` : ""}`,
     600,
     correlationId,
   );
