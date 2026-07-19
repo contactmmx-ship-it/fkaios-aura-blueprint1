@@ -771,7 +771,7 @@ export async function getCapabilityGraph(): Promise<CapabilityGraph> {
 // papered over with an invented urgency score.
 // ============================================================================
 export interface AttentionItem {
-  type: "approval" | "goal" | "learning";
+  type: "approval" | "goal" | "learning" | "contradiction";
   description: string;
   urgency: "urgent" | "normal";
   reason: string;
@@ -785,6 +785,7 @@ export interface BrainState {
   recentImagination: ImaginationEntry[];
   learningTrend: LearningTrend;
   intelligenceIndex: BrainIntelligenceIndex;
+  importanceScores: ImportanceScore[];
   runningTasks: { pendingTasks: number; assignedTasks: number; pendingJobs: number; runningJobs: number };
   pendingApprovals: { total: number; highOrCritical: number };
   executiveAttention: AttentionItem[];
@@ -828,6 +829,7 @@ export async function getBrainState(userId = "founder"): Promise<BrainState> {
     client.from("approvals").select("id, risk_level").eq("status", "pending"),
   ]);
   const intelligenceIndex = computeBrainIntelligenceIndex(learningTrend, confidence, providerPerformance, currentGoals);
+  const importanceScores = computeImportanceScores(reflectionHistory, learningTrend, currentGoals);
 
   const tasks = taskCounts.data ?? [];
   const jobs = jobCounts.data ?? [];
@@ -848,6 +850,18 @@ export async function getBrainState(userId = "founder"): Promise<BrainState> {
   if (learningTrend.successRate !== null && learningTrend.successRate < 50) {
     executiveAttention.push({ type: "learning", description: `Recent execution success rate has dropped to ${learningTrend.successRate}% (${learningTrend.totalOutcomes} outcomes, last ${learningTrend.windowHours}h)`, urgency: "urgent", reason: "a declining success rate is evidence something in execution needs review, not just a number to report later" });
   }
+  // INTEGRATION (2026-07-18): Importance organ (born last commit) now has
+  // its first consumer. A reflection scoring high specifically because it
+  // contains a real, stated contradiction (assumptionsWrong non-empty) —
+  // not a guessed "this seems important" — becomes an attention item. This
+  // is Stage 2 (Integration): Executive Attention consuming Importance's
+  // signal, unchanged otherwise. No new behavior is invented beyond what
+  // the existing attention mechanism already does with other signals.
+  const contradictionScore = importanceScores.find((s) => s.source === "reflection" && s.signals.some((sig) => sig.includes("contradiction")));
+  if (contradictionScore && contradictionScore.score >= 60) {
+    const latestReflection = reflectionHistory.length > 0 ? reflectionHistory[reflectionHistory.length - 1] : null;
+    executiveAttention.push({ type: "contradiction", description: latestReflection ? `The Brain found a contradiction: ${latestReflection.assumptionsWrong.slice(0, 150)}` : "A recent reflection contained a stated contradiction", urgency: "urgent", reason: `importance score ${contradictionScore.score}/100 — the Brain explicitly stated an assumption was wrong, the strongest salience signal available` });
+  }
   if (executiveAttention.length === 0 && currentGoals.length > 0) {
     // Honest fallback, not an invented ranking: if nothing urgent is
     // pending, surface the goal hierarchy itself as what deserves
@@ -864,6 +878,7 @@ export async function getBrainState(userId = "founder"): Promise<BrainState> {
     recentImagination: imaginationHistory.slice(-3),
     learningTrend,
     intelligenceIndex,
+    importanceScores,
     runningTasks: {
       pendingTasks: tasks.filter((t: { status: string }) => t.status === "pending").length,
       assignedTasks: tasks.filter((t: { status: string }) => t.status === "assigned").length,
@@ -1028,13 +1043,7 @@ export interface ImportanceScore {
   signals: string[]; // which real signals contributed, and why — traceable, not a black box
 }
 
-export async function getImportanceScores(userId = "founder"): Promise<ImportanceScore[]> {
-  const [reflectionHistory, trend, goals] = await Promise.all([
-    getReflectionHistory(userId),
-    getLearningTrend(),
-    getGoals(userId),
-  ]);
-
+export function computeImportanceScores(reflectionHistory: Reflection[], trend: LearningTrend, goals: Goal[]): ImportanceScore[] {
   const scores: ImportanceScore[] = [];
   const milestoneKeywords = ["5 crore", "1,100 crore", "1100 crore"];
   const goalText = goals.map((g) => g.description.toLowerCase()).join(" ");
@@ -1059,4 +1068,17 @@ export async function getImportanceScores(userId = "founder"): Promise<Importanc
   }
 
   return scores;
+}
+
+// Standalone entry point — fetches fresh data. Only call this directly
+// (e.g. a future dedicated report endpoint), never from inside
+// getBrainState(), which already has all 3 inputs and calls
+// computeImportanceScores() directly on its own already-fetched data.
+export async function getImportanceScores(userId = "founder"): Promise<ImportanceScore[]> {
+  const [reflectionHistory, trend, goals] = await Promise.all([
+    getReflectionHistory(userId),
+    getLearningTrend(),
+    getGoals(userId),
+  ]);
+  return computeImportanceScores(reflectionHistory, trend, goals);
 }
