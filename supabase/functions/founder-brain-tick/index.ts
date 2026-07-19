@@ -24,7 +24,7 @@
 // ============================================================================
 
 import { cognitiveTick, getGoals, seedGoalHierarchy } from "../_shared/founder-brain.ts";
-import { planObjective, escalateBlocked, reflect } from "../_shared/executive-planner.ts";
+import { planObjective, escalateBlocked } from "../_shared/executive-planner.ts";
 import { allocateProjectWork, reassignStuckWork, returnCompletedWork } from "../_shared/work-engine.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
@@ -89,24 +89,20 @@ Deno.serve(async (req: Request) => {
     }
 
     // PARALLEL EXECUTION (permanent constitution rule 8): escalateBlocked,
-    // reassignStuckWork, returnCompletedWork, and reflect read/write
-    // DIFFERENT data and none of their outputs feed each other's inputs
-    // within this tick — they remain here, batched.
-    // ECOSYSTEM STEP (2026-07-18): buildIntuition() has been extracted to
-    // its own independent cell (founder-confidence-cell) — it no longer
-    // runs as part of this pipeline. This is the first real step away from
-    // "one function calls the next in sequence" toward independently
-    // scheduled functions that share state without calling each other.
-    // Confidence now updates on its own schedule, not on this tick's.
+    // reassignStuckWork, and returnCompletedWork read/write DIFFERENT data
+    // and none of their outputs feed each other's inputs within this tick.
+    // ECOSYSTEM STEP (2026-07-18): buildIntuition() and reflect() have both
+    // been extracted to their own independent cells (founder-confidence-cell,
+    // founder-reflection-cell) — neither runs as part of this pipeline
+    // anymore. Two of four batch members extracted so far.
     const parallelStartedAt = Date.now();
-    const [escalateResult, reassignResult, returnResult, reflectResult] = await Promise.allSettled([
+    const [escalateResult, reassignResult, returnResult] = await Promise.allSettled([
       escalateBlocked(result.correlationId),
       reassignStuckWork(),
       returnCompletedWork(),
-      reflect("founder", result.correlationId),
     ]);
     const parallelWallClockMs = Date.now() - parallelStartedAt;
-    const parallelResults = [escalateResult, reassignResult, returnResult, reflectResult];
+    const parallelResults = [escalateResult, reassignResult, returnResult];
     const parallelExecutionSummary = {
       tasksExecuted: parallelResults.length,
       tasksSucceeded: parallelResults.filter((r) => r.status === "fulfilled").length,
@@ -133,14 +129,7 @@ Deno.serve(async (req: Request) => {
     if (returnResult.status === "fulfilled") { returned = returnResult.value.returned; dispatched = returnResult.value.dispatched; }
     else console.error("founder-brain-tick: returnCompletedWork failed", returnResult.reason instanceof Error ? returnResult.reason.message : String(returnResult.reason));
 
-    // SPRINT 13: company-wide Reflection every cycle — a single reason()
-    // call, cheap enough for the hot loop (unlike Curiosity's paid Apify
-    // dispatches, deliberately kept on a separate slower schedule).
-    let reflection: { version: number; recommendedChange: string } | null = null;
-    if (reflectResult.status === "fulfilled" && reflectResult.value) reflection = { version: reflectResult.value.version, recommendedChange: reflectResult.value.recommendedChange };
-    else if (reflectResult.status === "rejected") console.error("founder-brain-tick: reflect failed", reflectResult.reason instanceof Error ? reflectResult.reason.message : String(reflectResult.reason));
-
-    return new Response(JSON.stringify({ ...result, planned, allocated, escalated, reassigned, returned, dispatched, reflection, parallelExecutionSummary }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ ...result, planned, allocated, escalated, reassigned, returned, dispatched, parallelExecutionSummary }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("founder-brain-tick error:", msg);
