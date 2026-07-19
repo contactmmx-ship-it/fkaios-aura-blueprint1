@@ -109,6 +109,7 @@ export default function GovernanceDashboard() {
     executiveAttention: any[];
     learningTrend: { successRate: number | null; totalOutcomes: number; windowHours: number } | null;
     capabilityHealth: { verifiedCount: number; totalCount: number; avgWeight: number | null } | null;
+    recentImagination: { prompt: string; text: string; created_at: string }[];
   } | null>(null);
   const [brainBriefLoading, setBrainBriefLoading] = useState(true);
 
@@ -187,6 +188,7 @@ export default function GovernanceDashboard() {
               avgWeight: weighted.length > 0 ? Math.round(weighted.reduce((s: number, e: any) => s + e.weight, 0) / weighted.length) : null,
             };
           })(),
+          recentImagination: brainStateRes?.data?.recentImagination || [],
         });
       } catch (e) {
         console.error('Founder Brain brief load failed:', e);
@@ -270,6 +272,18 @@ export default function GovernanceDashboard() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+          {brainBrief.recentImagination.length > 0 && (
+            <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-lg p-3 space-y-2">
+              <div className="text-indigo-400/90 uppercase tracking-wide text-[10px] font-semibold">What I've been imagining</div>
+              {brainBrief.recentImagination.slice(-2).reverse().map((imag: any, i: number) => (
+                <div key={i} className="text-xs">
+                  <div className="text-slate-500 italic">"{imag.prompt}"</div>
+                  <div className="text-slate-300 mt-0.5">{(imag.text || '').slice(0, 220)}{(imag.text || '').length > 220 ? '…' : ''}</div>
+                </div>
+              ))}
+              <div className="text-slate-600 text-[10px]">Speculation, not fact — kept separate from grounded decisions</div>
             </div>
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
