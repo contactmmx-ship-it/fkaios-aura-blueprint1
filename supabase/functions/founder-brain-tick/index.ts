@@ -25,7 +25,7 @@
 
 import { cognitiveTick, getGoals, seedGoalHierarchy } from "../_shared/founder-brain.ts";
 import { planObjective, escalateBlocked } from "../_shared/executive-planner.ts";
-import { allocateProjectWork, reassignStuckWork, returnCompletedWork } from "../_shared/work-engine.ts";
+import { allocateProjectWork, returnCompletedWork } from "../_shared/work-engine.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
 const corsHeaders = {
@@ -88,21 +88,21 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // PARALLEL EXECUTION (permanent constitution rule 8): escalateBlocked,
-    // reassignStuckWork, and returnCompletedWork read/write DIFFERENT data
-    // and none of their outputs feed each other's inputs within this tick.
-    // ECOSYSTEM STEP (2026-07-18): buildIntuition() and reflect() have both
-    // been extracted to their own independent cells (founder-confidence-cell,
-    // founder-reflection-cell) — neither runs as part of this pipeline
-    // anymore. Two of four batch members extracted so far.
+    // PARALLEL EXECUTION (permanent constitution rule 8): escalateBlocked
+    // and returnCompletedWork read/write DIFFERENT data and none of their
+    // outputs feed each other's inputs within this tick.
+    // ECOSYSTEM STEP (2026-07-18): buildIntuition(), reflect(), and now
+    // reassignStuckWork() have all been extracted to their own independent
+    // cells (founder-confidence-cell, founder-reflection-cell,
+    // founder-reassignment-cell) — none run as part of this pipeline
+    // anymore. Three of four batch members extracted so far.
     const parallelStartedAt = Date.now();
-    const [escalateResult, reassignResult, returnResult] = await Promise.allSettled([
+    const [escalateResult, returnResult] = await Promise.allSettled([
       escalateBlocked(result.correlationId),
-      reassignStuckWork(),
       returnCompletedWork(),
     ]);
     const parallelWallClockMs = Date.now() - parallelStartedAt;
-    const parallelResults = [escalateResult, reassignResult, returnResult];
+    const parallelResults = [escalateResult, returnResult];
     const parallelExecutionSummary = {
       tasksExecuted: parallelResults.length,
       tasksSucceeded: parallelResults.filter((r) => r.status === "fulfilled").length,
@@ -116,12 +116,6 @@ Deno.serve(async (req: Request) => {
     if (escalateResult.status === "fulfilled") escalated = escalateResult.value.escalated;
     else console.error("founder-brain-tick: escalateBlocked failed", escalateResult.reason instanceof Error ? escalateResult.reason.message : String(escalateResult.reason));
 
-    // SPRINT 9: Work Engine housekeeping — runs every cycle regardless of
-    // whether anything new was assigned this tick, same as escalation.
-    let reassigned = 0;
-    if (reassignResult.status === "fulfilled") reassigned = reassignResult.value.reassigned;
-    else console.error("founder-brain-tick: reassignStuckWork failed", reassignResult.reason instanceof Error ? reassignResult.reason.message : String(reassignResult.reason));
-
     let returned = 0;
     let dispatched = 0;
     // SPRINT 11: returnCompletedWork() also reports how many completions
@@ -129,7 +123,7 @@ Deno.serve(async (req: Request) => {
     if (returnResult.status === "fulfilled") { returned = returnResult.value.returned; dispatched = returnResult.value.dispatched; }
     else console.error("founder-brain-tick: returnCompletedWork failed", returnResult.reason instanceof Error ? returnResult.reason.message : String(returnResult.reason));
 
-    return new Response(JSON.stringify({ ...result, planned, allocated, escalated, reassigned, returned, dispatched, parallelExecutionSummary }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ ...result, planned, allocated, escalated, returned, dispatched, parallelExecutionSummary }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("founder-brain-tick error:", msg);
