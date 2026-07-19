@@ -861,6 +861,33 @@ export async function createTask(userId: string, task: TaskCandidate, correlatio
       .select()
       .single();
     if (error) { log("ERROR", "createTask failed", { error: error.message }, correlationId); return { source: "orchestrator_requests", status: "error", data: null, error: error.message }; }
+    // EXECUTION ENGINE FIX (2026-07-18): createTask() has set status:
+    // 'awaiting_approval' on the orchestrator_requests row since Sprint 2b,
+    // but NEVER created a row in the `approvals` table — the table the
+    // Founder Workspace Brief actually reads for "pending approvals"
+    // (confirmed: 9 other real engines write there — avatar-orchestrator,
+    // closer-engine, executive-intelligence, orchestrator-brain, etc. —
+    // createTask() was not among them). Since the real risk-assessment fix
+    // (ef2867c) started producing genuine high/critical verdicts instead
+    // of the old hardcoded 'low', this became an active regression: real
+    // high-risk tasks were being created and becoming permanently
+    // invisible, with no path for the Founder to ever see or approve them.
+    // Fixed by connecting to the EXISTING approvals table (same schema
+    // orchestrator-brain already uses for the identical pattern) rather
+    // than building a new approval mechanism.
+    if (needsApproval && data?.id) {
+      try {
+        await client.from("approvals").insert({
+          department_code: task.department_code ?? null,
+          action_type: "founder_brain_task",
+          payload: { orchestrator_request_id: data.id, description: task.description },
+          risk_level: task.risk_level,
+          reason: `Founder Brain assessed this task as ${task.risk_level} risk before assignment`,
+        });
+      } catch (approvalErr) {
+        log("ERROR", "createTask: failed to file approvals row (task itself was still created, but may be invisible to the Founder)", { error: approvalErr instanceof Error ? approvalErr.message : String(approvalErr) }, correlationId);
+      }
+    }
     try { await founderMemory.episodic.append({ function_name: "founder-brain", action: "createTask", status: "success", output_summary: task.description.slice(0, 300) }); } catch { /* non-blocking */ }
     return { source: "orchestrator_requests", status: "success", data };
   } catch (err) {
