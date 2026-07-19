@@ -393,7 +393,7 @@ export default function GovernanceDashboard() {
                     </div>
                     <div className="text-right shrink-0">
                       <div className="text-blue-400">{e.success_rate != null ? `${Math.round(e.success_rate)}%` : '—'}</div>
-                      <div className="text-slate-600">{e.total_tasks_completed ?? 0} done</div>
+                      <div className="text-slate-600">{e.total_tasks_completed ?? 0} done{e.active > 0 ? ` · ${e.active} active` : ''}</div>
                     </div>
                   </div>
                 ))}
