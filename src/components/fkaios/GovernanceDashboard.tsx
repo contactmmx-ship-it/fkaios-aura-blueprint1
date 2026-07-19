@@ -107,6 +107,8 @@ export default function GovernanceDashboard() {
     reflections: any[];
     intuition: any[];
     executiveAttention: any[];
+    learningTrend: { successRate: number | null; totalOutcomes: number; windowHours: number } | null;
+    capabilityHealth: { verifiedCount: number; totalCount: number; avgWeight: number | null } | null;
   } | null>(null);
   const [brainBriefLoading, setBrainBriefLoading] = useState(true);
 
@@ -175,6 +177,16 @@ export default function GovernanceDashboard() {
             recentFailures: osLogs.filter((r: any) => r.status === 'error').slice(0, 3),
           },
           executiveAttention: brainStateRes?.data?.executiveAttention || [],
+          learningTrend: brainStateRes?.data?.learningTrend || null,
+          capabilityHealth: (() => {
+            const edges = brainStateRes?.data?.capabilityHealth?.edges || [];
+            const weighted = edges.filter((e: any) => e.weight !== null);
+            return {
+              verifiedCount: weighted.length,
+              totalCount: edges.length,
+              avgWeight: weighted.length > 0 ? Math.round(weighted.reduce((s: number, e: any) => s + e.weight, 0) / weighted.length) : null,
+            };
+          })(),
         });
       } catch (e) {
         console.error('Founder Brain brief load failed:', e);
@@ -306,6 +318,30 @@ export default function GovernanceDashboard() {
                     <div className="text-slate-400 line-clamp-1">→ {(r.recommendedChange || '').slice(0, 100)}</div>
                   </div>
                 ))}
+            </div>
+            <div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Learning trend (24h)</div>
+              {!brainBrief.learningTrend || brainBrief.learningTrend.successRate === null ? (
+                <div className="text-slate-600">{brainBrief.learningTrend?.totalOutcomes ?? 0} outcomes recorded — below the evidence floor</div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <span className={brainBrief.learningTrend.successRate >= 60 ? 'text-emerald-400' : brainBrief.learningTrend.successRate >= 40 ? 'text-amber-400' : 'text-red-400'}>{brainBrief.learningTrend.successRate}% success rate</span>
+                  <span className="text-slate-600 text-[10px]">{brainBrief.learningTrend.totalOutcomes} outcomes</span>
+                </div>
+              )}
+            </div>
+            <div>
+              <div className="text-slate-500 uppercase tracking-wide mb-1.5">Capability graph health</div>
+              {!brainBrief.capabilityHealth || brainBrief.capabilityHealth.totalCount === 0 ? (
+                <div className="text-slate-600">No capability edges yet</div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-300">{brainBrief.capabilityHealth.verifiedCount}/{brainBrief.capabilityHealth.totalCount} edges have real evidence</span>
+                  {brainBrief.capabilityHealth.avgWeight !== null && (
+                    <span className={brainBrief.capabilityHealth.avgWeight >= 60 ? 'text-emerald-400' : 'text-amber-400'}>{brainBrief.capabilityHealth.avgWeight}% avg success</span>
+                  )}
+                </div>
+              )}
             </div>
             <div>
               <div className="text-slate-500 uppercase tracking-wide mb-1.5">Business intuition (statistical, min. 5 observations)</div>
