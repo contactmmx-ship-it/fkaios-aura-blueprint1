@@ -791,13 +791,34 @@ export interface BrainState {
   computedAt: string;
 }
 
+// ARCHITECTURAL SHIFT (2026-07-18): getBrainState() previously called
+// buildIntuition(userId) directly — an RPC-style synchronous call that
+// RECOMPUTES confidence fresh every time Brain State is requested, even
+// though founder-confidence-cell (2b9df86) now runs buildIntuition()
+// independently on its own schedule and already writes the result to
+// founder_memory (kind:'intuition'). Recomputing it again here defeats the
+// point of having an independent cell — Brain State should READ what the
+// cell already computed (shared substrate), not trigger its own parallel
+// computation (RPC). This function reads the most recent value the
+// Confidence cell actually wrote. Honest fallback: if the cell has never
+// run yet (no row exists), returns an empty array rather than silently
+// falling back to a synchronous computation that would defeat the purpose
+// of this change.
+async function getLatestConfidenceState(userId: string): Promise<IntuitionPattern[]> {
+  const rows = (await founderMemory.permanent.get(userId)) as Array<{ content?: { kind?: string; patterns?: IntuitionPattern[] } }> | null;
+  if (!rows) return [];
+  const intuitionEntries = rows.filter((r) => r.content?.kind === "intuition");
+  if (intuitionEntries.length === 0) return [];
+  return intuitionEntries[0].content?.patterns ?? [];
+}
+
 export async function getBrainState(userId = "founder"): Promise<BrainState> {
   const client = getClient();
 
   const [currentGoals, capabilityHealth, confidence, reflectionHistory, imaginationHistory, learningTrend, providerPerformance, taskCounts, jobCounts, approvalsData] = await Promise.all([
     getGoals(userId),
     getCapabilityGraph(),
-    buildIntuition(userId),
+    getLatestConfidenceState(userId),
     getReflectionHistory(userId),
     getImaginationHistory(userId),
     getLearningTrend(),
