@@ -42,10 +42,7 @@ function getClient() {
   return createClient(url, key);
 }
 
-export interface KnowledgeGap {
-  question: string;
-  reason: string; // why this matters, tied to a goal — not a random question
-}
+export interface KnowledgeGap { question: string; reason: string; investigatesContradiction?: boolean }
 
 // ── "What don't I know?" — grounded in the real goal hierarchy and recent
 //    activity, not free-floating curiosity. Honest empty result if the
@@ -71,7 +68,7 @@ export async function identifyKnowledgeGaps(userId: string, count = 2, correlati
   const contradiction = latestReflection?.assumptionsWrong?.trim() ? latestReflection.assumptionsWrong : null;
 
   const result = await reason(
-    `You are the Founder Brain being curious. Given the goal hierarchy, recent company activity, and (if present) a contradiction the Brain recently found in its own thinking, identify exactly ${count} SPECIFIC knowledge gaps worth researching — things the company doesn't know but needs to, to move toward its goals. If a contradiction is provided, one of your ${count} gaps MUST be about investigating that specific contradiction — this takes priority over generic gaps. Not generic ("learn about marketing") — specific and actionable ("what franchise investment thresholds are competitors offering in Tier-2 cities right now"). Return ONLY a JSON array of {question, reason}.`,
+    `You are the Founder Brain being curious. Given the goal hierarchy, recent company activity, and (if present) a contradiction the Brain recently found in its own thinking, identify exactly ${count} SPECIFIC knowledge gaps worth researching — things the company doesn't know but needs to, to move toward its goals. If a contradiction is provided, one of your ${count} gaps MUST be about investigating that specific contradiction — this takes priority over generic gaps, and that gap's JSON object must include "investigatesContradiction": true. Not generic ("learn about marketing") — specific and actionable ("what franchise investment thresholds are competitors offering in Tier-2 cities right now"). Return ONLY a JSON array of {question, reason, investigatesContradiction?}.`,
     `GOALS:\n${JSON.stringify(goals)}\n\nRECENT ACTIVITY (last 50 events):\n${JSON.stringify(recentActivity.slice(0, 20))}${contradiction ? `\n\nRECENT CONTRADICTION THE BRAIN FOUND IN ITS OWN THINKING (investigate this):\n${contradiction}` : ""}`,
     600,
     correlationId,
@@ -98,6 +95,11 @@ export interface CuriosityResult {
 export async function curiosityTick(userId: string, correlationId?: string): Promise<CuriosityResult[]> {
   const gaps = await identifyKnowledgeGaps(userId, 2, correlationId);
   if (gaps.length === 0) return [];
+
+  // Only fetched if actually needed below (a gap is tagged as investigating
+  // a contradiction) — avoids an unnecessary read on the common case where
+  // no contradiction exists.
+  let contradictionText: string | null = null;
 
   const results: CuriosityResult[] = [];
 
@@ -133,6 +135,38 @@ export async function curiosityTick(userId: string, correlationId?: string): Pro
     try {
       const learned = await worldLearn(userId, { source: "research-engine", topic: gap.question, content: JSON.stringify(dispatch.data).slice(0, 4000) }, correlationId);
       results.push({ question: gap.question, action: "researched", detail: learned.stored ? `stored: ${learned.reason}` : learned.reason });
+
+      // BELIEF FORMATION (2026-07-18): closes the loop this cycle's
+      // diagnosis identified — investigating a contradiction previously
+      // evaporated into generic learning with no connection back to what
+      // triggered it. If THIS gap was explicitly tagged as investigating a
+      // real contradiction, and the investigation actually produced new
+      // learning, form a real Belief revision: what the Brain used to
+      // think, what it found, what it thinks now. Grounded entirely in
+      // real text (the actual contradiction, the actual research result)
+      // — reason() is used to compose the statement, not to invent the
+      // underlying facts.
+      if (gap.investigatesContradiction && learned.stored) {
+        if (contradictionText === null) {
+          const history = await getReflectionHistory(userId);
+          const latest = history.length > 0 ? history[history.length - 1] : null;
+          contradictionText = latest?.assumptionsWrong?.trim() || null;
+        }
+        if (contradictionText) {
+          try {
+            const beliefResult = await reason(
+              "You are the Founder Brain forming a belief revision. You previously found a contradiction in your own thinking and just investigated it. State explicitly: what you used to think, what you learned, and what you think now. Be honest if the investigation didn't fully resolve the contradiction — say so rather than forcing a clean resolution. Return ONLY JSON: {previousBelief, newEvidence, currentBelief, resolved: boolean}.",
+              `PREVIOUS CONTRADICTION:\n${contradictionText}\n\nWHAT THE INVESTIGATION FOUND:\n${JSON.stringify(dispatch.data).slice(0, 2000)}`,
+              500,
+              correlationId,
+            );
+            const parsed = JSON.parse(beliefResult.text);
+            if (parsed?.currentBelief) {
+              await founderMemory.permanent.set(userId, { kind: "belief", previousBelief: parsed.previousBelief ?? contradictionText, newEvidence: parsed.newEvidence ?? "", currentBelief: parsed.currentBelief, resolved: !!parsed.resolved, created_at: new Date().toISOString() });
+            }
+          } catch { /* honest silence — no fabricated belief if this fails or doesn't parse */ }
+        }
+      }
     } catch (err) {
       results.push({ question: gap.question, action: "error", detail: err instanceof Error ? err.message : String(err) });
     }
