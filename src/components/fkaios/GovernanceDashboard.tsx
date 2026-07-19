@@ -110,6 +110,7 @@ export default function GovernanceDashboard() {
     learningTrend: { successRate: number | null; totalOutcomes: number; windowHours: number } | null;
     capabilityHealth: { verifiedCount: number; totalCount: number; avgWeight: number | null } | null;
     recentImagination: { prompt: string; text: string; created_at: string }[];
+    recentBeliefs: { previousBelief: string; newEvidence: string; currentBelief: string; resolved: boolean; created_at: string }[];
   } | null>(null);
   const [brainBriefLoading, setBrainBriefLoading] = useState(true);
 
@@ -189,6 +190,7 @@ export default function GovernanceDashboard() {
             };
           })(),
           recentImagination: brainStateRes?.data?.recentImagination || [],
+          recentBeliefs: brainStateRes?.data?.recentBeliefs || [],
         });
       } catch (e) {
         console.error('Founder Brain brief load failed:', e);
@@ -284,6 +286,18 @@ export default function GovernanceDashboard() {
                 </div>
               ))}
               <div className="text-slate-600 text-[10px]">Speculation, not fact — kept separate from grounded decisions</div>
+            </div>
+          )}
+          {brainBrief.recentBeliefs.length > 0 && (
+            <div className="bg-teal-950/30 border border-teal-800/40 rounded-lg p-3 space-y-2">
+              <div className="text-teal-400/90 uppercase tracking-wide text-[10px] font-semibold">What I've changed my mind about</div>
+              {brainBrief.recentBeliefs.map((b: any, i: number) => (
+                <div key={i} className="text-xs space-y-0.5">
+                  <div className="text-slate-500 line-clamp-1">Used to think: {b.previousBelief}</div>
+                  <div className="text-slate-200 line-clamp-2">Now: {b.currentBelief}</div>
+                  <div className={b.resolved ? 'text-emerald-400/70 text-[10px]' : 'text-amber-400/70 text-[10px]'}>{b.resolved ? 'Resolved' : 'Still uncertain — not fully resolved'}</div>
+                </div>
+              ))}
             </div>
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">

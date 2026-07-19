@@ -19,6 +19,7 @@
 // ============================================================================
 
 import { getBrainState } from "../_shared/executive-planner.ts";
+import { getBeliefHistory } from "../_shared/curiosity.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -29,8 +30,16 @@ const corsHeaders = {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const state = await getBrainState("founder");
-    return new Response(JSON.stringify(state), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    // Belief lives in curiosity.ts, which already imports FROM
+    // executive-planner.ts (getReflectionHistory) — pulling Belief INTO
+    // executive-planner.ts's getBrainState() would create a circular
+    // import. Merged here instead, at the leaf endpoint, which both
+    // modules can safely feed without either importing the other.
+    const [state, recentBeliefs] = await Promise.all([
+      getBrainState("founder"),
+      getBeliefHistory(3),
+    ]);
+    return new Response(JSON.stringify({ ...state, recentBeliefs }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("founder-brain-state error:", msg);

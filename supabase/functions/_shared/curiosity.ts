@@ -194,3 +194,21 @@ export async function getCuriosityHistory(limit = 10): Promise<Array<{ topic: st
     .map((r) => ({ topic: r.content!.topic ?? "unknown", source: r.content!.source ?? "unknown", created_at: r.updated_at }));
   return rows;
 }
+
+// SIGNAL EXPOSURE (2026-07-18, classified per the founder's schema before
+// implementing): Belief is a STATE, not an organ. This is not a new organ
+// or even a new process — it's a small read function, same shape as
+// getCuriosityHistory above, exposing an existing state through the
+// existing Memory organ's interface. Co-located here because bc55f29's
+// belief-revision Process (in curiosityTick) is what writes it.
+export interface BeliefEntry { previousBelief: string; newEvidence: string; currentBelief: string; resolved: boolean; created_at: string }
+export async function getBeliefHistory(limit = 5): Promise<BeliefEntry[]> {
+  const client = getClient();
+  const { data } = await client.from("founder_memory").select("content, updated_at").order("updated_at", { ascending: false }).limit(50);
+  const rows = (data ?? [])
+    .map((r: { content?: { kind?: string; previousBelief?: string; newEvidence?: string; currentBelief?: string; resolved?: boolean }; updated_at: string }) => ({ content: r.content, updated_at: r.updated_at }))
+    .filter((r) => r.content?.kind === "belief")
+    .slice(0, limit)
+    .map((r) => ({ previousBelief: r.content!.previousBelief ?? "", newEvidence: r.content!.newEvidence ?? "", currentBelief: r.content!.currentBelief ?? "", resolved: !!r.content!.resolved, created_at: r.updated_at }));
+  return rows;
+}
