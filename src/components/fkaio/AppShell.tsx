@@ -32,6 +32,8 @@ import ProjectReview from '@/components/fkaios/ProjectReview';
 import MyBrain from '@/components/fkaios/MyBrain';
 import ProductVideoGenerator from '@/components/fkaios/ProductVideoGenerator';
 import FounderAvatar from '@/components/fkaios/FounderAvatar';
+import FounderBrainBrief from '@/components/fkaios/FounderBrainBrief';
+import DecisionCenter from '@/components/fkaios/DecisionCenter';
 import { supabase } from '@/lib/supabase';
 
 // ---- Navigation definition matching original FKAIO + Brain pages ----
@@ -57,7 +59,8 @@ const NAV_DOORS: NavDoor[] = [
   {
     door: 'TODAY', icon: Scale, accent: 'text-cyan-400',
     items: [
-      { id: 'governance', label: 'Today — Command Center', icon: Scale },
+      { id: 'founder-brain-brief', label: 'Founder Brain Brief', icon: Brain },
+      { id: 'governance', label: 'Command Center (Governance)', icon: Scale },
       { id: 'founder-avatar', label: 'Founder Avatar', icon: Radio },
     ],
   },
@@ -66,7 +69,8 @@ const NAV_DOORS: NavDoor[] = [
     items: [
       { id: 'revenue-desk', label: 'Revenue Desk', icon: IndianRupee },
       { id: 'leads-crm', label: 'Leads & Pipeline', icon: Users },
-      { id: 'approvals', label: 'Approvals', icon: ShieldCheck },
+      { id: 'decision-center', label: 'Decision Center', icon: ShieldCheck },
+      { id: 'approvals', label: 'Approvals (Invoices)', icon: ShieldCheck },
       { id: 'dashboard', label: 'Operations Dashboard', icon: LayoutDashboard },
       { id: 'companies', label: 'Companies', icon: Building2 },
     ],
@@ -150,10 +154,10 @@ const pageDescriptions: Record<string, string> = {
 };
 
 export default function AppShell() {
-  // Land directly in the Chairman's Command Center on login — the Founder
-  // enters the enterprise headquarters immediately (Founder Avatar remains
-  // one click away in the nav).
-  const [activePage, setActivePage] = useState('governance');
+  // Land directly in the Founder Brain Brief on login — the narrative
+  // briefing comes first, dashboards second (Governance's deep-dive Command
+  // Center and Founder Avatar both remain one click away in the nav).
+  const [activePage, setActivePage] = useState('founder-brain-brief');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userEmail, setUserEmail] = useState('');
   const [authChecked, setAuthChecked] = useState(false);
@@ -209,6 +213,8 @@ export default function AppShell() {
   }
 
   const renderPage = () => {
+    if (activePage === 'founder-brain-brief') return <FounderBrainBrief />;
+    if (activePage === 'decision-center') return <DecisionCenter />;
     if (activePage === 'founder-avatar') return <FounderAvatar />;
     if (activePage === 'dashboard') return <Dashboard />;
     if (activePage === 'settings') return <SettingsPage />;
