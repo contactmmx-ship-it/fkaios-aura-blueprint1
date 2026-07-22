@@ -5,7 +5,7 @@ import {
   Bell, Settings, Menu, X, ChevronRight, Radio, Tag, UserCog,
   UserCircle, Database, GitBranch, TrendingUp, BookOpen, DollarSign,
   ShieldCheck, Sparkles, MessageSquare, Factory, Vault, Scale, Rocket,
-  UserCheck, GraduationCap, Zap, Compass, Phone, Hammer, Network, Search, Building2, IndianRupee
+  UserCheck, GraduationCap, Zap, Compass, Phone, Hammer, Network, Search, Building2, IndianRupee, Gavel
 } from 'lucide-react';
 import BrainChat from '@/components/fkaios/BrainChat';
 import AgentFactory from '@/components/fkaios/AgentFactory';
@@ -34,6 +34,7 @@ import ProductVideoGenerator from '@/components/fkaios/ProductVideoGenerator';
 import FounderAvatar from '@/components/fkaios/FounderAvatar';
 import FounderBrainBrief from '@/components/fkaios/FounderBrainBrief';
 import DecisionCenter from '@/components/fkaios/DecisionCenter';
+import ExecutiveCouncil from '@/components/fkaios/ExecutiveCouncil';
 import { supabase } from '@/lib/supabase';
 
 // ---- Navigation definition matching original FKAIO + Brain pages ----
@@ -70,6 +71,7 @@ const NAV_DOORS: NavDoor[] = [
       { id: 'revenue-desk', label: 'Revenue Desk', icon: IndianRupee },
       { id: 'leads-crm', label: 'Leads & Pipeline', icon: Users },
       { id: 'decision-center', label: 'Decision Center', icon: ShieldCheck },
+      { id: 'executive-council', label: 'Executive Council', icon: Gavel },
       { id: 'approvals', label: 'Approvals (Invoices)', icon: ShieldCheck },
       { id: 'dashboard', label: 'Operations Dashboard', icon: LayoutDashboard },
       { id: 'companies', label: 'Companies', icon: Building2 },
@@ -215,6 +217,7 @@ export default function AppShell() {
   const renderPage = () => {
     if (activePage === 'founder-brain-brief') return <FounderBrainBrief />;
     if (activePage === 'decision-center') return <DecisionCenter />;
+    if (activePage === 'executive-council') return <ExecutiveCouncil />;
     if (activePage === 'founder-avatar') return <FounderAvatar />;
     if (activePage === 'dashboard') return <Dashboard />;
     if (activePage === 'settings') return <SettingsPage />;

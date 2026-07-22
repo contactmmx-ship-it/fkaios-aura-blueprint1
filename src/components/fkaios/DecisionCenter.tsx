@@ -107,13 +107,44 @@ export function useDecisionItems() {
 }
 
 export async function decideItem(item: DecisionItem, decision: 'approved' | 'rejected') {
+  if (item.source === 'request') return; // read-only source, the UI never calls decideItem for these
+
   if (item.source === 'approvals') {
     await supabase.from('approvals').update({ status: decision, decided_by: 'founder', decided_at: new Date().toISOString() }).eq('id', item.id);
-  } else if (item.source === 'delegation') {
+  } else {
     await supabase.from('agent_task_delegations').update({
       requires_founder_approval: false,
       status: decision === 'rejected' ? 'cancelled' : undefined,
     }).eq('id', item.id);
+  }
+
+  // FOUNDER DECISION MEMORY LOOP: record this ruling into fleet_memory via
+  // the same record_enterprise_memory() RPC executive-intelligence already
+  // calls (authenticated-callable, no new grant needed) — so the next daily
+  // cycle's organizational_memory read sees what the founder just decided.
+  // Best-effort: a memory-write failure must never mask the real status
+  // update above, which has already succeeded by this point.
+  try {
+    const originalRecommendation = item.source === 'approvals' ? (item.reason || item.action_type) : item.task_description;
+    const title = item.source === 'approvals' ? item.action_type : `${item.from_agent} → ${item.to_agent}`;
+    const outcome = decision === 'approved' ? 'Approved — proceeding' : 'Rejected — halted';
+    await supabase.rpc('record_enterprise_memory', {
+      p_source_department: 'EXECUTIVE',
+      p_memory_type: 'decision',
+      p_title: title.slice(0, 200),
+      p_content: `Decision Center ruling on a ${item.source} item (risk: ${item.risk_level}). Original: "${originalRecommendation}". Founder ruling: ${decision}. Outcome: ${outcome}.`.slice(0, 2000),
+      p_structured: {
+        source: item.source,
+        founder_ruling: decision,
+        decision_outcome: outcome,
+        risk_level: item.risk_level,
+        original_recommendation: originalRecommendation,
+      },
+      p_confidence: 1.0,
+      p_visible_departments: ['*'],
+    });
+  } catch (err) {
+    console.error('Founder Decision Memory Loop: record_enterprise_memory failed (non-blocking)', err);
   }
 }
 
