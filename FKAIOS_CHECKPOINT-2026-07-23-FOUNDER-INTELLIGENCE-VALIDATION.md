@@ -302,6 +302,223 @@ This is a direct, specific reference to the founder-decision evidence signal (no
 
 ---
 
+# Scheduled Cron Validation After OpenAI Migration (checked 2026-07-23 09:30 UTC)
+
+**Requested premise:** validate the first scheduled cron execution of `executive-intelligence` after the OpenAI provider migration.
+
+**Finding: premise does not hold yet — no cron run has occurred since the migration.**
+
+## 1. Cron Execution
+
+- **`cron.job_run_details` for job 29** (`executive-intelligence`, schedule `0 2 * * *`): last run `start_time = 2026-07-23 02:00:00.172618 UTC`, `status = succeeded`, `end_time = 2026-07-23 02:00:00.196869 UTC`. No run since.
+- That run happened **before** the OpenAI deploy (which landed roughly 07:28–09:00 UTC the same day) — it was a normal cron fire against the *old* Anthropic-based code, and produced cycle 16 (`model_used: claude-sonnet-5`).
+- **Current DB time (`now()`):** 2026-07-23 09:30:02 UTC.
+- **Next scheduled fire:** 2026-07-24 02:00 UTC — roughly 16.5 hours away, has not happened yet.
+
+So there is, as of this check, **no cron-triggered execution of the new OpenAI-based code**. The only post-migration execution on record is the manual controlled run from the prior section (cycle 17), which was deliberately invoked outside the cron schedule to validate the deploy immediately rather than waiting.
+
+## 2. Executive Cycle Creation
+
+- **Latest row is still cycle 17** (`00f35799-1161-49d6-9238-d0b415bfed78`, 2026-07-23 09:08:33 UTC, `model_used: gpt-4o`) — the same manual-test cycle from the prior section. No cycle 18 exists.
+
+## 3. Founder Decision Intelligence
+
+Unchanged from the cycle 17 findings already recorded above (no new cycle to inspect): `founder_decision_profile` present, readiness "Insufficient evidence — only 2 founder ruling(s) recorded", all pattern/persona/risk rates `null` below the 5-observation floor, evidence in `fleet_memory` still at 2 valid rulings / 3 total decisions — unchanged since earlier today.
+
+## 4. Intelligence Consumption
+
+Not newly testable — there is no cycle after 17 to compare it against. The consumption evidence already documented for cycle 17 (the explicit "limited decision history" line in its situation assessment) stands as the only evidence so far; it has not yet been reproduced under an unattended cron-triggered run.
+
+## 5. Provider Stability
+
+- The one execution on `gpt-4o` (cycle 17, manual) succeeded cleanly end-to-end.
+- **Not yet confirmed under the cron path.** The manual run used a valid `Authorization`/`apikey` header supplied for that test; the actual daily cron job's HTTP call (per `cron.job.command`) does not show an explicit Authorization header in the stored SQL text, the same discrepancy flagged in an earlier checkpoint section as unresolved. This means cron-path stability with the new code is **unverified** — it cannot be assumed from the manual test alone, since the manual test used a different auth path than the cron job's stored command appears to use.
+- No Anthropic dependency was exercised in the core `emit_cycle` call (confirmed via the code diff — only `OPENAI_API_KEY` is referenced there now). `founder-brain.ts`'s `imagine()`/`assessRisk()`/`simulateStrategies()`, also invoked inside the same cycle, still try Anthropic first internally (unrelated fallback chain, untouched by this migration) — those may still hit the same credit error non-fatally in the background.
+
+## Remaining Limitations
+
+- **This is not yet a cron validation.** It is a re-confirmation that the manual test (cycle 17) still stands, plus an honest statement that the real target of this request — an unattended, cron-triggered post-migration cycle — has not happened yet.
+- The unresolved auth-header discrepancy between the manual test and the cron job's stored command (noted above and in the earlier "Controlled Execution Validation" section) means cron-path success cannot be safely assumed from the manual result. Worth the Founder's direct attention before relying on tomorrow's cron.
+- Next real check: after **2026-07-24 02:00 UTC**, verify a new cycle (18) exists, was created by the cron job (not manually), and used `gpt-4o` successfully.
+- Founder ruling evidence remains at 2 of 5 — unchanged, expected, not a defect.
+
+---
+
+# FKAIOS Phase 5 — CEO Control Room / Jarvis Cockpit UI (separate track from the above)
+
+**Note:** this section tracks the Phase 5 frontend UI work, which is a distinct initiative from the Founder Decision Intelligence / executive-intelligence backend validation tracked in every section above. No backend, Supabase functions, migrations, or data logic were touched by any of the work below.
+
+## Phase 1 — Design tokens (completed)
+
+**File changed:** `src/app/globals.css` only (additive — new `:root` block appended after the existing shadcn variables; nothing existing modified or removed).
+
+Added CSS custom properties for:
+- Glass panels: `--cockpit-glass-bg`, `--cockpit-glass-border`, `--cockpit-panel-shadow`
+- Intelligence glow system: `--cockpit-glow-cyan`, `--cockpit-glow-blue`, `--cockpit-glow-alert`, `--cockpit-glow-success`
+- Cockpit surfaces: `--cockpit-bg-deep`, `--cockpit-surface-elevated`, `--cockpit-command-panel-bg`
+- Typography hierarchy: `--cockpit-founder-heading-*`, `--cockpit-intel-label-*`, `--cockpit-data-emphasis-*`
+- Animation timing: `--cockpit-pulse-speed`, `--cockpit-transition-speed`
+
+## Phase 2 — Reusable UI foundation components (completed)
+
+**Files created** (new directory, nothing existing modified):
+- `src/components/fkaios/cockpit/CockpitBackground.tsx` — ambient deep-space/grid backdrop. Pure CSS/Tailwind (radial-gradient glow blobs + grid + vignette), uses Tailwind's built-in `animate-pulse`, no external dependencies, no data. Not yet mounted anywhere.
+- `src/components/fkaios/cockpit/CockpitPanel.tsx` — reusable glassmorphism card. Props: `title`, `subtitle`, `status` (`{label, tone}`), `glow` (`'cyan'|'blue'|'alert'|'success'|'none'`), `children`. Built entirely on the Phase 1 tokens.
+- `src/components/fkaios/cockpit/CockpitPrimitives.tsx` — small shared exports `CockpitLabel` and `CockpitStatValue`, so panel children can reuse the intel-label/data-emphasis typography tokens without re-declaring inline styles.
+
+**Not touched, per explicit scope:** `FounderBrainBrief.tsx`, routing/`AppShell.tsx`, Tailwind config, any Supabase function, any table, any data-fetching logic. No fake/sample data was introduced anywhere — all three new components are purely presentational with no data props populated yet.
+
+**Build/type-check after Phase 2:**
+- `next build` → compiled successfully (Turbopack, Next 16.2.9).
+- `tsc --noEmit` → 0 errors anywhere under `src/` (0 matches for "cockpit" in the full error output); the only errors present (41, all in `supabase/functions/orchestrator-engine/index.ts`) are pre-existing Deno-syntax parse errors unrelated to this change, confirmed present before this work and outside what `next build` type-checks.
+
+**Stopped after Phase 2 per instructions** — awaiting approval before Phase 3 (wiring these components into an actual layout/page).
+
+## Phase 3 — FounderCockpit layout shell (completed)
+
+**Files created** (nothing existing modified):
+- `src/components/fkaios/cockpit/IntelligenceOrb.tsx` — reusable Jarvis-style glowing core. Idle-only: no voice, no AI-state prop, no data connection. Built from breathing glow (Tailwind `animate-pulse`) + slow rotating ring (Tailwind `animate-spin`, no new keyframes) + radial-gradient core, all sized off the Phase 1 tokens.
+- `src/components/fkaios/cockpit/FounderCockpit.tsx` — the full shell, composing `CockpitBackground`, a client-only `FounderGreetingBar` (greeting + real system clock via `useEffect`/`setInterval`, no business data), a `StatusRail` (4 chips — Constitution/Governance/Intelligence/System Health — all explicitly `"Awaiting Data"`, no invented metrics), the `IntelligenceOrb` centerpiece, a responsive `PanelGrid` of four `CockpitPanel`s (AI CEO Briefing / AI Workforce / Governance Health / Founder Approval Queue, each body reading "Awaiting intelligence connection"), and an `IntelligenceGrowthStrip` (placeholder timeline with tick marks only, no numbers, captioned "Awaiting historical intelligence data — no fabricated timeline shown").
+
+**Not touched, per explicit scope:** `FounderBrainBrief.tsx`, `AppShell.tsx`/routing, Tailwind config, any Supabase function, any table, any AI/voice/memory logic. `FounderCockpit` is not mounted anywhere yet — it exists standalone pending a later, separately-approved routing phase. No fake/sample business data anywhere; every placeholder explicitly says it's awaiting connection rather than showing a plausible-looking number.
+
+**Build/type-check after Phase 3:**
+- `next build` → compiled successfully (Turbopack, Next 16.2.9), same as Phase 2.
+- `tsc --noEmit` → 0 errors under `src/`, 0 matches for "cockpit" in the full output. The same 41 pre-existing `supabase/functions/orchestrator-engine/index.ts` Deno-syntax errors are present, unchanged from before this phase — confirmed unrelated to this work.
+
+**Stopped after Phase 3 validation per instructions** — awaiting approval before data integration or routing changes.
+
+## Phase 4A — Preview route only (completed)
+
+**File created:** `src/app/cockpit-preview/page.tsx` — a minimal Next.js App Router page that imports and renders `FounderCockpit` directly, with `metadata.robots: { index: false, follow: false }`. No layout override needed: the root `layout.tsx` has no auth gating, so this route renders standalone with zero backend/Supabase involvement (matching `FounderCockpit` itself).
+
+**Not touched, per explicit scope:** the `/` homepage/default route, `AppShell.tsx` navigation, `FounderBrainBrief.tsx`, any existing component. `robots.ts`/`sitemap.ts` did not need changes — both already work disallow-by-default / allow-by-exception (only `/franchise` and `/products` are crawlable or listed), so `/cockpit-preview` is automatically excluded from indexing without touching either file.
+
+**Build/type-check after Phase 4A:**
+- `next build` → compiled successfully; build output now lists `○ /cockpit-preview` as a new static route alongside the unchanged `/`, `/franchise`, `/products` routes.
+- `tsc --noEmit` → 0 errors under `src/`, 0 matches for "cockpit". Same 41 pre-existing `supabase/functions/orchestrator-engine/index.ts` Deno-syntax errors, unchanged.
+
+**How to view:** run the dev server and open `/cockpit-preview` in a browser. Nothing else in the app changed, so the existing homepage/login flow is unaffected.
+
+**Stopped after Phase 4A validation per instructions** — awaiting approval before intelligence/data wiring.
+
+## Phase 4B — Visual refinement (completed)
+
+Purely cosmetic upgrade of the existing Phase 2/3 components — "dashboard" → "premium founder AI command center." No new components created; five existing files edited in place. No props/behavior added beyond visual polish (one exception, noted below, kept purely presentational).
+
+**Files changed:**
+- `src/components/fkaios/cockpit/IntelligenceOrb.tsx` — default size doubled (180→360, clamped to `90vw` so it can't overflow a narrow viewport); added a second, deeper/slower ambient glow layer (blue, `1.6×` the base pulse duration) for real depth; added a counter-rotating inner ring (blue accent, reverse direction via Tailwind's `[animation-direction:reverse]` arbitrary property, no new keyframes) alongside the existing rotating ring; added a static faint inner ring and a small glossy highlight on the core so it doesn't read as flat. Still idle-only — no state prop, no voice, no data; a comment notes IDLE/THINKING/LEARNING/ALERT are for a later, separate phase.
+- `src/components/fkaios/cockpit/CockpitPanel.tsx` — added a `hovered` state (`useState`) so the border brightens toward the panel's own accent token (or cyan by default) and the card lifts (`hover:-translate-y-1`) with a stronger token-driven glow, all through the existing CSS variables — no hardcoded colors, border color moved from inline style to a Tailwind arbitrary class (`border-[var(--cockpit-glass-border)]`) specifically so the `hover:` variant can take over via plain CSS. Reusable API (`title`/`subtitle`/`status`/`glow`/`children`) unchanged.
+- `src/components/fkaios/cockpit/FounderCockpit.tsx` — added a subtle italic mission line ("Your AI operating system for decisions, execution and growth.") under the existing greeting/org-name lines, no business metrics or intelligence claims; restructured the layout into a tightly-coupled "hero" block (greeting + status rail + orb, `gap-6`) followed by a clearly separated "content" block (`mt-12`) for the panel grid + growth strip, so the orb reads as the visual anchor instead of floating in empty space; orb call-site bumped to `size={360}` to match; each of the four panels now shows a small muted lucide icon (`Brain`/`Cpu`/`ShieldCheck`/`Gavel` — the same icons `AppShell.tsx` already uses for these exact concepts, no new dependency) above its "Awaiting intelligence connection" placeholder, plus a `min-h-[160px]` so empty panels feel intentionally spacious rather than cramped. Also fixed a pre-existing double-escaping bug in the growth strip's `subtitle` prop (`"MEMORY &amp; EVIDENCE OVER TIME"` → `"MEMORY & EVIDENCE OVER TIME"` — the old version was a JS string containing the literal characters `&amp;`, which React would then escape a second time into visible `&amp;amp;` text; confirmed the fix renders as a single, correctly-decoded `&` in the live page).
+
+**Not touched, per explicit scope:** `CockpitBackground.tsx`, `CockpitPrimitives.tsx`, `FounderBrainBrief.tsx`, `AppShell.tsx`/routing, `globals.css` (no new tokens needed — everything reuses Phase 1's existing variables), any Supabase function, any table, any memory/AI logic. No fake or sample business data introduced anywhere.
+
+**Build/type-check after Phase 4B:**
+- `next build` → compiled successfully (Turbopack, Next 16.2.9); `/cockpit-preview` still builds as a static route alongside the unchanged `/`, `/franchise`, `/products`.
+- `tsc --noEmit` → 0 errors under `src/`, 0 matches for "cockpit". Same 41 pre-existing `supabase/functions/orchestrator-engine/index.ts` Deno-syntax errors, unchanged.
+- Live dev-server smoke check: `GET /cockpit-preview` → 200; verified in the rendered HTML that all 4 panel icons render as inline `<svg>` (4 found), both orb rings' `animate-spin` classes are present (2 found), all 5 `CockpitPanel` instances use the glass-bg token (5 found), the mission line and correctly-single-escaped growth-strip subtitle both render, and no error-overlay markers appear anywhere in the page. One transient "Fast Refresh had to perform a full reload" warning appeared in the terminal mid-session (expected — triggered by adding a `useState` hook to `CockpitPanel` while it was live-mounted, a known Fast Refresh edge case) and self-resolved; the page has served clean `200`s with no errors since.
+
+**Stopped after Phase 4B validation per instructions** — awaiting approval before Phase 5 intelligence wiring.
+
+## Phase 5 — Founder Intelligence Layer Connection (completed, Founder-verified)
+
+First real data wiring into the cockpit shell. Scope was agreed with the Founder in advance (plan approved via `EnterPlanMode`/`ExitPlanMode`): wire only the Founder Intelligence core — Intelligence Orb caption, "AI CEO Briefing" panel, Intelligence Growth Strip, and the "Intelligence" status chip. AI Workforce / Governance Health / Founder Approval Queue explicitly **not** wired this pass — confirmed still showing "Awaiting intelligence connection."
+
+**Files changed:**
+- `src/components/fkaios/cockpit/FounderCockpit.tsx` — the only application file touched. Added:
+  - **Auth gate**: `userEmail`/`authChecked` state + `supabase.auth.getSession()` + `onAuthStateChange`, reusing `LoginPage` (`@/components/fkaio/LoginPage`) — identical pattern to `AppShell.tsx`. Verified server-side: an unauthenticated request renders only a generic `"Loading…"` state — no login form or cockpit content is ever server-rendered before auth resolves, so no data leaks to a bare fetch.
+  - **Data fetching**: two direct client-side Supabase reads (no edge function, no backend/schema change) — latest `executive_cycles` row (`cycle_number, situation_assessment, founder_briefing, model_used, observed_state, created_at`) and up to 200 `fleet_memory` rows (`source_department = 'EXECUTIVE'`). `founder_decision_profile` extracted client-side from `observed_state`.
+  - **`BriefingPanelBody`** (new function): loading/error/empty/populated states for the "AI CEO Briefing" panel; populated state shows cycle number, relative time, model used, situation assessment, founder briefing, and the `founder_decision_profile.readiness` string verbatim.
+  - **`IntelligenceGrowthStrip`**: signature changed to accept `memoryEntries`/`rulingsRecorded`/`totalDecisions`/`loading`; dots now reflect real per-day `fleet_memory` counts (last 5 days), caption shows real entry count and real evidence-floor progress ("N of 5 rulings recorded").
+  - **`StatusRail`**: signature changed to accept `intelligenceReady: boolean`; only the "Intelligence" chip is now real (`"Ready"` if the latest cycle is <24h old), the other three chips unchanged.
+  - Orb caption: real ("Last Cycle Xh ago" / "Awaiting First Cycle") instead of static "Idle"; the orb component itself (`IntelligenceOrb.tsx`) was **not modified** — still visual-only, per its own Phase 4B comment.
+- `tsconfig.src.json` (new) — a scoped TypeScript config (`extends: ./tsconfig.json`, `include: src/**/*` only, `exclude: supabase`) created specifically to get a working type-check for `src/`. See the important finding below.
+
+**Verified technical facts (checked live before implementation, not assumed):**
+- `fleet_memory` RLS (`fleet_memory_authenticated_read`) allows any authenticated user to `SELECT` — matches `FounderBrainBrief.tsx`'s existing direct read of the same table.
+- `executive_cycles` RLS (`founder read cycles`) restricts `SELECT` to users holding the `founder` RBAC role. Confirmed live: `contactmmx@gmail.com` holds that role — so the Founder's own login sees real data with zero backend changes; a non-founder authenticated user would see an honestly-empty briefing panel (RLS-filtered), not an error.
+
+**Important process finding, disclosed during this phase:** discovered that both prior verification methods used across every earlier phase this session were unreliable:
+1. `next.config.ts` has pre-existing `typescript: { ignoreBuildErrors: true }` — every `next build` "Compiled successfully" this session only ever proved the bundler could transpile, never that types were checked.
+2. Whole-project `npx tsc --noEmit` was silently short-circuited this whole session by the pre-existing, catastrophically corrupted `supabase/functions/orchestrator-engine/index.ts` — it never actually reached semantic checking of `src/` files, so every earlier "0 errors in src/" claim (Phases 2–4B) was a false negative.
+
+Created `tsconfig.src.json` to fix this going forward. Re-running it surfaced **10 real, pre-existing errors unrelated to any work this session** (`AuraBlueprint.tsx` ×5, `BrainChat.tsx` ×3, `BuilderAI.tsx` ×2) — flagged only, not fixed, out of scope for Phase 5.
+
+**Build/type-check after Phase 5:**
+- `next build` → compiled successfully; `/cockpit-preview` still a static route, `/`, `/franchise`, `/products` unchanged.
+- `npx tsc --noEmit -p tsconfig.src.json` → **0 errors in `FounderCockpit.tsx`** (confirmed after each staged edit — signature change, `BriefingPanelBody` insertion, main-function wiring — via `grep -c` uniqueness checks proving exactly one declaration of every function before/after each change). Only the 10 pre-existing unrelated errors remain.
+- Live dev-server smoke check (clean restart, actual listening PID confirmed via `netstat`/`taskkill` before restart, not just log inspection): `GET /cockpit-preview` → `200`, zero terminal errors.
+- **Founder-verified live in browser** (this verification step, unlike prior phases, was confirmed by the Founder directly rather than server-side proxies): logged in successfully; AI CEO Briefing shows real Cycle 17 data (situation assessment, founder briefing, Founder Decision Intelligence readiness); Intelligence Growth Layer shows real `fleet_memory` evidence (10 entries, last 5 days); evidence threshold correctly shows 2/5 rulings with no fabricated confidence; auth gate works; AI Workforce / Governance Health / Founder Approval Queue correctly still show "Awaiting intelligence connection" (expected, out of scope this pass).
+
+**Not touched:** `IntelligenceOrb.tsx`, `CockpitPanel.tsx`, `CockpitPrimitives.tsx`, `CockpitBackground.tsx`, `cockpit-preview/page.tsx`, `AppShell.tsx`/routing, `FounderBrainBrief.tsx`, any Supabase edge function, any table/schema, any migration. No fake or fabricated data anywhere — every number shown is a real, live query result.
+
+**Editing method note:** all edits this phase were applied via small, individually-reviewed Node.js scripts (each verifying exact occurrence counts before and after writing, e.g. "expected exactly 1 occurrence") rather than the Edit tool, at the Founder's explicit request, after repeated diff-preview confusion with the Edit tool's permission UI earlier in this phase.
+
+**Stopped after Phase 5 validation, per the approved plan** — wiring AI Workforce / Governance Health / Founder Approval Queue, or any `AppShell.tsx` routing change, requires a new, separate approval.
+
+## Phase 5B — Operational Intelligence Surfaces (completed)
+
+Wired the three remaining panels the Founder approved via a plan (`EnterPlanMode`/`ExitPlanMode`) framed as Phase 5B: **AI Workforce**, **Governance Health**, **Founder Approval Queue** — plus the three remaining `StatusRail` chips (Constitution, Governance, System Health), which the Founder confirmed wiring in the same pass since the data was already being fetched anyway. This was a pure reuse/wiring pass: every data source and, for two of the three panels, the UI component itself already existed and were simply connected — no new components, no new backend logic.
+
+**Audit findings (verified live before implementation):**
+- **AI Workforce** → `src/components/fkaios/WorkforcePanel.tsx` (already complete, unchanged) fed by the `governance-dashboard` edge function's `workforce` field. Fetched the function's full source directly and confirmed every field `WorkforceMember` expects is present, built server-side from `ai_agents` + `agent_intelligence_profiles` + `agent_workday` — zero transformation needed.
+- **Governance Health** → same `governance-dashboard` response's `summary` (violations, approval_queue), `constitution` (active/total laws), `department_status` (GO/NO_GO/UNSTAFFED). **Important RLS finding:** `audit_logs` has an `owner_read_audit` policy scoped to `user_id = auth.uid()` — a direct client read would have silently returned near-empty/wrong violation counts. Confirmed the edge function (runs with the **service role internally**, bypasses RLS) is the only reliable source — not a workaround, the correct path. `governance_kpis`/`agent_intelligence_profiles` are founder-role-readable directly, but reusing the one shared `governance-dashboard` fetch avoided a second network call.
+- **Founder Approval Queue** → `src/components/fkaios/DecisionCenter.tsx` (already complete, unchanged), embedded via its existing `<DecisionCenter compact limit={5} />` mode — the exact same embedding `FounderBrainBrief.tsx` already uses. This is the one panel among the three that's fully **interactive** (real approve/reject with a confirmation dialog for high-risk items), not just a display, since `DecisionCenter` already supports that. Confirmed `approvals`/`orchestrator_requests` are `authenticated`-writable and `agent_task_delegations` is founder-role-gated (same gate the Founder's account already satisfies).
+
+**File changed:** `src/components/fkaios/cockpit/FounderCockpit.tsx` only (again the single file touched all phase).
+- New imports: `WorkforcePanel`/`WorkforceMember` from `../WorkforcePanel`, `DecisionCenter` from `../DecisionCenter`.
+- `StatusRail`'s signature changed from a single `intelligenceReady` boolean to a `readiness: Record<string, boolean>` map, so all four chips can be driven the same way; unchanged otherwise.
+- New `GovernanceHealthBody` function (same loading/error/populated pattern as Phase 5's `BriefingPanelBody`) showing real violation count, approval-queue count, constitution active/total ratio, and NO_GO/unstaffed department count — plus a real `status` chip (`Clear`/`Attention`) on that `CockpitPanel`, reusing the `status` prop `CockpitPanel` has supported since Phase 2.
+- Main function's existing data-fetching effect extended with a **second, independent `try/catch`** (its own `govError` state, deliberately decoupled from the executive_cycles/fleet_memory `dataError`) that calls `governance-dashboard` with the session's bearer token — same call pattern `FounderBrainBrief.tsx` already uses in production.
+- Three panel bodies replaced: `<WorkforcePanel workforce={workforce} />`, `<GovernanceHealthBody .../>`, `<DecisionCenter compact limit={5} />`.
+
+**Not touched:** `WorkforcePanel.tsx`, `DecisionCenter.tsx`, `CockpitPanel.tsx`, `CockpitPrimitives.tsx`, `CockpitBackground.tsx`, `IntelligenceOrb.tsx`, `cockpit-preview/page.tsx`, `AppShell.tsx`/routing, `FounderBrainBrief.tsx`, `GovernanceDashboard.tsx`, the `governance-dashboard` edge function itself, any table/schema/migration.
+
+**Build/type-check after Phase 5B:**
+- `npx tsc --noEmit -p tsconfig.src.json` → 0 new errors; same 10 pre-existing unrelated errors (`AuraBlueprint.tsx`/`BrainChat.tsx`/`BuilderAI.tsx`), unchanged.
+- `next build` → compiled successfully.
+- `git status` confirmed only `FounderCockpit.tsx` changed.
+- Live dev-server check: one transient "Fast Refresh had to perform a full reload" runtime error appeared mid-edit (`Cannot read properties of undefined (reading 'Constitution')` — the known HMR pattern from Phase 4B, caused by a live prop-shape change hot-swapping against a stale cached module). **Did not assume it was transient** — killed the actual listening process (`netstat`/`taskkill`, confirmed real PID) and did a genuine cold restart: 3/3 subsequent requests returned clean `200`s with zero errors, and the SSR output still correctly shows only the safe `"Loading…"` state (no data leak to an unauthenticated fetch), consistent with Phase 5.
+
+**Editing method:** same small, individually-reviewed Node.js-script approach as Phase 5 (4 isolated steps — imports, `StatusRail` signature, `GovernanceHealthBody` insertion, main-function wiring — each with an exact-occurrence-count safety check and shown as a diff before applying).
+
+**Founder runtime acceptance:** confirmed live ("Confirmed, panels all render correctly") — full checklist recorded separately in `FKAIOS_CHECKPOINT-2026-07-23-PHASE-5B-RUNTIME-ACCEPTANCE.md`.
+
+**Stopped after Phase 5B validation, per the approved plan** — any further panel work or `AppShell.tsx` routing change (e.g. making this cockpit the default homepage) requires a new, separate approval.
+
+---
+
+# 12. Routing Change — Founder Cockpit as Default Homepage (Option B)
+
+**Plan:** `Founder Cockpit as Default Homepage` (Option B — land it inside `AppShell`'s existing nav, not a full replacement of `/`), approved via explicit plan mode, implemented on "Go ahead with Option B."
+
+**Only file changed:** `src/components/fkaio/AppShell.tsx` — 4 isolated edits, each shown as a diff and applied only after explicit "Apply it":
+1. Added `import FounderCockpit from '@/components/fkaios/cockpit/FounderCockpit';`.
+2. Changed default state `useState('founder-brain-brief')` → `useState('founder-cockpit')` (and updated the adjacent comment describing the landing behavior).
+3. Added a `founder-cockpit` nav item (icon: `Cpu`, already imported) to the `TODAY` door, above the now-demoted `Founder Brain Brief` entry — nothing deleted, consistent with this project's "reparent, don't remove" precedent.
+4. Added `if (activePage === 'founder-cockpit') return <FounderCockpit />;` as the first `renderPage()` branch.
+
+**Not touched:** `page.tsx`, `FounderCockpit.tsx`, `cockpit-preview/page.tsx`, any other nav/page component, any table/schema/migration.
+
+**Build/verification:**
+- `npx tsc --noEmit -p tsconfig.src.json` → 0 new errors; same 10 pre-existing unrelated errors, unchanged.
+- `npm run build` → compiled successfully; both `/` and `/cockpit-preview` still present in the route list.
+- `git status`/`git diff --stat` → confirmed only `AppShell.tsx` changed by this step (+11/−? lines); other working-tree changes present are pre-existing from earlier phases this session, untouched here.
+- Live dev-server check (existing server, `netstat`-confirmed real PID, not a stale assumption): `curl` to `/` and `/cockpit-preview` both returned clean `200`s; SSR output for an unauthenticated `/` request still shows only the safe `"Loading…"` state (no data leak), matching pre-change behavior.
+
+**Editing method:** same Node.js-script, exact-occurrence-count, diff-shown-before-apply workflow as Phase 5/5B, one step at a time.
+
+**Founder runtime acceptance (verbatim):** "Confirmed, cockpit renders first and nav still works."
+
+Verified live by the Founder:
+- Founder Cockpit is now the default landing experience at `/`.
+- Existing `AppShell` navigation remains accessible (all other pages still reachable).
+- Founder Brain Brief remains available through navigation (demoted, not removed).
+
+**Status: Phase 5C homepage migration runtime acceptance — PASS.**
+
+---
+
 **STOP AFTER VALIDATION.**
 
 Do not proceed to:

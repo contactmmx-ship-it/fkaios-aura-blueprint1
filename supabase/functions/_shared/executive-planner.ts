@@ -24,9 +24,8 @@
 // ============================================================================
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-import { reason, getGoals, founderMemory, type Goal, getImaginationHistory, type ImaginationEntry } from "./founder-brain.ts";
+import { reason, getGoals, founderMemory, type Goal, getImaginationHistory, type ImaginationEntry, FOUNDER_BRAIN_DEPARTMENT, getFounderIdentity, getFounderPrinciples, type FounderIdentitySnapshot, type FounderPrincipleSnapshot } from "./founder-brain.ts";
 import { CAPABILITY_REGISTRY } from "./company-os.ts";
-import { getMetricSummary } from "./metrics.ts";
 
 function getClient() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
@@ -917,15 +916,34 @@ export interface LearningTrend {
 
 const LEARNING_MIN_SAMPLE = 5;
 
+// FLEET MEMORY ADAPTER (Phase 1.5): recordOutcome() (founder-brain.ts) has
+// written learning outcomes into fleet_memory (memory_type:'learning',
+// confidence=0/100) since Phase 1. This read path still queried the
+// generic `metrics` table via getMetricSummary() — confirmed absent from
+// the live database (Phase 1 audit) — so learning was writing to a real
+// place and being read from a table that doesn't exist. Reads the same
+// fleet_memory rows recordOutcome() writes; confidence is ALREADY on a
+// 0-100 scale (unlike the old metrics rows, which were 0/1), so avg(confidence)
+// IS the success rate directly, no further scaling needed. Function
+// signature/return shape (LearningTrend) unchanged — every caller
+// (getBrainState, getBrainIntelligenceIndex) is unaffected.
 export async function getLearningTrend(windowHours = 24): Promise<LearningTrend> {
   const client = getClient();
-  const summary = await getMetricSummary(client, "founder_brain_outcome", `${windowHours}h`);
-  if (!summary || summary.count < LEARNING_MIN_SAMPLE) {
-    return { windowHours, totalOutcomes: summary?.count ?? 0, successRate: null };
+  const since = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString();
+  const { data } = await client
+    .from("fleet_memory")
+    .select("confidence")
+    .eq("source_department", FOUNDER_BRAIN_DEPARTMENT)
+    .eq("memory_type", "learning")
+    .gte("created_at", since)
+    .limit(2000);
+  const rows = data ?? [];
+  if (rows.length < LEARNING_MIN_SAMPLE) {
+    return { windowHours, totalOutcomes: rows.length, successRate: null };
   }
-  // recordOutcome() records success as value 1, failure as value 0 (see the
-  // work-engine.ts fix this same commit) — avg IS the success rate directly.
-  return { windowHours, totalOutcomes: summary.count, successRate: Math.round(summary.avg * 100) };
+  const confidences = rows.map((r: { confidence: number | null }) => r.confidence ?? 0);
+  const avg = confidences.reduce((a: number, b: number) => a + b, 0) / confidences.length;
+  return { windowHours, totalOutcomes: rows.length, successRate: Math.round(avg) };
 }
 
 // ============================================================================
@@ -1081,4 +1099,92 @@ export async function getImportanceScores(userId = "founder"): Promise<Importanc
     getGoals(userId),
   ]);
   return computeImportanceScores(reflectionHistory, trend, goals);
+}
+
+// ============================================================================
+// FOUNDER CONTEXT ENGINE — PHASE 2A/2B (Founder Intelligence Layer)
+// ============================================================================
+// Read-only synthesis. Writes NOTHING anywhere in this file section — every
+// function below is a SELECT, wrapped in the same honest-degradation
+// pattern (empty/null on failure, never fabricated) already used throughout
+// this file. Combines founder_identity/founder_principles (now read via
+// founder-brain.ts's getFounderIdentity()/getFounderPrinciples() — moved
+// there in Phase 2B so think()/evaluateAgainstGoals() could use the same
+// reads without duplicating the queries; nothing else called this file's
+// versions in Phase 2A, so moving them cost nothing) with state that
+// already exists (getGoals, getBrainState) and two existing
+// pending-decision/risk sources (approvals, orchestrator_requests).
+//
+// Placement: lives here, not founder-brain.ts, for the same documented
+// reason getBrainState() does — this needs getBrainState() itself, and
+// founder-brain.ts importing FROM executive-planner.ts would create the
+// circular import already flagged at getBrainState()'s own definition.
+//
+// fleet_memory is not queried directly here — getGoals()/getBrainState()
+// already surface it (fixed Phase 1/1.5); querying it again would be the
+// exact duplicate-read the Constitution warns against.
+// ============================================================================
+export interface PendingDecision {
+  id: string;
+  description: string;
+  riskLevel: string | null;
+  status: string;
+  source: "approvals" | "orchestrator_requests";
+}
+
+export interface FounderIntelligenceContext {
+  identity: FounderIdentitySnapshot | null;
+  principles: FounderPrincipleSnapshot[];
+  goals: Goal[];
+  currentPriority: AttentionItem | null;
+  pendingDecisions: PendingDecision[];
+  risks: PendingDecision[];
+  recentActivity: unknown[];
+  computedAt: string;
+}
+
+// "What decisions are pending?" / "What risks exist?" — both real, existing
+// signals (approvals.status/risk_level, orchestrator_requests.status/
+// risk_level), not a new concept. No new escalation channel, matching the
+// same posture escalateBlocked() already established in this file.
+async function fetchPendingDecisions(): Promise<{ pending: PendingDecision[]; risks: PendingDecision[] }> {
+  const client = getClient();
+  const [approvalsRes, requestsRes] = await Promise.all([
+    client.from("approvals").select("id, action_type, reason, risk_level, status").eq("status", "pending").limit(20),
+    client.from("orchestrator_requests").select("id, raw_request, risk_level, status").eq("status", "awaiting_approval").limit(20),
+  ]);
+  const pending: PendingDecision[] = [
+    ...((approvalsRes.data ?? []) as Array<{ id: string; action_type: string; reason: string | null; risk_level: string | null; status: string }>)
+      .map((a) => ({ id: a.id, description: a.reason ?? a.action_type, riskLevel: a.risk_level, status: a.status, source: "approvals" as const })),
+    ...((requestsRes.data ?? []) as Array<{ id: string; raw_request: string; risk_level: string | null; status: string }>)
+      .map((r) => ({ id: r.id, description: r.raw_request, riskLevel: r.risk_level, status: r.status, source: "orchestrator_requests" as const })),
+  ];
+  const risks = pending.filter((p) => p.riskLevel === "high" || p.riskLevel === "critical");
+  return { pending, risks };
+}
+
+// The one assembly point — mirrors getBrainState()'s own Promise.all
+// synthesis pattern exactly. Does not replace buildContext() or
+// getBrainState(); both are called (via getGoals/getBrainState below) and
+// merged with what neither of them reads today.
+export async function buildFounderContext(userId = "founder"): Promise<FounderIntelligenceContext> {
+  const client = getClient();
+  const [identity, principles, goals, brainState, decisionData, activityRes] = await Promise.all([
+    getFounderIdentity(),
+    getFounderPrinciples(),
+    getGoals(userId),
+    getBrainState(userId),
+    fetchPendingDecisions(),
+    client.from("execution_log").select("function_name, action, status, created_at").order("created_at", { ascending: false }).limit(20),
+  ]);
+  return {
+    identity,
+    principles,
+    goals,
+    currentPriority: brainState.executiveAttention[0] ?? null,
+    pendingDecisions: decisionData.pending,
+    risks: decisionData.risks,
+    recentActivity: activityRes.data ?? [],
+    computedAt: new Date().toISOString(),
+  };
 }

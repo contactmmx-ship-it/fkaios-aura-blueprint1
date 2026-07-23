@@ -32,7 +32,7 @@
 // ============================================================================
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-import { reason, getGoals, founderMemory, worldLearn } from "./founder-brain.ts";
+import { reason, getGoals, founderMemory, worldLearn, FOUNDER_BRAIN_DEPARTMENT } from "./founder-brain.ts";
 import { executeCapability } from "./company-os.ts";
 import { getReflectionHistory } from "./executive-planner.ts";
 
@@ -184,14 +184,25 @@ export async function curiosityTick(userId: string, correlationId?: string): Pro
 
 // ── Real aggregation for the Founder Workspace — what has curiosity
 //    actually looked into, not a fabricated count. ──
+// FLEET MEMORY ADAPTER (Phase 1.5): this queried founder_memory directly,
+// bypassing founderMemory.permanent entirely — not fixed by Phase 1's
+// adapter change. founder_memory never existed (Phase 1 audit). Same
+// table/mapping as founderMemory.permanent.get() for one consistent
+// source of truth; row-shape mapping and downstream filter/return logic
+// unchanged.
 export async function getCuriosityHistory(limit = 10): Promise<Array<{ topic: string; source: string; created_at: string }>> {
   const client = getClient();
-  const { data } = await client.from("founder_memory").select("content, updated_at").order("updated_at", { ascending: false }).limit(50);
+  const { data } = await client
+    .from("fleet_memory")
+    .select("memory_type, structured_content, created_at")
+    .eq("source_department", FOUNDER_BRAIN_DEPARTMENT)
+    .order("created_at", { ascending: false })
+    .limit(50);
   const rows = (data ?? [])
-    .map((r: { content?: { kind?: string; topic?: string; source?: string }; updated_at: string }) => ({ content: r.content, updated_at: r.updated_at }))
+    .map((r: { memory_type: string; structured_content: Record<string, unknown> | null; created_at: string }) => ({ content: { kind: r.memory_type, ...(r.structured_content ?? {}) }, updated_at: r.created_at }))
     .filter((r) => r.content?.kind === "world_learning")
     .slice(0, limit)
-    .map((r) => ({ topic: r.content!.topic ?? "unknown", source: r.content!.source ?? "unknown", created_at: r.updated_at }));
+    .map((r) => ({ topic: (r.content as { topic?: string }).topic ?? "unknown", source: (r.content as { source?: string }).source ?? "unknown", created_at: r.updated_at }));
   return rows;
 }
 
@@ -201,14 +212,27 @@ export async function getCuriosityHistory(limit = 10): Promise<Array<{ topic: st
 // getCuriosityHistory above, exposing an existing state through the
 // existing Memory organ's interface. Co-located here because bc55f29's
 // belief-revision Process (in curiosityTick) is what writes it.
+// FLEET MEMORY ADAPTER (Phase 1.5): same fix as getCuriosityHistory()
+// above — this queried founder_memory directly, bypassing
+// founderMemory.permanent. This is the function founder-brain-state
+// (already live, deployed Phase 1) calls for its recentBeliefs field —
+// that field has been silently empty since deployment because of this.
 export interface BeliefEntry { previousBelief: string; newEvidence: string; currentBelief: string; resolved: boolean; created_at: string }
 export async function getBeliefHistory(limit = 5): Promise<BeliefEntry[]> {
   const client = getClient();
-  const { data } = await client.from("founder_memory").select("content, updated_at").order("updated_at", { ascending: false }).limit(50);
+  const { data } = await client
+    .from("fleet_memory")
+    .select("memory_type, structured_content, created_at")
+    .eq("source_department", FOUNDER_BRAIN_DEPARTMENT)
+    .order("created_at", { ascending: false })
+    .limit(50);
   const rows = (data ?? [])
-    .map((r: { content?: { kind?: string; previousBelief?: string; newEvidence?: string; currentBelief?: string; resolved?: boolean }; updated_at: string }) => ({ content: r.content, updated_at: r.updated_at }))
+    .map((r: { memory_type: string; structured_content: Record<string, unknown> | null; created_at: string }) => ({ content: { kind: r.memory_type, ...(r.structured_content ?? {}) }, updated_at: r.created_at }))
     .filter((r) => r.content?.kind === "belief")
     .slice(0, limit)
-    .map((r) => ({ previousBelief: r.content!.previousBelief ?? "", newEvidence: r.content!.newEvidence ?? "", currentBelief: r.content!.currentBelief ?? "", resolved: !!r.content!.resolved, created_at: r.updated_at }));
+    .map((r) => {
+      const c = r.content as { previousBelief?: string; newEvidence?: string; currentBelief?: string; resolved?: boolean };
+      return { previousBelief: c.previousBelief ?? "", newEvidence: c.newEvidence ?? "", currentBelief: c.currentBelief ?? "", resolved: !!c.resolved, created_at: r.updated_at };
+    });
   return rows;
 }

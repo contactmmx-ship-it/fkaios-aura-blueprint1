@@ -35,6 +35,7 @@ import FounderAvatar from '@/components/fkaios/FounderAvatar';
 import FounderBrainBrief from '@/components/fkaios/FounderBrainBrief';
 import DecisionCenter from '@/components/fkaios/DecisionCenter';
 import ExecutiveCouncil from '@/components/fkaios/ExecutiveCouncil';
+import FounderCockpit from '@/components/fkaios/cockpit/FounderCockpit';
 import { supabase } from '@/lib/supabase';
 
 // ---- Navigation definition matching original FKAIO + Brain pages ----
@@ -60,6 +61,7 @@ const NAV_DOORS: NavDoor[] = [
   {
     door: 'TODAY', icon: Scale, accent: 'text-cyan-400',
     items: [
+      { id: 'founder-cockpit', label: 'Founder Cockpit', icon: Cpu },
       { id: 'founder-brain-brief', label: 'Founder Brain Brief', icon: Brain },
       { id: 'governance', label: 'Command Center (Governance)', icon: Scale },
       { id: 'founder-avatar', label: 'Founder Avatar', icon: Radio },
@@ -156,10 +158,10 @@ const pageDescriptions: Record<string, string> = {
 };
 
 export default function AppShell() {
-  // Land directly in the Founder Brain Brief on login — the narrative
-  // briefing comes first, dashboards second (Governance's deep-dive Command
-  // Center and Founder Avatar both remain one click away in the nav).
-  const [activePage, setActivePage] = useState('founder-brain-brief');
+  // Land directly in the Founder Cockpit on login — the live intelligence
+  // view comes first (Founder Brain Brief, Governance's deep-dive Command
+  // Center, and Founder Avatar all remain one click away in the nav).
+  const [activePage, setActivePage] = useState('founder-cockpit');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userEmail, setUserEmail] = useState('');
   const [authChecked, setAuthChecked] = useState(false);
@@ -215,6 +217,7 @@ export default function AppShell() {
   }
 
   const renderPage = () => {
+    if (activePage === 'founder-cockpit') return <FounderCockpit />;
     if (activePage === 'founder-brain-brief') return <FounderBrainBrief />;
     if (activePage === 'decision-center') return <DecisionCenter />;
     if (activePage === 'executive-council') return <ExecutiveCouncil />;

@@ -328,11 +328,31 @@ async function fetchPayments(client: SupabaseClient, brandId: string | null, id:
   }
 }
 
+// FLEET MEMORY ADAPTER (Phase 1.5): this is a SEPARATE read path from
+// founderMemory.permanent (fixed Phase 1) — buildContext()/founder-executive
+// called this directly, bypassing the FounderMemory interface entirely.
+// founder_memory never existed (Phase 1 audit, confirmed via
+// information_schema + to_regclass); fixed the same way as
+// founderMemory.permanent — same table, same department scoping, same
+// {content:{kind,...},updated_at} row shape — so this stays consistent
+// with the one adapter rather than becoming a second, divergent read of
+// fleet_memory. Output contract (DataSourceResult, source label
+// "founder_memory") is unchanged — callers (buildContext(),
+// founder-executive's fetchFounderMemoryFor) see the same shape as before.
 async function fetchFounderMemory(client: SupabaseClient, userId: string, id: string): Promise<DataSourceResult> {
   try {
-    const { data } = await client.from("founder_memory").select("*").eq("created_by", userId).order("updated_at", { ascending: false }).limit(20);
+    const { data } = await client
+      .from("fleet_memory")
+      .select("memory_type, structured_content, created_at")
+      .eq("source_department", FOUNDER_BRAIN_DEPARTMENT)
+      .order("created_at", { ascending: false })
+      .limit(20);
     if (!data || data.length === 0) return { source: "founder_memory", status: "no_data", data: null, error: "No stored memory entries" };
-    return { source: "founder_memory", status: "success", data };
+    const mapped = data.map((row: { memory_type: string; structured_content: Record<string, unknown> | null; created_at: string }) => ({
+      content: { kind: row.memory_type, ...(row.structured_content ?? {}) },
+      updated_at: row.created_at,
+    }));
+    return { source: "founder_memory", status: "success", data: mapped };
   } catch (err) {
     return { source: "founder_memory", status: "error", data: null, error: err instanceof Error ? err.message : String(err) };
   }
@@ -495,45 +515,116 @@ export interface FounderMemory {
 
 // ──────────────────────────────────────────────
 // FounderMemory — SPRINT 2 (M1-S2): REAL implementation.
-// Every method below is backed by a table that ALREADY EXISTS and is
-// ALREADY WRITTEN TO elsewhere in this codebase — confirmed by direct grep
-// before writing a single line here, per the Constitution's "never create
-// duplicate memories" / "reuse existing code":
-//   - working   -> brain_messages / brain_conversations (brain-chat's own
-//                  conversation history tables — proven insert/select shape)
-//   - episodic  -> execution_log (used by 11 other engines already:
-//                  governance-dashboard, orchestrator-engine, brain-chat,
-//                  vault-engine, workday-engine, lead-capture, etc.)
-//   - knowledge -> knowledge_chunks (same table buildContext() already reads)
-//   - learning  -> metrics table via recordMetric() from _shared/metrics.ts
-//                  (already a generic, proven telemetry sink — not a new
-//                  "learning" table)
-//   - permanent -> founder_memory (already read by buildContext(); grep
-//                  confirmed ZERO existing writers anywhere in the codebase
-//                  — .set() below is the first, so schema beyond
-//                  created_by/updated_at is inferred, not proven; every
-//                  write is try/catch'd and reports failure honestly rather
-//                  than claiming success on a schema mismatch)
-//   - workObjects -> STILL STUBBED. `work_objects` table does not exist in
-//                  this ZIP (Sprint 1 finding, unchanged) — that's the Work
-//                  Engine sprint's job, not Memory Engine's. Building it here
-//                  would be exactly the "duplicate implementation created
-//                  early" the Constitution forbids.
+// FLEET MEMORY ADAPTER (Phase 1, 2026-07-22): the Cognitive Memory
+// Architecture Review confirmed `founder_memory` was never a real table —
+// checked live via information_schema AND to_regclass, both confirmed
+// absent — and that a real, live, already-adopted table (`fleet_memory`,
+// 4 engines, real rows since 2026-07-10) already provides everything
+// `permanent` needs: memory_type, structured_content jsonb, confidence,
+// source_department ownership, visible_to_departments/visible_to_agents.
+// Architecture decision: integrate into fleet_memory, not create a second
+// memory table. Every caller of founderMemory.permanent (getGoals,
+// getReflectionHistory, getImaginationHistory, getBeliefHistory,
+// getConstitutionHistory, and everything in executive-planner.ts/
+// curiosity.ts/work-engine.ts that reads through them) is UNCHANGED —
+// only this adapter's internals moved. `learning` moved for the same
+// reason (its `metrics` table is equally absent; Phase 1 forbids new
+// migrations, and fleet_memory already has a real 'learning' precedent
+// row). `episodic` and `knowledge` are DELIBERATELY untouched this
+// phase — see each block below for why.
+//   - working   -> brain_messages / brain_conversations (unchanged, real,
+//                  proven insert/select shape)
+//   - episodic  -> execution_log (unchanged — this was never broken: real
+//                  table, used by 11 other engines, AND reflect() itself
+//                  cross-reads execution_log directly outside this
+//                  interface. Redirecting episodic to fleet_memory would
+//                  silently stop founder-brain's own events from
+//                  appearing in that direct read — a new regression to
+//                  fix something that already worked. Out of scope for
+//                  Phase 1 per "do not touch unrelated systems.")
+//   - knowledge -> knowledge_chunks (unchanged this phase — confirmed
+//                  wrong/nonexistent table name, real bug, but fixing it
+//                  means pointing at brain_knowledge_chunks, which is a
+//                  named Phase 2 item in the approved architecture, not
+//                  part of this adapter's explicit scope)
+//   - learning  -> fleet_memory (memory_type:'learning') — moved
+//   - permanent -> fleet_memory (memory_type per kind) — moved
+//   - workObjects -> STILL STUBBED, unchanged (work_objects table does
+//                  not exist; not this sprint's job)
 // ──────────────────────────────────────────────
-import { recordMetric } from "../_shared/metrics.ts";
+
+// Founder Brain's own identity within the shared fleet_memory table.
+// Reuses "EXECUTIVE" rather than inventing a new identity string — a real
+// fleet_memory row already exists tagged source_department:'EXECUTIVE',
+// memory_type:'learning', and every episodic.append() call in this file
+// already defaults department_code to "EXECUTIVE" — one consistent value
+// across the codebase, not a third casing variant.
+// Exported (Phase 1.5) so executive-planner.ts and curiosity.ts's own
+// direct fleet_memory reads (getLearningTrend, getCuriosityHistory,
+// getBeliefHistory) use this SAME identity instead of a second hardcoded
+// "EXECUTIVE" string — one source of truth for which rows belong to the
+// Founder Brain, not three independently-typed copies of the same literal.
+export const FOUNDER_BRAIN_DEPARTMENT = "EXECUTIVE";
+
+// Best-effort human-readable label for fleet_memory.content (text) —
+// structured_content (jsonb) is the real payload; this is only so other
+// agents skimming fleet_memory's content column see something legible.
+// Not load-bearing: an empty string is a valid, honest result if none of
+// these fields are present on a given payload shape.
+function summarizeMemoryPayload(v: Record<string, unknown>): string {
+  const candidates = ["text", "description", "currentBelief", "recommendedChange", "change", "topic", "principle"];
+  for (const key of candidates) {
+    const val = v[key];
+    if (typeof val === "string" && val.length > 0) return val.slice(0, 500);
+  }
+  return "";
+}
 
 export const founderMemory: FounderMemory = {
   permanent: {
     get: async (userId: string) => {
+      // userId is unused for filtering — no multi-user concept exists in
+      // this codebase (userId is always the literal "founder" everywhere
+      // it's called); ownership is fleet_memory's own
+      // source_department column instead, per the approved mapping.
+      void userId;
       const client = getFounderBrainClient();
-      const { data, error } = await client.from("founder_memory").select("*").eq("created_by", userId).order("updated_at", { ascending: false }).limit(20);
+      const { data, error } = await client
+        .from("fleet_memory")
+        .select("memory_type, structured_content, created_at")
+        .eq("source_department", FOUNDER_BRAIN_DEPARTMENT)
+        .order("created_at", { ascending: false })
+        .limit(20);
       if (error) { log("ERROR", "permanent.get failed", { error: error.message }); return null; }
-      return data;
+      // Mapped back to the EXACT shape every existing caller already
+      // expects: Array<{ content: { kind, ...fields }, updated_at }>.
+      return (data ?? []).map((row: { memory_type: string; structured_content: Record<string, unknown> | null; created_at: string }) => ({
+        content: { kind: row.memory_type, ...(row.structured_content ?? {}) },
+        updated_at: row.created_at,
+      }));
     },
     set: async (userId: string, value: unknown) => {
+      void userId;
       const client = getFounderBrainClient();
-      const { error } = await client.from("founder_memory").insert({ created_by: userId, content: value, updated_at: new Date().toISOString() });
-      if (error) { log("ERROR", "permanent.set failed — schema may differ from inferred shape", { error: error.message }); throw error; }
+      const v = (value ?? {}) as { kind?: string; resolved?: boolean; confidence?: number } & Record<string, unknown>;
+      const kind = v.kind ?? "insight";
+      // Visibility, per the approved design: unresolved beliefs and raw
+      // imagination stay founder-scoped; everything else follows
+      // fleet_memory's existing '*' (fleet-wide) convention — every
+      // sampled row in the live table uses '*' today, so this is the
+      // FIRST real use of restricted visibility, not an existing pattern.
+      const founderOnly = kind === "imagination" || (kind === "belief" && v.resolved === false);
+      const { error } = await client.from("fleet_memory").insert({
+        source_department: FOUNDER_BRAIN_DEPARTMENT,
+        memory_type: kind,
+        title: kind,
+        content: summarizeMemoryPayload(v),
+        structured_content: v,
+        confidence: typeof v.confidence === "number" ? v.confidence : null,
+        visible_to_departments: founderOnly ? [FOUNDER_BRAIN_DEPARTMENT] : ["*"],
+        visible_to_agents: [],
+      });
+      if (error) { log("ERROR", "permanent.set failed (fleet_memory adapter)", { error: error.message }); throw error; }
     },
   },
   working: {
@@ -590,19 +681,37 @@ export const founderMemory: FounderMemory = {
   learning: {
     recordOutcome: async (event: Record<string, unknown>) => {
       const client = getFounderBrainClient();
-      // EVOLUTION AUDIT FINDING (2026-07-18): this previously recorded
-      // value=(event.value ?? 1) unconditionally — meaning the metric's
-      // VALUE never reflected success/failure at all (success was only a
-      // tag). avg(value) over any window would always be 1.0/100%
-      // regardless of real outcomes — a metric that could never tell the
-      // truth. Now value is derived from success itself, so avg() genuinely
-      // is a success rate, not a constant dressed up as one.
+      // FLEET MEMORY ADAPTER (Phase 1): the generic `metrics` table
+      // _shared/metrics.ts expected was confirmed absent from the live
+      // database (information_schema + to_regclass both checked). Phase 1
+      // forbids new migrations, so this now records into fleet_memory
+      // (memory_type:'learning', confidence = success as 0/100) instead —
+      // a real, existing table, following its own existing 'learning'
+      // precedent row (source_department EXECUTIVE, already live).
+      // NOT touched this phase, by design: getLearningTrend()/
+      // computeBrainIntelligenceIndex() (executive-planner.ts) still read
+      // the old missing `metrics` table via _shared/metrics.ts's
+      // getMetricSummary() — that read path is a separate, named Phase 2
+      // item, not silently fixed here as a side effect of this change.
       const succeeded = (event.success as boolean) ?? true;
-      await recordMetric(client, "founder_brain_outcome", succeeded ? 1 : 0, {
-        function: (event.function_name as string) ?? "founder-brain",
-        action: (event.action as string) ?? "outcome",
-        success: succeeded,
+      const { error } = await client.from("fleet_memory").insert({
+        source_department: FOUNDER_BRAIN_DEPARTMENT,
+        memory_type: "learning",
+        title: "learning",
+        content: `${(event.function_name as string) ?? "founder-brain"}:${(event.action as string) ?? "outcome"} -> ${succeeded ? "success" : "failure"}`,
+        structured_content: {
+          function: (event.function_name as string) ?? "founder-brain",
+          action: (event.action as string) ?? "outcome",
+          success: succeeded,
+        },
+        confidence: succeeded ? 100 : 0,
+        visible_to_departments: ["*"],
+        visible_to_agents: [],
       });
+      // Preserves the original contract: recordMetric() never threw
+      // (it caught its own errors and returned null), so no caller of
+      // recordOutcome() has ever expected this to throw either.
+      if (error) { log("ERROR", "learning.recordOutcome failed (fleet_memory adapter)", { error: error.message }); }
     },
   },
 };
@@ -689,11 +798,15 @@ export async function seedGoalHierarchy(userId: string): Promise<void> {
 // what Sprint 2c's "Decide" phase was missing (it only saw the thought +
 // prediction, not the goals). Returns a short verdict string, not a
 // boolean, because the founder wants explainability, not a silent gate.
+// PHASE 2B: now also checks candidates against founder_principles, not
+// just goals — principles (finance boundary, engineering governance, data
+// integrity, etc.) were real, live, and completely unconsulted by this
+// function before now. Signature/return type (Promise<string>) unchanged.
 export async function evaluateAgainstGoals(userId: string, candidateAction: string, correlationId: string = cid()): Promise<string> {
-  const goals = await getGoals(userId);
+  const [goals, principles] = await Promise.all([getGoals(userId), getFounderPrinciples()]);
   const result = await reason(
-    "You are the Founder Brain evaluating a candidate action against the full goal hierarchy (vision/annual/quarterly/monthly/weekly/daily). In 1-2 sentences, say whether this action moves toward or away from the goals, and which goal it's most relevant to. Be honest if it's neutral/irrelevant.",
-    `GOAL HIERARCHY:\n${JSON.stringify(goals)}\n\nCANDIDATE ACTION:\n${candidateAction}`,
+    "You are the Founder Brain evaluating a candidate action against the full goal hierarchy (vision/annual/quarterly/monthly/weekly/daily) AND the founder's governing principles. In 1-2 sentences, say whether this action moves toward or away from the goals, which goal it's most relevant to, and flag explicitly if it conflicts with any stated principle. Be honest if it's neutral/irrelevant.",
+    `GOAL HIERARCHY:\n${JSON.stringify(goals)}\n\nFOUNDER PRINCIPLES:\n${JSON.stringify(principles)}\n\nCANDIDATE ACTION:\n${candidateAction}`,
     250,
     correlationId,
   );
@@ -750,9 +863,75 @@ async function getOrCreateBrainMonologueConversation(): Promise<string | null> {
   }
 }
 
+// ============================================================================
+// FOUNDER IDENTITY / PRINCIPLES — PHASE 2B (moved from executive-planner.ts's
+// Phase 2A draft)
+// ============================================================================
+// Phase 2A first read these two tables inside executive-planner.ts's
+// buildFounderContext(). Nothing called that function yet, so moving the
+// two underlying reads here — instead of duplicating them — costs nothing
+// and fixes the layering: founder-brain.ts is the lower module (imported BY
+// executive-planner.ts/curiosity.ts/work-engine.ts, never the reverse, per
+// the circular-import constraint already documented at getBrainState()'s
+// definition), so primitives multiple upstream modules need belong here,
+// the same reason getGoals()/founderMemory already live here. Read-only,
+// same honest-degradation pattern as every other fetch in this file.
+// ============================================================================
+export interface FounderIdentitySnapshot {
+  version: number;
+  name: string;
+  content: string;
+  active: boolean;
+}
+
+export interface FounderPrincipleSnapshot {
+  principle: string;
+  category: string;
+  weight: number;
+}
+
+export async function getFounderIdentity(): Promise<FounderIdentitySnapshot | null> {
+  const client = getFounderBrainClient();
+  try {
+    const { data, error } = await client
+      .from("founder_identity")
+      .select("version, name, content, active")
+      .eq("active", true)
+      .order("version", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data) return null;
+    return data as FounderIdentitySnapshot;
+  } catch {
+    return null;
+  }
+}
+
+export async function getFounderPrinciples(agentContext = "founder-brain"): Promise<FounderPrincipleSnapshot[]> {
+  const client = getFounderBrainClient();
+  try {
+    const { data, error } = await client
+      .from("founder_principles")
+      .select("principle, category, applies_to, weight")
+      .eq("active", true)
+      .order("weight", { ascending: false })
+      .limit(50);
+    if (error || !data) return [];
+    return (data as Array<{ principle: string; category: string; applies_to: string[] | null; weight: number }>)
+      .filter((r) => !r.applies_to || r.applies_to.includes("*") || r.applies_to.includes(agentContext))
+      .map((r) => ({ principle: r.principle, category: r.category, weight: r.weight }));
+  } catch {
+    return [];
+  }
+}
+
 // ── think() — synthesize current state from grounded context + recent
 //    episodic history + stored goals. Stores the insight, doesn't just
 //    return it — this is memory-as-cognition, not memory-as-lookup. ──
+// PHASE 2B: now also grounds in founder_identity/founder_principles —
+// real, live, populated tables this function never read before. Signature
+// and return type (Promise<string>) unchanged; only the reasoning prompt
+// is enriched, so the existing caller (cognitiveTick) is unaffected.
 export async function think(userId: string, topic = "current state of the business", correlationId: string = cid()): Promise<string> {
   // MEMORY MODEL: "the Brain should naturally retrieve information without
   // explicit instructions" — founderMemory.knowledge.search() already
@@ -764,16 +943,18 @@ export async function think(userId: string, topic = "current state of the busine
   // retrieved automatically as part of thinking, not as a separate step
   // something has to remember to ask for.
   const monologueId = await getOrCreateBrainMonologueConversation();
-  const [context, goals, recentEvents, relevantKnowledge, priorThoughts] = await Promise.all([
+  const [context, goals, identity, principles, recentEvents, relevantKnowledge, priorThoughts] = await Promise.all([
     buildContext({ userId }, correlationId),
     getGoals(userId),
+    getFounderIdentity(),
+    getFounderPrinciples(),
     founderMemory.episodic.query({}),
     founderMemory.knowledge.search(topic),
     monologueId ? founderMemory.working.get(monologueId) : Promise.resolve(null),
   ]);
   const result = await reason(
-    "You are the Founder Brain thinking — not answering a question, reasoning about the business proactively. Ground every claim in the provided context, goals, recent activity, and relevant prior knowledge. If you were just thinking about something related, build on it rather than repeating it. If something is missing data, say so instead of guessing.",
-    `THINK ABOUT: ${topic}\n\nWHAT I WAS JUST THINKING (short-term/working memory):\n${JSON.stringify(priorThoughts).slice(0, 1500)}\n\nGOALS:\n${JSON.stringify(goals)}\n\nRECENT ACTIVITY (last 50 events):\n${JSON.stringify(recentEvents.slice(0, 20))}\n\nRELEVANT PRIOR KNOWLEDGE:\n${JSON.stringify(relevantKnowledge).slice(0, 2000)}\n\nGROUNDED CONTEXT:\n${JSON.stringify(context).slice(0, 6000)}`,
+    "You are the Founder Brain thinking — not answering a question, reasoning about the business proactively. Ground every claim in the provided context, goals, founder identity/principles, recent activity, and relevant prior knowledge. Recommendations must not conflict with the stated principles. If you were just thinking about something related, build on it rather than repeating it. If something is missing data, say so instead of guessing.",
+    `THINK ABOUT: ${topic}\n\nWHAT I WAS JUST THINKING (short-term/working memory):\n${JSON.stringify(priorThoughts).slice(0, 1500)}\n\nFOUNDER IDENTITY:\n${JSON.stringify(identity)}\n\nFOUNDER PRINCIPLES:\n${JSON.stringify(principles)}\n\nGOALS:\n${JSON.stringify(goals)}\n\nRECENT ACTIVITY (last 50 events):\n${JSON.stringify(recentEvents.slice(0, 20))}\n\nRELEVANT PRIOR KNOWLEDGE:\n${JSON.stringify(relevantKnowledge).slice(0, 2000)}\n\nGROUNDED CONTEXT:\n${JSON.stringify(context).slice(0, 6000)}`,
     1200,
     correlationId,
   );
@@ -975,6 +1156,60 @@ export async function getConstitutionHistory(userId: string): Promise<Array<Cons
   return rows.filter((r) => r.content?.kind === "constitution_amendment").map((r) => r.content as unknown as ConstitutionAmendment & { version: number });
 }
 
+// ============================================================================
+// DECISION INTELLIGENCE — PHASE 2B
+// ============================================================================
+// Captures WHY a task was assigned, not just that it was — closing the
+// prediction-vs-outcome gap named since the earliest audit of this
+// codebase: cognitiveTick() has generated a `predicted` outcome every
+// cycle since Sprint 3 and never once stored it anywhere checkable against
+// what actually happened. Same mechanism as every other memory kind in
+// this file (fleet_memory via founderMemory.permanent, tagged
+// kind:'decision') — no new table. confidence is passed straight through
+// to fleet_memory.confidence (a real column, not buried in the jsonb
+// payload), matching what the adapter already does for any kind. Capture
+// never blocks or fails task creation — same non-blocking discipline as
+// every other memory write already in this file.
+// ============================================================================
+export interface DecisionCandidate {
+  description: string;
+  reasoning: string;
+  expectedOutcome: string;
+  confidence: number; // 0-100
+  tradeoffs?: string;
+  departmentCode?: string | null;
+  riskLevel?: "low" | "medium" | "high" | "critical";
+}
+
+export interface CapturedDecision extends DecisionCandidate {
+  created_at: string;
+}
+
+export async function captureDecision(userId: string, decision: DecisionCandidate, correlationId: string = cid()): Promise<void> {
+  try {
+    await founderMemory.permanent.set(userId, {
+      kind: "decision",
+      description: decision.description,
+      reasoning: decision.reasoning,
+      expectedOutcome: decision.expectedOutcome,
+      confidence: decision.confidence,
+      tradeoffs: decision.tradeoffs ?? "",
+      departmentCode: decision.departmentCode ?? null,
+      riskLevel: decision.riskLevel ?? "low",
+      created_at: new Date().toISOString(),
+    });
+    try { await founderMemory.episodic.append({ function_name: "founder-brain", action: "capture_decision", status: "success", output_summary: decision.description.slice(0, 300) }); } catch { /* non-blocking */ }
+  } catch (err) {
+    log("ERROR", "captureDecision failed (non-blocking — task creation proceeds regardless)", { error: err instanceof Error ? err.message : String(err) }, correlationId);
+  }
+}
+
+export async function getDecisionHistory(userId: string): Promise<CapturedDecision[]> {
+  const rows = (await founderMemory.permanent.get(userId)) as Array<{ content?: { kind?: string } }> | null;
+  if (!rows) return [];
+  return rows.filter((r) => r.content?.kind === "decision").map((r) => r.content as unknown as CapturedDecision);
+}
+
 // ── Real department routing — reads the ACTUAL `departments` table
 //    (code/name/mission/kpis, already exists, already governs the
 //    org — GovernanceDashboard reads from this same org layer) instead of
@@ -1059,6 +1294,30 @@ export async function simulateStrategies(userId: string, situation: string, coun
 //    schedule calling this function again, not a loop inside it. Every
 //    phase stays independently try/catch'd. Same function/entry point
 //    since Sprint 2b — evolved in place again, not a parallel v2. ──
+export type RiskLevel = "low" | "medium" | "high" | "critical";
+
+// Extracted from cognitiveTick's inline risk-assessment block (Executive
+// Intelligence Upgrade) so executive-intelligence can reuse the exact same
+// classification instead of a second, duplicate risk-governance system.
+export async function assessRisk(description: string, correlationId: string = cid()): Promise<RiskLevel> {
+  try {
+    const riskResult = await reason(
+      "You are the Founder Brain assessing risk before acting — not emotion, intelligent caution. Consider financial, legal, operational, execution, security, and reputation risk in the action described. Answer with ONLY one word: low, medium, high, or critical.",
+      description,
+      10,
+      correlationId,
+    );
+    const word = riskResult.text.trim().toLowerCase();
+    if (word.startsWith("critical")) return "critical";
+    if (word.startsWith("high")) return "high";
+    if (word.startsWith("medium")) return "medium";
+    return "low"; // honest default — an unparseable answer is treated as needing caution, not escalated to false alarm
+  } catch (err) {
+    log("ERROR", "assessRisk failed, defaulting to low", { error: err instanceof Error ? err.message : String(err) }, correlationId);
+    return "low";
+  }
+}
+
 export interface TickResult {
   observed: boolean;
   thought: string;
@@ -1069,7 +1328,7 @@ export interface TickResult {
   decision: "act" | "wait";
   strategySelected: Strategy | null;
   strategiesRejected: number;
-  assessedRisk: "low" | "medium" | "high" | "critical" | null;
+  assessedRisk: RiskLevel | null;
   assignedDepartment: string | null;
   assigned: { taskId: string } | null;
   reviewed: number;
@@ -1187,23 +1446,9 @@ export async function cognitiveTick(userId: string): Promise<TickResult> {
   //    (built Sprint 2b) never actually triggered from cognitiveTick,
   //    because nothing upstream ever fed it a real assessment. This closes
   //    that gap with the gate that already existed, not a new one.
-  let assessedRisk: "low" | "medium" | "high" | "critical" = "low";
+  let assessedRisk: RiskLevel = "low";
   if (decision === "act" && strategySelected) {
-    try {
-      const riskResult = await reason(
-        "You are the Founder Brain assessing risk before acting — not emotion, intelligent caution. Consider financial, legal, operational, execution, security, and reputation risk in the action described. Answer with ONLY one word: low, medium, high, or critical.",
-        strategySelected.description,
-        10,
-        correlationId,
-      );
-      const word = riskResult.text.trim().toLowerCase();
-      if (word.startsWith("critical")) assessedRisk = "critical";
-      else if (word.startsWith("high")) assessedRisk = "high";
-      else if (word.startsWith("medium")) assessedRisk = "medium";
-      else assessedRisk = "low"; // honest default — an unparseable answer is treated as needing caution, not escalated to false alarm
-    } catch (err) {
-      log("ERROR", "cycle: risk assessment failed, defaulting to low", { error: err instanceof Error ? err.message : String(err) }, correlationId);
-    }
+    assessedRisk = await assessRisk(strategySelected.description, correlationId);
   }
 
   // 8+9. ASSIGN + EXECUTE — SPRINT 3: real department routing instead of
@@ -1213,6 +1458,19 @@ export async function cognitiveTick(userId: string): Promise<TickResult> {
   if (decision === "act" && strategySelected) {
     try {
       assignedDepartment = await routeToDepartment(strategySelected.description, correlationId);
+      // PHASE 2B: capture the decision BEFORE task creation, using data
+      // already computed this cycle (strategySelected, goalEvaluation,
+      // assessedRisk) — no new reasoning call, just a structured write.
+      // captureDecision() never throws (logs and returns on failure), so
+      // this can never block or delay the real task-creation call below.
+      await captureDecision(userId, {
+        description: strategySelected.description,
+        reasoning: goalEvaluation || thought,
+        expectedOutcome: strategySelected.predictedOutcome,
+        confidence: strategySelected.score * 10, // Strategy.score is 1-10 (LLM-assigned); fleet_memory.confidence uses 0-100
+        departmentCode: assignedDepartment,
+        riskLevel: assessedRisk,
+      }, correlationId);
       const result = await createTask(userId, { description: strategySelected.description.slice(0, 500), department_code: assignedDepartment, risk_level: assessedRisk }, correlationId);
       const row = result.data as { id?: string } | null;
       if (result.status === "success" && row?.id) assigned = { taskId: row.id };
