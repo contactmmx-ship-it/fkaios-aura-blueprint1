@@ -517,6 +517,23 @@ Verified live by the Founder:
 
 **Status: Phase 5C homepage migration runtime acceptance — PASS.**
 
+## Phase 5C Production Validation
+
+**Commit:** `3e16bd7`
+
+**Confirmed (verifiable from this environment):**
+- ✓ `3e16bd7` pushed to `origin/main` (`264a734..3e16bd7 main -> main`)
+- ✓ `npm run build` completed successfully at this commit (see Build/verification above)
+- ✓ Homepage opens Founder Cockpit; AppShell navigation intact; Founder Brain Brief accessible; `/cockpit-preview` preserved; no runtime errors — all verified together this session (automated checks + Founder's live confirmation above)
+
+**Hosting platform: Vercel** (project `fkaios-aura-blueprint1`, `prj_IV9dnJRvWv5KCWKMdpPeiPedvlSF`, team `contactmmx-6476's projects`) — confirmed via the Vercel API, not assumed:
+
+- **Deployment `dpl_4YkDggrMf3iJzaZYVNMT1ihKgAij`** — `githubCommitSha: 3e16bd7edc3ebad832269e971f2b519118f300b6` (exact match to the commit above), `target: production`, `state: READY`.
+- **Build logs** (`errorsOnly`): no errors — `Build Completed in /vercel/output [13s]`.
+- **Runtime errors** (last 24h, project-wide): none found.
+
+**Deployment status: PASS** — confirmed both by the git push to `origin/main` and by Vercel's own production deployment record for commit `3e16bd7` (READY, clean build, zero runtime errors in the last 24h).
+
 ---
 
 **STOP AFTER VALIDATION.**
