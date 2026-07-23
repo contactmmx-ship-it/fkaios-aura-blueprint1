@@ -25,7 +25,7 @@ import { generateFounderDecisionProfile } from "../_shared/decision-intelligence
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
 // SECURITY (P1.5 remediated): the secret is NO LONGER hardcoded. It is read from
 // the HEARTBEAT_SECRET env var, so rotating it is now a one-step dashboard change
 // (set the env var + update the cron command text) with no code deploy required.
@@ -86,16 +86,25 @@ Deno.serve(async (req: Request) => {
 
     const system = `You are the Executive Intelligence Layer of FKAIOS — the standing executive leadership of the Bhavishya Associates Artificial Enterprise (holding: Bhavishya Associates; subsidiaries: Franchise Kart, Aura Tech, Rajyog Infra), above Governance and below the Founder (Chairman/MD — he observes, reviews, approves; you run the group). You govern through a FORMAL ORG STRUCTURE in the observed state (Board, Executive Committee — address directives to its holder agents by exact agent name — and org units). CRITICAL: the observed state now includes organizational_memory — the accumulated knowledge of prior cycles. USE IT: build on prior lessons, do not repeat solved analysis, note when you are revisiting a prior theme. The observed state ALSO includes founder_decision_profile — a SEPARATE signal from organizational_memory: statistical analysis of the Founder's own actual approve/reject rulings on past decisions (overall, by source, by risk level, by executive persona). Use it to calibrate directives and capital recommendations to the Founder's demonstrated risk tolerance and preferences, not just the generic facts of the case. Its readiness field states honestly whether there is yet enough evidence for each pattern — where it says insufficient evidence, do not invent a preference; treat it the same as any other thin-data case. Reason like a group executive: per-subsidiary and group-wide, hold Executive Committee members to their measurable objectives, escalate to the Chairman only what needs his eyes. You act ONLY through constitutional channels: directives, staged capital (never execute money), measurable predictions, a Chairman briefing, and lessons_learned (persisted to organizational memory so the enterprise compounds intelligence). Never invent data — reason strictly from observed state; where data is thin or malformed, say so and direct an agent to fix or gather it.\n\nFOUNDER IDENTITY: ${String(fil?.content ?? "").slice(0, 3500)}\n\nPRINCIPLES:\n${(principles ?? []).map((p: any) => `- ${p.principle}`).join("\n").slice(0, 4000)}\n\nEvery prediction must be measurable from the database by its date. founder_briefing is a tight Chairman briefing in his direct Hinglish-friendly style. Output ONLY via emit_cycle.`;
 
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      headers: { "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: 6000, system, tools: [CYCLE_TOOL], tool_choice: { type: "tool", name: "emit_cycle" }, messages: [{ role: "user", content: `OBSERVED STATE (real, current):\n${JSON.stringify(observed).slice(0, 13000)}\n\nRun one executive cognition cycle now. Build on organizational_memory.` }] }),
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        max_tokens: 6000,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: `OBSERVED STATE (real, current):\n${JSON.stringify(observed).slice(0, 13000)}\n\nRun one executive cognition cycle now. Build on organizational_memory.` },
+        ],
+        tools: [{ type: "function", function: { name: CYCLE_TOOL.name, description: CYCLE_TOOL.description, parameters: CYCLE_TOOL.input_schema } }],
+        tool_choice: { type: "function", function: { name: "emit_cycle" } },
+      }),
     });
     if (!resp.ok) return j({ error: `Executive LLM failed: ${resp.status} ${await resp.text()}` }, 502);
     const data = await resp.json();
-    const toolBlock = Array.isArray(data?.content) ? data.content.find((b: any) => b?.type === "tool_use" && b?.name === "emit_cycle") : null;
-    if (!toolBlock?.input) return j({ error: "No emit_cycle output; no actions taken", stop_reason: data?.stop_reason }, 502);
-    const exec: any = toolBlock.input;
+    const toolCall = data?.choices?.[0]?.message?.tool_calls?.find((t: any) => t?.function?.name === "emit_cycle");
+    if (!toolCall?.function?.arguments) return j({ error: "No emit_cycle output; no actions taken", finish_reason: data?.choices?.[0]?.finish_reason }, 502);
+    const exec: any = JSON.parse(toolCall.function.arguments);
 
     const cycleCorrelationId = crypto.randomUUID().slice(0, 8);
 
@@ -157,7 +166,7 @@ Deno.serve(async (req: Request) => {
       observed_state: observed, situation_assessment: String(exec.situation_assessment ?? ""),
       opportunities: exec.opportunities ?? [], risks: exec.risks ?? [], capital_allocation: capital, directives_issued: directives,
       predictions_made: Array.isArray(exec.predictions) ? Math.min(exec.predictions.length, 3) : 0,
-      founder_briefing: founderBriefing, model_used: "claude-sonnet-5", latency_ms: Date.now() - started,
+      founder_briefing: founderBriefing, model_used: "gpt-4o", latency_ms: Date.now() - started,
     }).select("id, cycle_number").single();
     if (cErr) return j({ error: `Cycle insert failed: ${cErr.message}` }, 500);
 
@@ -177,7 +186,7 @@ Deno.serve(async (req: Request) => {
     await Promise.all(memoryWrites);
 
     await supabase.from("audit_logs").insert({ action: "executive:cognition_cycle", resource_type: "executive_cycle", actor_type: "agent", decision_reasoning: `Cycle ${cycle.cycle_number}: ${directives.length} directives, ${capital.length} capital staged, ${preds.length} predictions, ${memoryWrites.length} memories recorded to Enterprise Knowledge Network.`, requires_human_review: capital.length > 0, metadata: { cycle_id: cycle.id } });
-    await supabase.from("agent_performance_metrics").insert({ agent_id: "executive-intelligence", task_type: "cognition_cycle", latency_ms: Date.now() - started, input_tokens: data?.usage?.input_tokens ?? null, output_tokens: data?.usage?.output_tokens ?? null, success: true });
+    await supabase.from("agent_performance_metrics").insert({ agent_id: "executive-intelligence", task_type: "cognition_cycle", latency_ms: Date.now() - started, input_tokens: data?.usage?.prompt_tokens ?? null, output_tokens: data?.usage?.completion_tokens ?? null, success: true });
 
     // COGNITIVE ENHANCEMENT (last, so a slow/failed research dispatch never
     // costs the core cycle's already-committed directives/capital/cycle row).
