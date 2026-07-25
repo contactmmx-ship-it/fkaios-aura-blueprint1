@@ -204,6 +204,16 @@ async function reasonCore(
 // numbers" rule. getTokenEconomyReport() already treats a null/missing
 // cost honestly (sums whatever IS present, doesn't invent the rest).
 // ──────────────────────────────────────────────
+// USD pricing convention -- identical values already used by
+// ai-engine/index.ts's TOKEN_PRICING and _shared/llm-router.ts's
+// DEFAULT_PRICING (neither is exported, so replicated here rather than
+// introducing a new cross-module import for a telemetry-only fix). No
+// existing convention anywhere in this codebase covers gemini, so its
+// cost is deliberately left null below rather than invented.
+const REASON_PRICING: Partial<Record<LLMResult["provider"], { inputPerMtok: number; outputPerMtok: number }>> = {
+  anthropic: { inputPerMtok: 0.25, outputPerMtok: 1.25 },
+  openai: { inputPerMtok: 0.15, outputPerMtok: 0.60 },
+};
 export async function reason(
   systemPrompt: string,
   userContent: string,
@@ -215,6 +225,10 @@ export async function reason(
     const result = await reasonCore(systemPrompt, userContent, maxTokens, correlationId);
     try {
       const client = getFounderBrainClient();
+      const reasonPricing = REASON_PRICING[result.provider];
+      const estimatedCostUsd = reasonPricing
+        ? (result.inputTokens / 1_000_000) * reasonPricing.inputPerMtok + (result.outputTokens / 1_000_000) * reasonPricing.outputPerMtok
+        : null;
       await client.from("agent_performance_metrics").insert({
         agent_id: "founder-brain",
         task_type: "founder_brain_reasoning",
@@ -224,6 +238,7 @@ export async function reason(
         success: true,
         model: result.model,
         provider: result.provider,
+        estimated_cost_usd: estimatedCostUsd,
         prompt_version: "reason-v1",
         retries: 0,
       });

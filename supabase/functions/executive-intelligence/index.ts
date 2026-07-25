@@ -186,7 +186,18 @@ Deno.serve(async (req: Request) => {
     await Promise.all(memoryWrites);
 
     await supabase.from("audit_logs").insert({ action: "executive:cognition_cycle", resource_type: "executive_cycle", actor_type: "agent", decision_reasoning: `Cycle ${cycle.cycle_number}: ${directives.length} directives, ${capital.length} capital staged, ${preds.length} predictions, ${memoryWrites.length} memories recorded to Enterprise Knowledge Network.`, requires_human_review: capital.length > 0, metadata: { cycle_id: cycle.id } });
-    await supabase.from("agent_performance_metrics").insert({ agent_id: "executive-intelligence", task_type: "cognition_cycle", latency_ms: Date.now() - started, input_tokens: data?.usage?.prompt_tokens ?? null, output_tokens: data?.usage?.completion_tokens ?? null, success: true });
+    // USD pricing convention for the openai provider -- identical values already
+    // used by ai-engine/index.ts's TOKEN_PRICING and _shared/llm-router.ts's
+    // DEFAULT_PRICING (neither is exported, so replicated here rather than
+    // introducing a new cross-function import for a telemetry-only fix).
+    const OPENAI_INPUT_PER_MTOK = 0.15;
+    const OPENAI_OUTPUT_PER_MTOK = 0.60;
+    const execInputTokens = data?.usage?.prompt_tokens ?? null;
+    const execOutputTokens = data?.usage?.completion_tokens ?? null;
+    const execEstimatedCostUsd = (execInputTokens != null && execOutputTokens != null)
+      ? (execInputTokens / 1_000_000) * OPENAI_INPUT_PER_MTOK + (execOutputTokens / 1_000_000) * OPENAI_OUTPUT_PER_MTOK
+      : null;
+    await supabase.from("agent_performance_metrics").insert({ agent_id: "executive-intelligence", task_type: "cognition_cycle", latency_ms: Date.now() - started, input_tokens: execInputTokens, output_tokens: execOutputTokens, model: "gpt-4o", provider: "openai", estimated_cost_usd: execEstimatedCostUsd, success: true });
 
     // COGNITIVE ENHANCEMENT (last, so a slow/failed research dispatch never
     // costs the core cycle's already-committed directives/capital/cycle row).

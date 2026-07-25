@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import {
   correlationId as generateCorrelationId,
@@ -7,6 +8,10 @@ import {
   verifyEnvSecrets,
   verifyJWT,
 } from "../_shared/utils.ts";
+import {
+  callLLM as routedCallLLM,
+  buildDefaultRouterConfig,
+} from "../_shared/llm-router.ts";
 
 // ============================================================================
 // REAL DATA GROUNDING — MANDATORY COMPLIANCE
@@ -97,6 +102,7 @@ interface LLMResult {
   outputTokens: number;
   model: string;
   provider: TokenPricingProvider;
+  estimatedCostUsd: number | null;
 }
 
 // ──────────────────────────────────────────────
@@ -152,6 +158,7 @@ async function trackTokenUsage(
   inputTokens: number,
   outputTokens: number,
   provider: TokenPricingProvider,
+  estimatedCostUsd: number | null,
   cid: string,
 ): Promise<void> {
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
@@ -167,6 +174,7 @@ async function trackTokenUsage(
 
   const currentInput = (existing?.content?.input_tokens as number) ?? 0;
   const currentOutput = (existing?.content?.output_tokens as number) ?? 0;
+  const currentCost = (existing?.content?.estimated_cost_usd as number) ?? 0;
 
   const usageContent = {
     date: today,
@@ -175,6 +183,7 @@ async function trackTokenUsage(
     input_tokens: currentInput + inputTokens,
     output_tokens: currentOutput + outputTokens,
     call_count: ((existing?.content?.call_count as number) ?? 0) + 1,
+    estimated_cost_usd: currentCost + (estimatedCostUsd ?? 0),
   };
 
   if (existing) {
@@ -284,6 +293,7 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
           llmResult.inputTokens,
           llmResult.outputTokens,
           llmResult.provider,
+          llmResult.estimatedCostUsd,
           cid,
         );
 
@@ -336,6 +346,7 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
       llmResult.inputTokens,
       llmResult.outputTokens,
       llmResult.provider,
+      llmResult.estimatedCostUsd,
       cid,
     );
 
@@ -383,90 +394,59 @@ async function queueJob(type: string, payload: Record<string, unknown>, agentId:
 // callLLM — now returns structured token usage
 // ──────────────────────────────────────────────
 async function callLLM(systemPrompt: string, userContent: string, preferredModel: string, cid: string): Promise<LLMResult> {
-  if (ANTHROPIC_API_KEY) {
-    try {
-      const model = "claude-3-haiku-20240307";
-      const maxTokens = MAX_TOKENS_PER_REQUEST[model] ?? 4096;
+  const result = await routedCallLLM(
+    {
+      systemPrompt,
+      userContent,
+      functionName: "ai-engine",
+      functionClass: "background_agent",
+    },
+    buildDefaultRouterConfig(),
+  );
 
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "x-api-key": ANTHROPIC_API_KEY,
-          "anthropic-version": "2023-06-01",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: maxTokens,
-          system: systemPrompt,
-          messages: [{ role: "user", content: userContent }],
-        }),
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        structuredLog("ERROR", "Anthropic API error", { status: response.status, body: text }, cid);
-        throw new Error(`Anthropic API error: ${response.status} ${text}`);
-      }
-      const data = await response.json();
-      const inputTokens = data?.usage?.input_tokens ?? 0;
-      const outputTokens = data?.usage?.output_tokens ?? 0;
-      return {
-        text: data?.content?.[0]?.text ?? "",
-        inputTokens,
-        outputTokens,
-        model,
-        provider: "anthropic",
-      };
-    } catch (err) {
-      if (err instanceof Error && err.message.startsWith("Anthropic API error")) throw err;
-      structuredLog("ERROR", "Anthropic fetch failed", { error: err instanceof Error ? err.message : "unknown" }, cid);
-      throw err;
-    }
+  if (result.status !== "success") {
+    structuredLog(
+      "ERROR",
+      "LLM call failed via router",
+      { status: result.status, log: result.log },
+      cid,
+    );
+
+    throw new Error(
+      result.status === "invalid_response_received"
+        ? `LLM returned no usable response across all configured providers: ${result.log.failure_reason ?? "unknown"}`
+        : `All configured LLM providers failed: ${result.log.failure_reason ?? "unknown"}`,
+    );
   }
 
-  if (OPENAI_API_KEY) {
-    try {
-      const model = "gpt-4o-mini";
-      const maxTokens = MAX_TOKENS_PER_REQUEST[model] ?? 8192;
-
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: maxTokens,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userContent },
-          ],
-        }),
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        structuredLog("ERROR", "OpenAI API error", { status: response.status, body: text }, cid);
-        throw new Error(`OpenAI API error: ${response.status} ${text}`);
-      }
-      const data = await response.json();
-      const inputTokens = data?.usage?.prompt_tokens ?? 0;
-      const outputTokens = data?.usage?.completion_tokens ?? 0;
-      return {
-        text: data?.choices?.[0]?.message?.content ?? "",
-        inputTokens,
-        outputTokens,
-        model,
-        provider: "openai",
-      };
-    } catch (err) {
-      if (err instanceof Error && err.message.startsWith("OpenAI API error")) throw err;
-      structuredLog("ERROR", "OpenAI fetch failed", { error: err instanceof Error ? err.message : "unknown" }, cid);
-      throw err;
-    }
+  if (result.log.attempted_providers.length > 1) {
+    structuredLog(
+      "INFO",
+      "LLM provider fallback succeeded",
+      {
+        successful_provider: result.log.successful_provider,
+        attempted_providers: result.log.attempted_providers,
+        failure_reason: result.log.failure_reason,
+        functionName: "ai-engine",
+      },
+      cid,
+    );
   }
 
-  throw new Error("No LLM API key configured (set ANTHROPIC_API_KEY or OPENAI_API_KEY as an Edge Function secret)");
+  const provider = (result.log.successful_provider ?? "anthropic") as TokenPricingProvider;
+
+  const model = provider === "anthropic"
+    ? "claude-3-haiku-20240307"
+    : "gpt-4o-mini";
+
+  return {
+    text: result.content ?? "",
+    inputTokens: result.log.token_usage?.input ?? 0,
+    outputTokens: result.log.token_usage?.output ?? 0,
+    model,
+    provider,
+    estimatedCostUsd: result.log.estimated_cost_usd,
+  };
 }
 
 async function chatWithAgent(agentId: string, message: string, cid: string) {
@@ -509,6 +489,7 @@ async function chatWithAgent(agentId: string, message: string, cid: string) {
   let outputTokens = 0;
   let model = "unknown";
   let provider: TokenPricingProvider = "anthropic";
+  let estimatedCostUsd: number | null = null;
 
   try {
     const llmResult = await callLLM(systemPrompt, userContent, "claude-3-haiku-20240307", cid);
@@ -517,9 +498,18 @@ async function chatWithAgent(agentId: string, message: string, cid: string) {
     outputTokens = llmResult.outputTokens;
     model = llmResult.model;
     provider = llmResult.provider;
+    estimatedCostUsd = llmResult.estimatedCostUsd;
 
     // Track token usage for chat
-    await trackTokenUsage(agentId, model, inputTokens, outputTokens, provider, cid);
+    await trackTokenUsage(
+      agentId,
+      model,
+      inputTokens,
+      outputTokens,
+      provider,
+      estimatedCostUsd,
+      cid,
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown error";
     structuredLog("WARN", `AI unavailable for chat, using fallback`, { error: msg }, cid);
@@ -690,10 +680,14 @@ async function getAISpend(cid: string) {
     const model = (content?.model as string) ?? "unknown";
     const callCount = (content?.call_count as number) ?? 0;
 
+    const storedCostUsd = content?.estimated_cost_usd as number | null | undefined;
     const pricing = TOKEN_PRICING[provider] ?? TOKEN_PRICING.anthropic;
-    const costUsd =
+
+    const fallbackCostUsd =
       (inputTokens / 1_000_000) * pricing.inputPerMtok +
       (outputTokens / 1_000_000) * pricing.outputPerMtok;
+
+    const costUsd = storedCostUsd != null ? storedCostUsd : fallbackCostUsd;
 
     totalInputTokens += inputTokens;
     totalOutputTokens += outputTokens;

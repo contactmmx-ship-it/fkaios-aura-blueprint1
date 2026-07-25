@@ -95,12 +95,27 @@ Deno.serve(async (req: Request) => {
     await supabase.from("audit_logs").insert({ action: "research:market_intelligence", resource_type: "market_intelligence", actor_type: "agent",
       decision_reasoning: `research-engine captured ${market.length} market + ${competitors.length} competitor signals. ${String(intel.research_summary ?? "").slice(0, 300)}`,
       requires_human_review: false, metadata: { market: market.length, competitors: competitors.length } });
-    await supabase.from("agent_performance_metrics").insert({ agent_id: "research-engine", task_type: "market_intelligence", latency_ms: Date.now() - started,
-      input_tokens: data?.usage?.input_tokens ?? null, output_tokens: data?.usage?.output_tokens ?? null, success: true });
+    // USD pricing convention for the anthropic provider -- identical values already
+    // used by ai-engine/index.ts's TOKEN_PRICING and _shared/llm-router.ts's
+    // DEFAULT_PRICING (neither is exported, so replicated here rather than
+    // introducing a new cross-function import for a telemetry-only fix).
+    const ANTHROPIC_INPUT_PER_MTOK = 0.25;
+    const ANTHROPIC_OUTPUT_PER_MTOK = 1.25;
+    const marketIntelInputTokens = data?.usage?.input_tokens ?? null;
+    const marketIntelOutputTokens = data?.usage?.output_tokens ?? null;
+    const marketIntelEstimatedCostUsd = (marketIntelInputTokens != null && marketIntelOutputTokens != null)
+      ? (marketIntelInputTokens / 1_000_000) * ANTHROPIC_INPUT_PER_MTOK + (marketIntelOutputTokens / 1_000_000) * ANTHROPIC_OUTPUT_PER_MTOK
+      : null;
+    // agent_id corrected: this insert is market-intelligence's own execution.
+    // The separate research-engine function (supabase/functions/research-engine/
+    // index.ts) writes no agent_performance_metrics rows of its own, so every
+    // existing row tagged "research-engine" actually came from here, mislabeled.
+    await supabase.from("agent_performance_metrics").insert({ agent_id: "market-intelligence", task_type: "market_intelligence", latency_ms: Date.now() - started,
+      input_tokens: marketIntelInputTokens, output_tokens: marketIntelOutputTokens, model: "claude-sonnet-5", provider: "anthropic", estimated_cost_usd: marketIntelEstimatedCostUsd, success: true });
 
     return j({ success: true, market_signals: market.length, competitor_signals: competitors.length, research_summary: intel.research_summary });
   } catch (err) {
-    await supabase.from("agent_performance_metrics").insert({ agent_id: "research-engine", task_type: "market_intelligence", latency_ms: Date.now() - started, success: false, error_message: String(err) });
+    await supabase.from("agent_performance_metrics").insert({ agent_id: "market-intelligence", task_type: "market_intelligence", latency_ms: Date.now() - started, success: false, error_message: String(err) });
     return j({ error: String(err) }, 500);
   }
 });

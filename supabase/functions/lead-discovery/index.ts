@@ -24,6 +24,10 @@ const ok = (d: unknown) => new Response(JSON.stringify(d), { status: 200, header
 const err = (m: string, s = 500) => new Response(JSON.stringify({ error: m }), { status: s, headers: CORS });
 
 const MODEL = 'claude-sonnet-4-6';
+// Same INR-per-token convention already used by brain-chat, heartbeat-engine,
+// orchestrator-brain, workday-engine, orchestrator-engine for this exact model.
+const INR_PER_INPUT_MTOK = 270;
+const INR_PER_OUTPUT_MTOK = 1350;
 
 function extractJson(raw: string): any {
   const fenced = raw.match(/```json\s*([\s\S]*?)```/i);
@@ -52,9 +56,17 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const action = body.action ?? 'status';
 
-    async function logExec(actionName: string, status: string, inputSummary: string, outputSummary: string, error?: string) {
+    async function logExec(actionName: string, status: string, inputSummary: string, outputSummary: string, error?: string, tokens?: { input: number; output: number }) {
       try {
-        await db.from('execution_log').insert({ function_name: 'lead-discovery', department_code: 'SALES', action: actionName, status, input_summary: inputSummary.slice(0, 500), output_summary: outputSummary.slice(0, 500), error: error?.slice(0, 500) ?? null, latency_ms: Date.now() - t0 });
+        await db.from('execution_log').insert({
+          function_name: 'lead-discovery', department_code: 'SALES', action: actionName, status,
+          input_summary: inputSummary.slice(0, 500), output_summary: outputSummary.slice(0, 500),
+          error: error?.slice(0, 500) ?? null, latency_ms: Date.now() - t0,
+          model: tokens ? MODEL : null,
+          input_tokens: tokens?.input ?? null,
+          output_tokens: tokens?.output ?? null,
+          cost_estimate_inr: tokens ? (tokens.input / 1_000_000) * INR_PER_INPUT_MTOK + (tokens.output / 1_000_000) * INR_PER_OUTPUT_MTOK : null,
+        });
       } catch (_) {}
     }
 
@@ -150,7 +162,7 @@ STRICT RULES:
     const claudeData = await claudeRes.json() as any;
     let extracted: any[];
     try { extracted = extractJson(claudeData.content?.[0]?.text ?? '').leads ?? []; }
-    catch { await logExec(action, 'failure', query, '', 'extraction JSON parse failed'); return err('Extraction JSON parse failed', 502); }
+    catch { await logExec(action, 'failure', query, '', 'extraction JSON parse failed', { input: claudeData?.usage?.input_tokens ?? 0, output: claudeData?.usage?.output_tokens ?? 0 }); return err('Extraction JSON parse failed', 502); }
 
     // ---- Dedupe against existing leads (normalized company_name, then city) ----
     const candidateNames = extracted.map((l: any) => norm(l.company_name)).filter(Boolean);
@@ -193,7 +205,7 @@ STRICT RULES:
       else inserted = ins?.length ?? 0;
     }
 
-    await logExec(action, insertError ? 'partial_failure' : 'success', query, `raw=${flat.length} extracted=${extracted.length} inserted=${inserted} skipped=${skipped}`, insertError ?? undefined);
+    await logExec(action, insertError ? 'partial_failure' : 'success', query, `raw=${flat.length} extracted=${extracted.length} inserted=${inserted} skipped=${skipped}`, insertError ?? undefined, { input: claudeData?.usage?.input_tokens ?? 0, output: claudeData?.usage?.output_tokens ?? 0 });
 
     return ok({
       run_id: runId, query,
