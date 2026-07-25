@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 // ============================================================================
 // FOUNDER BRAIN — Canonical Intelligence Service
 // ============================================================================
@@ -379,7 +380,13 @@ async function fetchKnowledgeBase(client: SupabaseClient, brandId: string | null
     const brandIds = brandId ? [brandId] : (brands ?? []).map((b: { id: string }) => b.id);
     const results: Array<Record<string, unknown>> = [];
     for (const bid of brandIds.slice(0, 3)) {
-      const { data: chunks } = await client.from("knowledge_chunks").select("content, chunk_index, document_id, documents(title), knowledge_sources(name)").eq("brand_id", bid).limit(3);
+      // FIX: "knowledge_chunks"/"documents"/"knowledge_sources" do not exist
+      // in the live schema (confirmed via information_schema). Real tables
+      // are brain_knowledge_chunks (column is "text", not "content") and
+      // brain_knowledge_documents, joined via the real document_id FK.
+      // No knowledge_sources equivalent exists — that join is dropped, not
+      // replaced with a guess.
+      const { data: chunks } = await client.from("brain_knowledge_chunks").select("text, chunk_index, document_id, brain_knowledge_documents(title)").eq("brand_id", bid).limit(3);
       if (chunks) results.push(...chunks);
     }
     if (results.length === 0) return { source: "knowledge_base", status: "no_data", data: null, error: "No matching knowledge entries found" };
@@ -682,9 +689,12 @@ export const founderMemory: FounderMemory = {
     },
   },
   knowledge: {
+    // FIX (same bug, same fix as fetchKnowledgeBase() above): real tables
+    // are brain_knowledge_chunks/brain_knowledge_documents, real text
+    // column is "text" not "content".
     search: async (query: string) => {
       const client = getFounderBrainClient();
-      const { data, error } = await client.from("knowledge_chunks").select("content, chunk_index, document_id, documents(title), knowledge_sources(name)").ilike("content", `%${query}%`).limit(10);
+      const { data, error } = await client.from("brain_knowledge_chunks").select("text, chunk_index, document_id, brain_knowledge_documents(title)").ilike("text", `%${query}%`).limit(10);
       if (error) { log("ERROR", "knowledge.search failed", { error: error.message }); return []; }
       return data ?? [];
     },

@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 // ============================================================================
 // Founder Executive AI — Command Center Edge Function
 // ============================================================================
@@ -57,6 +58,7 @@ import {
   fetchFounderMemoryFor,
   fetchKnowledgeBaseFor,
   callLLMFor,
+  founderMemory,
 } from "../_shared/founder-brain.ts";
 import { recordMetric } from "../_shared/metrics.ts";
 
@@ -420,24 +422,42 @@ CONSULTED SOURCES: ${consultedSources.join(", ")}`;
     }, 200, cid);
   }
 
-  // ── Store Q&A in founder_memory if it looks like a preference or decision ──
+  // ── Store Q&A as permanent memory if it looks like a preference or decision ──
+  // MIGRATED: this used to insert directly into a "founder_memory" table
+  // that does not exist in the live schema — every write silently failed
+  // (caught below, only WARN-logged). Now delegates to the canonical
+  // founderMemory.permanent adapter (_shared/founder-brain.ts), which
+  // writes to fleet_memory — the SAME table fetchFounderMemoryFor() already
+  // reads back from in this file's data-fetching above. Stored preferences/
+  // decisions are now actually visible to future questions, closing a loop
+  // that was previously broken end-to-end.
+  //
+  // NOT migrated this pass: per-conversation "working memory"
+  // (brain_messages/brain_conversations). AskRequest has no conversationId
+  // field, and the only existing get-or-create-conversation precedent in
+  // this codebase (founder-brain.ts's getOrCreateBrainMonologueConversation)
+  // is a fixed-title singleton built for the Brain's own internal
+  // monologue — reusing it here would mix every founder's direct questions
+  // into that same internal thread, and it isn't exported for reuse anyway.
+  // Ownership (per-user vs. shared) is genuinely unresolved, so integration
+  // is deferred rather than guessed, per the explicit instruction to defer
+  // when conversation ownership is unclear.
   const isPreference = /prefer|i want|always|never|my preference|my choice|set up|configure|default/.test(question);
   const isDecision = /decided|decision|approved|rejected|confirmed|we should|we will|going with|selected/.test(question);
 
   if (isPreference || isDecision) {
     try {
-      await supabase.from("founder_memory").insert({
-        category: isPreference ? "preference" : "decision",
-        key: body.question.trim().substring(0, 200),
-        value: llmAnswer.substring(0, 2000),
-        metadata: { sources: consultedSources, timestamp: new Date().toISOString() },
-        created_by: userId,
+      await founderMemory.permanent.set(userId, {
+        kind: isPreference ? "preference" : "decision",
+        question: body.question.trim().substring(0, 200),
+        answer: llmAnswer.substring(0, 2000),
+        sources: consultedSources,
       });
-      structuredLog("INFO", "Stored Q&A in founder_memory", {
+      structuredLog("INFO", "Stored Q&A in fleet_memory", {
         category: isPreference ? "preference" : "decision",
       }, cid);
     } catch (err) {
-      structuredLog("WARN", "Failed to store in founder_memory", {
+      structuredLog("WARN", "Failed to store in fleet_memory", {
         error: err instanceof Error ? err.message : String(err),
       }, cid);
     }
@@ -1039,30 +1059,53 @@ Deno.serve(async (req: Request) => {
     const path = url.pathname;
     const method = req.method;
 
-    if (method === "POST") {
-      if (path.endsWith("/ask")) {
-        return await handleAsk(req, cid, user.userId);
-      }
-      if (path.endsWith("/morning-brief")) {
-        return await handleMorningBrief(req, cid, user.userId);
-      }
-      if (path.endsWith("/revenue-review")) {
-        return await handleRevenueReview(req, cid, user.userId);
-      }
+    let routeAction: string | undefined;
+    let response: Response | undefined;
+
+    if (method === "POST" && path.endsWith("/ask")) {
+      routeAction = "ask";
+      response = await handleAsk(req, cid, user.userId);
+    } else if (method === "POST" && path.endsWith("/morning-brief")) {
+      routeAction = "morning-brief";
+      response = await handleMorningBrief(req, cid, user.userId);
+    } else if (method === "POST" && path.endsWith("/revenue-review")) {
+      routeAction = "revenue-review";
+      response = await handleRevenueReview(req, cid, user.userId);
+    } else if (method === "GET" && path.endsWith("/milestones")) {
+      routeAction = "milestones";
+      response = await handleGetMilestones(req, cid, user.userId);
     }
 
-    if (method === "GET") {
-      if (path.endsWith("/milestones")) {
-        return await handleGetMilestones(req, cid, user.userId);
-      }
+    if (!response) {
+      return errorResponse(
+        "Endpoint not found",
+        404,
+        "Available: POST /ask, POST /morning-brief, POST /revenue-review, GET /milestones",
+        cid
+      );
     }
 
-    return errorResponse(
-      "Endpoint not found",
-      404,
-      "Available: POST /ask, POST /morning-brief, POST /revenue-review, GET /milestones",
-      cid
-    );
+    try {
+      await founderMemory.episodic.append({
+        function_name: "founder-executive",
+        department_code: "EXECUTIVE",
+        action: routeAction,
+        status: response.ok ? "success" : "failure",
+        input_summary: `${method} ${path}`,
+        output_summary: `status ${response.status}`,
+      });
+    } catch (auditErr) {
+      structuredLog(
+        "WARN",
+        "Failed to write execution_log audit entry",
+        {
+          error: auditErr instanceof Error ? auditErr.message : String(auditErr),
+        },
+        cid
+      );
+    }
+
+    return response;
   } catch (err) {
     const elapsed = Math.round(performance.now() - startTime);
     const message = err instanceof Error ? err.message : "Internal server error";
