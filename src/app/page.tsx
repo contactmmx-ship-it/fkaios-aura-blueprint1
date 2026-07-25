@@ -1,6 +1,6 @@
 'use client';
-import AppShell from '@/components/fkaio/AppShell';
+import FounderCockpit from '@/components/fkaios/cockpit/FounderCockpit';
 
 export default function Home() {
-  return <AppShell />;
+  return <FounderCockpit />;
 }
