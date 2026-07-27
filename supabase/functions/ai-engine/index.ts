@@ -14,6 +14,18 @@
 // re-throwing is a fake-data generator. An outage is visible; a fabrication is
 // trusted. On failure we FAIL LOUDLY — the job goes to retry/failed with the real
 // error, the Silence Monitor sees it, and nothing pretends to have worked.
+//
+// PHASE 0.1 FOLLOW-UP (2026-07-27): the 07-13 fix removed fabrication on LLM
+// *failure*, but a second, quieter form survived: on LLM *success*, any
+// parseable JSON was written as status='completed' with no check on whether
+// it was real business execution or the model's own error message, and no
+// persistence step for job types that name a real artifact (invoice,
+// proposal, meeting). 153 GENERATE_INVOICE and 153 GENERATE_PROPOSAL jobs
+// were 'completed' against 0 rows in invoices/company_invoices/proposals;
+// 111 SCHEDULE_MEETING jobs were 'completed' against 0 rows in meetings, one
+// sampled result returning the placeholder Zoom link zoom.us/j/1234567890.
+// See NO_PERSISTENCE_JOB_TYPES and resultReportsFailure() below, and
+// FKAIOS_CHECKPOINT_PHASE0.1_EXECUTION_TRUTH_FIXED.md.
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import {
   correlationId as generateCorrelationId,
@@ -72,6 +84,44 @@ interface AIJob {
   status: string; result: Record<string, unknown> | null; retry_count: number; created_at: string; updated_at: string;
 }
 interface LLMResult { text: string; inputTokens: number; outputTokens: number; model: string; provider: TokenPricingProvider; }
+
+// PHASE 0.1 EXECUTION TRUTH LAYER (2026-07-27): executeJob() has never had a
+// persistence step for ANY job type — it calls an LLM, parses the JSON it
+// returns, and that parsed object IS the "result". For most job types that's
+// honest (the job is asking for an opinion/analysis). For these three it is
+// not: GENERATE_INVOICE, GENERATE_PROPOSAL and SCHEDULE_MEETING name a real
+// business artifact (an invoice, a proposal, a meeting) that this engine has
+// never once written to invoices/company_invoices, proposals, or meetings —
+// confirmed by those tables sitting at 0 rows opposite 150+ jobs of each type
+// marked 'completed'. A dedicated persistence engine exists for meetings
+// (meeting-scheduler, real Google Calendar + `meetings` table writes) but is
+// not wired into this job pipeline; no equivalent exists yet for invoices
+// (invoice-pdf only renders HTML from data it's handed — it never creates or
+// reads a row) or proposals (document-engine only does file upload/delete).
+// Building that persistence is real business-logic work — Phase 3 (Autonomous
+// Revenue Engine), not a truth-layer fix — so until it exists, these three
+// fail loudly and immediately instead of reporting an LLM opinion as
+// completed business execution. See
+// FKAIOS_CHECKPOINT_PHASE0.1_EXECUTION_TRUTH_FIXED.md.
+const NO_PERSISTENCE_JOB_TYPES = new Set(["GENERATE_INVOICE", "GENERATE_PROPOSAL", "SCHEDULE_MEETING"]);
+
+function noPersistenceError(type: string): string {
+  return `${type} has no real persistence path in ai-engine's job runner yet — completing it would only mean an LLM produced a document-shaped JSON blob, with nothing written to the real business table. Refusing to report this as completed. See FKAIOS_CHECKPOINT_PHASE0.1_EXECUTION_TRUTH_FIXED.md.`;
+}
+
+// A job whose LLM result is itself shaped like a failure (e.g. {"error": "..."}
+// or {"status": "error", "message": "..."}) is not completed work — it's the
+// model declining or being unable to do the task. Previously this parsed fine
+// as JSON and was written to ai_jobs with status='completed' anyway, because
+// runJobs() only checked "did JSON.parse succeed", never "does this JSON
+// report success". Applies to every job type, not just the three above.
+function resultReportsFailure(parsed: unknown): string | null {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const obj = parsed as Record<string, unknown>;
+  if (typeof obj.error === "string" && obj.error.trim().length > 0) return obj.error;
+  if (obj.status === "error" && typeof obj.message === "string" && obj.message.trim().length > 0) return obj.message;
+  return null;
+}
 
 async function checkRateLimit(agentId: string, cid: string): Promise<void> {
   const { data: rateRecord } = await supabase
@@ -251,10 +301,27 @@ async function runJobs(cid: string) {
   const jobs: AIJob[] = pendingJobs ?? [];
   const results: Array<{ job_id: string; status: string; result?: Record<string, unknown>; error?: string }> = [];
   for (const job of jobs) {
+    // PHASE 0.1: these types cannot complete honestly via this generic runner
+    // (see NO_PERSISTENCE_JOB_TYPES above) — reject before spending an LLM
+    // call on a result that would just be discarded. Terminal, not retryable:
+    // this isn't a transient failure, so retry_count is left untouched.
+    if (NO_PERSISTENCE_JOB_TYPES.has(job.type)) {
+      const errorMessage = noPersistenceError(job.type);
+      structuredLog("ERROR", `Job ${job.id} rejected: no persistence path for type ${job.type}`, { jobId: job.id, type: job.type }, cid);
+      await supabase.from("ai_jobs").update({ status: "failed", updated_at: new Date().toISOString(), result: { error: errorMessage } }).eq("id", job.id);
+      results.push({ job_id: job.id, status: "failed", error: errorMessage });
+      continue;
+    }
     const { error: runningError } = await supabase.from("ai_jobs").update({ status: "running", updated_at: new Date().toISOString() }).eq("id", job.id);
     if (runningError) { results.push({ job_id: job.id, status: "error", error: runningError.message }); continue; }
     try {
       const result = await executeJob(job, cid);
+      // A result that reports its own failure is a failure, not completed
+      // work — route it through the same honest retry/failed path below
+      // instead of writing status='completed' over an error the model
+      // already told us about.
+      const failureReason = resultReportsFailure(result);
+      if (failureReason) throw new Error(`Job reported its own failure: ${failureReason}`);
       const { error: completeError } = await supabase.from("ai_jobs").update({ status: "completed", result, updated_at: new Date().toISOString() }).eq("id", job.id);
       if (completeError) throw new Error(completeError.message);
       results.push({ job_id: job.id, status: "completed", result });
