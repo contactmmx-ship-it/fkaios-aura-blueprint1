@@ -88,22 +88,21 @@ interface LLMResult { text: string; inputTokens: number; outputTokens: number; m
 // PHASE 0.1 EXECUTION TRUTH LAYER (2026-07-27): executeJob() has never had a
 // persistence step for ANY job type — it calls an LLM, parses the JSON it
 // returns, and that parsed object IS the "result". For most job types that's
-// honest (the job is asking for an opinion/analysis). For these three it is
-// not: GENERATE_INVOICE, GENERATE_PROPOSAL and SCHEDULE_MEETING name a real
-// business artifact (an invoice, a proposal, a meeting) that this engine has
-// never once written to invoices/company_invoices, proposals, or meetings —
-// confirmed by those tables sitting at 0 rows opposite 150+ jobs of each type
-// marked 'completed'. A dedicated persistence engine exists for meetings
+// honest (the job is asking for an opinion/analysis). For these it is not:
+// GENERATE_PROPOSAL and SCHEDULE_MEETING name a real business artifact (a
+// proposal, a meeting) that this engine has never once written to proposals
+// or meetings. A dedicated persistence engine exists for meetings
 // (meeting-scheduler, real Google Calendar + `meetings` table writes) but is
-// not wired into this job pipeline; no equivalent exists yet for invoices
-// (invoice-pdf only renders HTML from data it's handed — it never creates or
-// reads a row) or proposals (document-engine only does file upload/delete).
-// Building that persistence is real business-logic work — Phase 3 (Autonomous
-// Revenue Engine), not a truth-layer fix — so until it exists, these three
-// fail loudly and immediately instead of reporting an LLM opinion as
-// completed business execution. See
-// FKAIOS_CHECKPOINT_PHASE0.1_EXECUTION_TRUTH_FIXED.md.
-const NO_PERSISTENCE_JOB_TYPES = new Set(["GENERATE_INVOICE", "GENERATE_PROPOSAL", "SCHEDULE_MEETING"]);
+// not wired into this job pipeline; no equivalent exists yet for proposals
+// (document-engine only does file upload/delete). Building that persistence
+// is real business-logic work — Phase 3 (Autonomous Revenue Engine), not a
+// truth-layer fix — so until it exists, these two fail loudly and
+// immediately instead of reporting an LLM opinion as completed business
+// execution. See FKAIOS_CHECKPOINT_PHASE0.1_EXECUTION_TRUTH_FIXED.md.
+//
+// GENERATE_INVOICE was originally in this set too — moved out (2026-07-27)
+// once real persistence was built; see writeInvoicePersistence() below.
+const NO_PERSISTENCE_JOB_TYPES = new Set(["GENERATE_PROPOSAL", "SCHEDULE_MEETING"]);
 
 function noPersistenceError(type: string): string {
   return `${type} has no real persistence path in ai-engine's job runner yet — completing it would only mean an LLM produced a document-shaped JSON blob, with nothing written to the real business table. Refusing to report this as completed. See FKAIOS_CHECKPOINT_PHASE0.1_EXECUTION_TRUTH_FIXED.md.`;
@@ -173,6 +172,211 @@ async function writeLeadQualificationBack(job: AIJob, result: Record<string, unk
     );
   }
   structuredLog("INFO", "Real hand action: QUALIFY_LEAD result written to leads table", { jobId: job.id, leadId, update }, cid);
+}
+
+// HANDS — SECOND REAL ACTION (2026-07-27): GENERATE_INVOICE was one of the
+// three job types Phase 0.1 rejected outright (NO_PERSISTENCE_JOB_TYPES)
+// because nothing wrote its output anywhere real. That has changed: a real,
+// already-built, founder-approval-gated invoice system exists —
+// invoice-engine's `draft`/`approve`/`reject` actions against
+// `company_invoices` — it just never had a job-pipeline writer feeding it.
+// This function is that writer, reusing invoice-engine's own contract
+// exactly (same table, same status vocabulary, same totals formula, same
+// invoice-number convention) rather than inventing a second one.
+//
+// `company_invoices` is deliberately targeted over the separate `invoices`/
+// `invoice_items` pair — that pair belongs to payment-engine's disconnected
+// Razorpay payment-link flow; `company_invoices` is what finance-engine,
+// governance-dashboard, and dashboard-engine actually read as the founder-
+// facing source of revenue truth (governance-dashboard's own comment: "real
+// money from company_invoices, honestly 0 today").
+//
+// Line items are read from whatever shape the LLM actually produced —
+// {description,quantity,unit_price_inr} (invoice-engine's own LineItem
+// shape) or the GST-style {description,amount} actually observed in
+// production job results, mapped to quantity:1 — never invented. Totals are
+// computed here with invoice-engine's own 18%-default formula rather than
+// trusting any total the LLM claims, same discipline as the stage allowlist
+// above. A job with no lead_id, an unresolvable lead/company, or no valid
+// line items fails honestly — no fallback invoice is fabricated.
+//
+// Idempotency: `company_invoices.source_job_id` (added this session,
+// company_invoices_source_job_id_uniq partial unique index) is the
+// idempotency key. A unique-violation on insert means this exact job
+// already created its invoice — the existing row is fetched and returned as
+// success rather than failing or duplicating.
+const GST_RATE_PCT = 18;
+
+interface NormalizedLineItem { description: string; quantity: number; unit_price_inr: number; }
+
+function normalizeInvoiceLineItems(result: Record<string, unknown>): NormalizedLineItem[] {
+  const items: NormalizedLineItem[] = [];
+
+  const direct = result.line_items;
+  if (Array.isArray(direct)) {
+    for (const raw of direct) {
+      if (!raw || typeof raw !== "object") continue;
+      const li = raw as Record<string, unknown>;
+      const description = typeof li.description === "string" ? li.description.trim() : "";
+      const quantity = Number(li.quantity);
+      const unitPrice = Number(li.unit_price_inr);
+      if (description && Number.isFinite(quantity) && quantity > 0 && Number.isFinite(unitPrice) && unitPrice >= 0) {
+        items.push({ description: description.slice(0, 500), quantity, unit_price_inr: unitPrice });
+      }
+    }
+    if (items.length > 0) return items;
+  }
+
+  // GST-style shape actually seen in production: result.invoice.items[{description, amount}].
+  const invoiceBlock = result.invoice;
+  const gstItems = invoiceBlock && typeof invoiceBlock === "object" ? (invoiceBlock as Record<string, unknown>).items : undefined;
+  if (Array.isArray(gstItems)) {
+    for (const raw of gstItems) {
+      if (!raw || typeof raw !== "object") continue;
+      const li = raw as Record<string, unknown>;
+      const description = typeof li.description === "string" ? li.description.trim() : "";
+      const amount = Number(li.amount);
+      if (description && Number.isFinite(amount) && amount >= 0) {
+        items.push({ description: description.slice(0, 500), quantity: 1, unit_price_inr: amount });
+      }
+    }
+    if (items.length > 0) return items;
+  }
+
+  // Top-level shape actually seen in production (2026-07-27, with the
+  // schema-instructed GENERATE_INVOICE prompt): result.items[{description,
+  // amount}], no "invoice" wrapper key. Same discipline as the GST-style
+  // branch above — real description + real amount only, never invented.
+  const topLevelItems = result.items;
+  if (Array.isArray(topLevelItems)) {
+    for (const raw of topLevelItems) {
+      if (!raw || typeof raw !== "object") continue;
+      const li = raw as Record<string, unknown>;
+      const description = typeof li.description === "string" ? li.description.trim() : "";
+      const amount = Number(li.amount);
+      if (description && Number.isFinite(amount) && amount >= 0) {
+        items.push({ description: description.slice(0, 500), quantity: 1, unit_price_inr: amount });
+      }
+    }
+  }
+  return items;
+}
+
+function computeInvoiceTotals(items: NormalizedLineItem[]): { subtotal: number; tax: number; total: number } {
+  const subtotal = items.reduce((sum, li) => sum + li.quantity * li.unit_price_inr, 0);
+  const tax = subtotal * (GST_RATE_PCT / 100);
+  return { subtotal, tax, total: subtotal + tax };
+}
+
+async function writeInvoicePersistence(job: AIJob, result: Record<string, unknown>, cid: string): Promise<Record<string, unknown>> {
+  const leadId = job.payload?.lead_id;
+  if (typeof leadId !== "string" || !leadId) {
+    throw new Error("GENERATE_INVOICE job has no payload.lead_id — nothing to generate the invoice for.");
+  }
+
+  const { data: lead, error: leadError } = await supabase
+    .from("leads")
+    .select("id, company_id, company_name, contact_name, contact_email, contact_phone")
+    .eq("id", leadId)
+    .maybeSingle();
+  if (leadError) throw new Error(`Failed to look up lead ${leadId}: ${leadError.message}`);
+  if (!lead) throw new Error(`GENERATE_INVOICE referenced lead_id ${leadId} which does not exist in leads.`);
+  if (!lead.company_id) throw new Error(`Lead ${leadId} has no company_id — cannot create a company_invoices row (company_id is required).`);
+
+  const items = normalizeInvoiceLineItems(result);
+  if (items.length === 0) {
+    // TEMPORARY DIAGNOSTIC (2026-07-27): the schema-instructed prompt is still
+    // producing 0 usable line items. Include a truncated snapshot of the raw
+    // LLM result so it's visible in ai_jobs.result and execution_log without
+    // needing separate console-log access. Remove once root cause is fixed.
+    throw new Error(
+      `GENERATE_INVOICE: no valid line items in the LLM result (checked result.line_items and result.invoice.items) — refusing to create an invoice with no real line items. Raw result: ${JSON.stringify(result).slice(0, 400)}`
+    );
+  }
+  const { subtotal, tax, total } = computeInvoiceTotals(items);
+
+  const clientName = (typeof lead.contact_name === "string" && lead.contact_name.trim())
+    || (typeof lead.company_name === "string" && lead.company_name.trim())
+    || null;
+  if (!clientName) {
+    throw new Error(`Lead ${leadId} has neither contact_name nor company_name — cannot set the required client_name field.`);
+  }
+
+  const { count: existingCount } = await supabase
+    .from("company_invoices")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id", lead.company_id);
+  const invoiceNumber = `INV-${new Date().getFullYear()}-${String((existingCount ?? 0) + 1).padStart(4, "0")}-${Date.now().toString().slice(-4)}`;
+
+  const insertPayload = {
+    company_id: lead.company_id,
+    lead_id: leadId,
+    invoice_number: invoiceNumber,
+    client_name: clientName,
+    client_email: typeof lead.contact_email === "string" ? lead.contact_email : null,
+    client_phone: typeof lead.contact_phone === "string" ? lead.contact_phone : null,
+    line_items: items,
+    subtotal_inr: subtotal,
+    tax_inr: tax,
+    total_inr: total,
+    status: "pending_approval",
+    drafted_by_agent_id: job.agent_id,
+    source_job_id: job.id,
+  };
+
+  const { data: inserted, error: insertError } = await supabase
+    .from("company_invoices")
+    .insert(insertPayload)
+    .select("*")
+    .single();
+
+  if (!insertError) {
+    structuredLog("INFO", "Real hand action: GENERATE_INVOICE created a real company_invoices row", { jobId: job.id, invoiceId: inserted.id, invoiceNumber, total }, cid);
+    return inserted;
+  }
+
+  // 23505 = unique_violation. If it's the source_job_id constraint, this job
+  // already created its invoice on a prior attempt (retry) — fetch and
+  // return that row as the (idempotent) result instead of duplicating or
+  // failing.
+  if ((insertError as { code?: string }).code === "23505") {
+    const { data: existing, error: fetchError } = await supabase
+      .from("company_invoices")
+      .select("*")
+      .eq("source_job_id", job.id)
+      .maybeSingle();
+    if (!fetchError && existing) {
+      structuredLog("INFO", "GENERATE_INVOICE retry: invoice already exists for this job (idempotent, no duplicate created)", { jobId: job.id, invoiceId: existing.id }, cid);
+      return existing;
+    }
+  }
+
+  throw new Error(`Failed to create company_invoices row: ${insertError.message}`);
+}
+
+async function writeExecutionLogEvidence(
+  job: AIJob,
+  action: string,
+  status: "success" | "failure",
+  inputSummary: string,
+  outputSummary: string,
+  cid: string,
+): Promise<void> {
+  try {
+    const { error } = await supabase.from("execution_log").insert({
+      function_name: "ai-engine",
+      agent_id: job.agent_id,
+      department_code: "ACCOUNTS",
+      action,
+      input_summary: inputSummary.slice(0, 500),
+      output_summary: outputSummary.slice(0, 500),
+      status,
+      error: status === "failure" ? outputSummary.slice(0, 500) : null,
+    });
+    if (error) throw new Error(error.message);
+  } catch (err) {
+    structuredLog("WARN", "Failed to write execution_log evidence (non-blocking)", { jobId: job.id, action, error: err instanceof Error ? err.message : String(err) }, cid);
+  }
 }
 
 // DIGESTIVE SYSTEM — FIRST ORGAN (2026-07-27): ai_outcomes has existed, empty,
@@ -267,7 +471,15 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
         if (brand) groundedContext += `\n\n[REAL BRAND DATA — DO NOT FABRICATE]\nBrand: ${JSON.stringify(brand)}\n[/REAL BRAND DATA]`;
       }
       const principlesBlock = await getFounderPrinciplesBlock("ai-engine");
-      const systemPrompt = `${agent.prompt}${groundedContext}${principlesBlock}\n\nYou will receive a job payload as JSON. Execute the task and respond with ONLY a valid JSON object containing your structured output. No prose, no markdown fences.`;
+      // GENERATE_INVOICE persistence (writeInvoicePersistence) parses a specific
+      // shape (result.line_items[]). Without telling the LLM that shape, its
+      // free-form JSON almost never matches it and the job fails honestly
+      // instead of ever persisting — this closes that gap without touching any
+      // other job type's prompt.
+      const invoiceSchemaBlock = job.type === "GENERATE_INVOICE"
+        ? `\nThis is a GENERATE_INVOICE job. Respond with ONLY this JSON structure:\n\n{\n  "line_items": [\n    {\n      "description": "string",\n      "quantity": number,\n      "unit_price_inr": number\n    }\n  ]\n}\n\nRules:\n- Use only real payload/lead/brand data.\n- Never invent products, services, or amounts.\n- If no real billable data exists, return:\n{\n  "line_items": []\n}`
+        : "";
+      const systemPrompt = `${agent.prompt}${groundedContext}${principlesBlock}\n\nYou will receive a job payload as JSON.\nExecute the task and respond with ONLY a valid JSON object.\nNo prose.\nNo markdown fences.\n${invoiceSchemaBlock}`;
       const userContent = JSON.stringify({ type: job.type, payload: job.payload });
       // NOTE: any failure here THROWS. runJobs() records retry/failed with the real
       // error. It does NOT invent a result. This is the fix.
@@ -407,6 +619,16 @@ async function runJobs(cid: string) {
       if (job.type === "QUALIFY_LEAD") {
         await writeLeadQualificationBack(job, result, cid);
       }
+      if (job.type === "GENERATE_INVOICE") {
+        const invoice = await writeInvoicePersistence(job, result, cid);
+        await writeExecutionLogEvidence(
+          job, "generate_invoice",
+          "success",
+          `job ${job.id}, lead_id ${job.payload?.lead_id}`,
+          `company_invoices row ${invoice.id} (${invoice.invoice_number}), total_inr ${invoice.total_inr}`,
+          cid,
+        );
+      }
       const { error: completeError } = await supabase.from("ai_jobs").update({ status: "completed", result, updated_at: new Date().toISOString() }).eq("id", job.id);
       if (completeError) throw new Error(completeError.message);
       await recordOutcome(job, "completed", result, `${job.type} completed.`, cid);
@@ -419,6 +641,15 @@ async function runJobs(cid: string) {
       const newStatus = newRetryCount < 3 ? "retry" : "failed";
       structuredLog("ERROR", `Job ${job.id} failed`, { error: errorMessage, retryCount: newRetryCount, newStatus }, cid);
       await supabase.from("ai_jobs").update({ status: newStatus, retry_count: newRetryCount, updated_at: new Date().toISOString(), result: { error: errorMessage } }).eq("id", job.id);
+      if (job.type === "GENERATE_INVOICE") {
+        await writeExecutionLogEvidence(
+          job, "generate_invoice",
+          "failure",
+          `job ${job.id}, lead_id ${job.payload?.lead_id}`,
+          errorMessage,
+          cid,
+        );
+      }
       if (newStatus === "failed") {
         await recordOutcome(job, "failed", { error: errorMessage }, `${job.type} failed after ${newRetryCount} attempt(s): ${errorMessage}`, cid);
       }
