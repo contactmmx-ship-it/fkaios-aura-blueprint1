@@ -285,13 +285,7 @@ async function writeInvoicePersistence(job: AIJob, result: Record<string, unknow
 
   const items = normalizeInvoiceLineItems(result);
   if (items.length === 0) {
-    // TEMPORARY DIAGNOSTIC (2026-07-27): the schema-instructed prompt is still
-    // producing 0 usable line items. Include a truncated snapshot of the raw
-    // LLM result so it's visible in ai_jobs.result and execution_log without
-    // needing separate console-log access. Remove once root cause is fixed.
-    throw new Error(
-      `GENERATE_INVOICE: no valid line items in the LLM result (checked result.line_items and result.invoice.items) — refusing to create an invoice with no real line items. Raw result: ${JSON.stringify(result).slice(0, 400)}`
-    );
+    throw new Error("GENERATE_INVOICE: no valid line items in the LLM result (checked result.line_items and result.invoice.items) — refusing to create an invoice with no real line items.");
   }
   const { subtotal, tax, total } = computeInvoiceTotals(items);
 
