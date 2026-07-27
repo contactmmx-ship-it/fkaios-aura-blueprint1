@@ -123,6 +123,83 @@ function resultReportsFailure(parsed: unknown): string | null {
   return null;
 }
 
+// HANDS — FIRST REAL ACTION (2026-07-27): QUALIFY_LEAD has been running for
+// real (75 completed, real LLM calls) and producing a well-formed, real
+// verdict every time — {score, stage, notes, hot_lead, recommended_action} —
+// but that verdict has only ever been written into ai_jobs.result. All 133
+// live leads sit at stage='new' regardless of how many times they've been
+// qualified: the CRM was never actually touched. This is the same class of
+// gap Phase 0.1 found in GENERATE_INVOICE — a real result nothing persists —
+// except here the fix is to build the missing hand, not reject the job,
+// because the target table and the data both already exist and match.
+//
+// Deliberately conservative: `stage` is only written if the model's value is
+// in a known-safe allowlist (never trust free-text into a CRM field with no
+// enum constraint — that's just a structural form of fabrication), `notes`
+// and `score` are always safe to persist as-is. If a QUALIFY_LEAD job names a
+// lead_id, this now REQUIRES the write-back to succeed for the job to be
+// honestly "completed" — same principle as Phase 0.1, applied by building the
+// hand instead of refusing the job.
+const ALLOWED_LEAD_STAGES = new Set(["new", "contacted", "qualified", "unqualified", "won", "lost"]);
+
+async function writeLeadQualificationBack(job: AIJob, result: Record<string, unknown>, cid: string): Promise<void> {
+  const leadId = job.payload?.lead_id;
+  if (typeof leadId !== "string" || !leadId) {
+    throw new Error("QUALIFY_LEAD job has no payload.lead_id — nothing to write the qualification back to.");
+  }
+  const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (typeof result.score === "number" && Number.isFinite(result.score)) {
+    update.lead_score = Math.max(0, Math.min(100, Math.round(result.score as number)));
+  }
+  if (typeof result.stage === "string" && ALLOWED_LEAD_STAGES.has(result.stage)) {
+    update.stage = result.stage;
+  }
+  if (typeof result.notes === "string" && result.notes.trim().length > 0) {
+    update.notes = result.notes.slice(0, 2000);
+  }
+  const { data, error } = await supabase
+    .from("leads")
+    .update(update)
+    .eq("id", leadId)
+    .select("id");
+
+  if (error) {
+    throw new Error(`Failed to write qualification back to leads: ${error.message}`);
+  }
+
+  if (!data || data.length === 0) {
+    throw new Error(
+      `QUALIFY_LEAD referenced lead_id ${leadId} which does not exist in leads — nothing was updated.`
+    );
+  }
+  structuredLog("INFO", "Real hand action: QUALIFY_LEAD result written to leads table", { jobId: job.id, leadId, update }, cid);
+}
+
+// DIGESTIVE SYSTEM — FIRST ORGAN (2026-07-27): ai_outcomes has existed, empty,
+// since before this file's fabrication incident — 15,227+ jobs have run
+// through this engine and none of them left a trace of what happened for
+// anything to learn from. This writes one row per *terminal* outcome
+// (completed, or failed after retries are exhausted / rejected outright) —
+// not on "retry", which isn't a concluded experience yet. It only captures
+// experience; it does not analyze it or feed it back into a prompt (that's
+// ai_evolution — deliberately not attempted here, see
+// FKAIOS_BODY_COMPLETION_ROADMAP.md). Recording an outcome must never fail
+// the job it's recording — this is memory, not a gate.
+async function recordOutcome(job: AIJob, outcomeType: "completed" | "failed", result: Record<string, unknown>, summary: string, cid: string): Promise<void> {
+  try {
+    const { error } = await supabase.from("ai_outcomes").insert({
+      job_id: job.id,
+      agent_id: job.agent_id,
+      outcome_type: outcomeType,
+      result,
+      outcome: summary.slice(0, 500),
+    });
+    if (error) throw new Error(error.message);
+  } catch (err) {
+    structuredLog("WARN", "Failed to record ai_outcomes row (non-blocking)", { jobId: job.id, outcomeType, error: err instanceof Error ? err.message : String(err) }, cid);
+  }
+}
+
 async function checkRateLimit(agentId: string, cid: string): Promise<void> {
   const { data: rateRecord } = await supabase
     .from("agent_memory").select("id, content, last_accessed_at")
@@ -309,6 +386,7 @@ async function runJobs(cid: string) {
       const errorMessage = noPersistenceError(job.type);
       structuredLog("ERROR", `Job ${job.id} rejected: no persistence path for type ${job.type}`, { jobId: job.id, type: job.type }, cid);
       await supabase.from("ai_jobs").update({ status: "failed", updated_at: new Date().toISOString(), result: { error: errorMessage } }).eq("id", job.id);
+      await recordOutcome(job, "failed", { error: errorMessage }, `${job.type} rejected: no persistence path exists yet.`, cid);
       results.push({ job_id: job.id, status: "failed", error: errorMessage });
       continue;
     }
@@ -322,8 +400,16 @@ async function runJobs(cid: string) {
       // already told us about.
       const failureReason = resultReportsFailure(result);
       if (failureReason) throw new Error(`Job reported its own failure: ${failureReason}`);
+      // HANDS: for job types with a real, built persistence target, the write
+      // must succeed for this to be honestly "completed" — see
+      // writeLeadQualificationBack() above. A throw here routes into the same
+      // honest failure path below, exactly like any other real failure.
+      if (job.type === "QUALIFY_LEAD") {
+        await writeLeadQualificationBack(job, result, cid);
+      }
       const { error: completeError } = await supabase.from("ai_jobs").update({ status: "completed", result, updated_at: new Date().toISOString() }).eq("id", job.id);
       if (completeError) throw new Error(completeError.message);
+      await recordOutcome(job, "completed", result, `${job.type} completed.`, cid);
       results.push({ job_id: job.id, status: "completed", result });
     } catch (err) {
       // HONEST FAILURE PATH. The job is marked retry/failed with the REAL error.
@@ -333,6 +419,9 @@ async function runJobs(cid: string) {
       const newStatus = newRetryCount < 3 ? "retry" : "failed";
       structuredLog("ERROR", `Job ${job.id} failed`, { error: errorMessage, retryCount: newRetryCount, newStatus }, cid);
       await supabase.from("ai_jobs").update({ status: newStatus, retry_count: newRetryCount, updated_at: new Date().toISOString(), result: { error: errorMessage } }).eq("id", job.id);
+      if (newStatus === "failed") {
+        await recordOutcome(job, "failed", { error: errorMessage }, `${job.type} failed after ${newRetryCount} attempt(s): ${errorMessage}`, cid);
+      }
       results.push({ job_id: job.id, status: newStatus, error: errorMessage });
     }
   }
