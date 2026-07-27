@@ -96,9 +96,19 @@ Deliberately **not** done in this pass: building real persistence for these thre
 - `deno lint` — 0 new issues (3 pre-existing `no-explicit-any` warnings, all in code this change didn't touch).
 - `deno test supabase/functions/_shared/llm-router.test.ts` — 14/14 passed, unchanged (this change doesn't touch the router).
 - Deployed via `deploy_edge_function` to project `nrlsqshkjuuwiovthrnb`. **Version 46 → 47**, same function ID (`d7bfee97-ceca-465e-b1ce-7a76ce892765`), `verify_jwt: true` preserved unchanged.
-- **Live verification:** inserted a real `pending` `GENERATE_INVOICE` job (`id a528c238-eced-4eed-94f8-5552d578a67a`, payload `{"phase0_1_verification_probe": true}`) directly into production `ai_jobs`, then let the real `job-scheduler-drain` cron (`*/10 * * * *`, unmodified) pick it up exactly as it would any real job — no manual invocation, no special-cased test path.
+- **Live verification:** inserted a real `pending` `GENERATE_INVOICE` job (`id a528c238-eced-4eed-94f8-5552d578a67a`, payload `{"phase0_1_verification_probe": true}`) directly into production `ai_jobs`, then let the real `job-scheduler-drain` cron (`*/10 * * * *`, unmodified) pick it up exactly as it would any real job — no manual invocation, no special-cased test path. Confirmed result after the next tick (`updated_at 05:50:03`, ~10 min after insert at `05:40:21`):
 
-  *(Result pasted in once the cron tick completes — see the live confirmation appended at the end of this section / reported in-conversation.)*
+  ```json
+  {
+    "status": "failed",
+    "retry_count": 0,
+    "result": {
+      "error": "GENERATE_INVOICE has no real persistence path in ai-engine's job runner yet — completing it would only mean an LLM produced a document-shaped JSON blob, with nothing written to the real business table. Refusing to report this as completed. See FKAIOS_CHECKPOINT_PHASE0.1_EXECUTION_TRUTH_FIXED.md."
+    }
+  }
+  ```
+
+  Terminal failure, correct reason, zero retries wasted, LLM never called for it — exactly as designed. Test row deleted afterward (scoped delete on the exact ID + the `phase0_1_verification_probe` payload marker, so no risk to real data).
 
 ## 7. Remaining risks
 
