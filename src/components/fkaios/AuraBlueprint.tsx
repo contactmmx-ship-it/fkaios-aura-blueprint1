@@ -77,8 +77,8 @@ function ScoreBar({ score }: { score: number }) {
 
 export default function AuraBlueprint() {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
-  const [leads, setLeads] = useState(DEMO_LEADS);
-  const [agents, setAgents] = useState(DEMO_AGENTS);
+  const [leads, setLeads] = useState<typeof DEMO_LEADS>([]);
+  const [agents, setAgents] = useState<typeof DEMO_AGENTS>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<{ role: string; content: string }[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
@@ -123,8 +123,8 @@ export default function AuraBlueprint() {
       if (data && data.length > 0) {
         setAgents(data.map((a: any) => ({
           id: a.id, name: a.name, status: a.status || 'active', category: a.category || 'sales',
-          tasks_completed: a.tasks_completed || 0, success_rate: a.success_rate || 80,
-          avg_response_time: a.avg_response_time || '1.0s', color: a.color || '#8b5cf6',
+          tasks_completed: a.tasks_completed || 0, success_rate: a.success_rate ?? 0,
+          avg_response_time: a.avg_response_time || '—', color: a.color || '#8b5cf6',
           description: a.description || 'AI Agent',
         })));
       }
@@ -212,13 +212,20 @@ export default function AuraBlueprint() {
     setChatLoading(false);
   };
 
-  // ─── Toggle agent ───
-  const toggleAgent = (id: string) => {
-    setAgents(prev => prev.map(a => a.id === id ? { ...a, status: a.status === 'active' ? 'paused' : 'active' } : a));
+  // ─── Toggle agent (real mutation — was previously local-state-only, so
+  // flipping the switch changed nothing in the database) ───
+  const toggleAgent = async (id: string) => {
+    const agent = agents.find(a => a.id === id);
+    if (!agent) return;
+    const nextStatus = agent.status === 'active' ? 'paused' : 'active';
+    const { error } = await supabase.from('brain_agents').update({ status: nextStatus }).eq('id', id);
+    if (error) { alert(`Could not update agent status: ${error.message}`); return; }
+    setAgents(prev => prev.map(a => a.id === id ? { ...a, status: nextStatus } : a));
   };
 
-  // ─── Trend data (simulated from pipeline) ───
-  const trendData = [65, 72, 68, 80, 75, 82, 90, 85, 88, 92, 87, avgScore];
+  // ─── Trend data: no historical lead-score series exists yet, so show the
+  // one real value we have (flat) instead of a fabricated history ───
+  const trendData = Array(12).fill(avgScore);
 
   // ─── Tabs ───
   const tabs: { id: TabId; label: string; icon: string }[] = [
