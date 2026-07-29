@@ -59,7 +59,7 @@ export default function AgentFactory() {
       <div>
         <div className="flex items-center gap-2 mb-3">
           <h1 className="text-lg font-bold text-white">Your Company Agents</h1>
-          <span className="text-[10px] px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded-full">{companyAgents.length} active, real</span>
+          <span className="text-[10px] px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded-full">{companyAgents.length} on roster, real</span>
         </div>
         {companies.map(co => {
           const list = companyAgents.filter(a => a.company_id === co.id);

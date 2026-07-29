@@ -112,7 +112,7 @@ export default function FounderBrainBrief() {
         supabase.from('company_revenue_actuals').select('revenue_inr'),
         supabase.from('company_annual_targets').select('revenue_target_inr').eq('year', 2030),
         supabase.from('leads').select('id', { count: 'exact', head: true }).eq('is_active', true),
-        supabase.from('ai_agents').select('id, status, is_active'),
+        supabase.rpc('compute_workforce_truth'),
       ]);
       const mem: MemoryEntry[] = (memRes.data || []).map((r: any) => ({ kind: r.memory_type, ...(r.structured_content || {}), created_at: r.created_at }));
       setMemory(mem);
@@ -123,9 +123,9 @@ export default function FounderBrainBrief() {
       setRevenueActual(((revActRes.data || []) as { revenue_inr: number }[]).reduce((s, r) => s + Number(r.revenue_inr || 0), 0));
       setRevenueTarget(((revTgtRes.data || []) as { revenue_target_inr: number }[]).reduce((s, r) => s + Number(r.revenue_target_inr || 0), 0));
       setLeadCount(leadRes.count ?? null);
-      const agents = (agentRes.data || []) as { status: string | null; is_active: boolean | null }[];
-      setAgentTotal(agents.length);
-      setAgentActive(agents.filter(a => a.is_active || a.status === 'active').length);
+      const employees = ((agentRes.data as { employees?: { name: string; verdict: string }[] } | null)?.employees || []);
+      setAgentTotal(employees.length);
+      setAgentActive(employees.filter(e => e.verdict === 'PRODUCING').length);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load Founder Brain Brief');
     }
@@ -240,7 +240,7 @@ export default function FounderBrainBrief() {
           <Metric label="Revenue toward 2030 target" value={missionPct !== null ? `${missionPct.toFixed(1)}%` : 'Awaiting revenue data'} icon={<TrendingUp className="w-4 h-4 text-emerald-400" />} />
           <Metric label="Active Pipeline" value={leadCount !== null ? `${leadCount} leads` : '—'} icon={<Sparkles className="w-4 h-4 text-cyan-400" />} />
           <Metric label="Cash Position" value="Not yet built — no cashflow ledger exists in this codebase" small />
-          <Metric label="AI Workforce" value={agentTotal !== null ? `${agentActive}/${agentTotal} active` : '—'} icon={<Cpu className="w-4 h-4 text-blue-400" />} />
+          <Metric label="AI Workforce" value={agentTotal !== null ? `${agentActive}/${agentTotal} producing (24h)` : '—'} icon={<Cpu className="w-4 h-4 text-blue-400" />} />
         </div>
       </div>
 

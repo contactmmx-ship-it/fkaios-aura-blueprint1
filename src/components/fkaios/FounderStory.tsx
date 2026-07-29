@@ -57,7 +57,7 @@ interface StoryData {
   blockers?: Blockers;
   department_status?: DeptStatus[];
   alerts?: SilenceAlert[];
-  workforce?: { is_active: boolean; status: string; total_tasks_completed: number | null; tasks_completed: number; name: string; success_rate: number | null; department?: string | null }[];
+  workforce?: { is_active: boolean; status: string; verdict?: string | null; total_tasks_completed: number | null; tasks_completed: number; name: string; success_rate: number | null; department?: string | null }[];
   activity_stream?: StreamEvent[];
   collaboration?: Collab[];
   approval_queue?: { action_type: string; risk_level: string; amount_inr: number | null; reason: string }[];
@@ -167,7 +167,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
     const dayAgo = Date.now() - 24 * 3600 * 1000;
     const last24 = stream.filter(e => new Date(e.ts).getTime() > dayAgo);
     const producing = wf.filter(a => (a.total_tasks_completed ?? 0) > 0 || a.tasks_completed > 0);
-    const active = wf.filter(a => a.is_active && a.status === 'active');
+    const active = wf.filter(a => a.verdict === 'PRODUCING');
     const matchAction = (needle: string) => last24.filter(e => (e.action || '').toLowerCase().includes(needle));
     const discoveredEvents = [...matchAction('hunt'), ...matchAction('discover')];
     const qualifiedEvents = matchAction('qualify');
@@ -266,7 +266,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
         ? []
         : roster.map(a => ({
             primary: a.name,
-            secondary: a.status === 'active' ? 'on duty' : `status: ${a.status}`,
+            secondary: a.verdict === 'PRODUCING' ? 'producing (24h)' : `verdict: ${a.verdict ?? a.status}`,
             status: (a.total_tasks_completed ?? 0) > 0 ? 'completed' : 'pending',
             meta: `${a.total_tasks_completed ?? 0} lifetime tasks · ${a.tasks_completed} today`,
           } as LineageRow)),
