@@ -11,7 +11,7 @@ import { ChevronDown, ChevronRight, Cpu, Target, Activity, Brain, Clock, Search 
 
 export interface WorkforceMember {
   name: string; role: string | null; department: string | null; company: string | null;
-  status: string; is_active: boolean; autonomy_level: number | null;
+  status: string; is_active: boolean; verdict: string | null; autonomy_level: number | null;
   trust_level: string | null; governance_score: number | null; collaboration_quality: number | null;
   learning_progress: string | null; total_decisions: number | null; success_rate: number | null;
   total_tasks_completed: number | null; last_active_at: string | null;
@@ -36,7 +36,7 @@ function rel(iso: string | null) {
 
 function AgentCard({ m }: { m: WorkforceMember }) {
   const [open, setOpen] = useState(false);
-  const live = m.is_active && m.status === 'active';
+  const live = m.verdict === 'PRODUCING';
   return (
     <div className="bg-slate-950/60 border border-slate-800 rounded-lg overflow-hidden">
       <button onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-slate-900/60 transition-colors">
@@ -105,7 +105,7 @@ export default function WorkforcePanel({ workforce }: { workforce: WorkforceMemb
     return g;
   }, [ranked]);
 
-  const activeCount = workforce.filter(m => m.is_active && m.status === 'active').length;
+  const activeCount = workforce.filter(m => m.verdict === 'PRODUCING').length;
   const workingToday = workforce.filter(m => m.current_objective).length;
 
   if (workforce.length === 0) return <p className="text-xs text-slate-500">Awaiting first AI workforce roster.</p>;

@@ -81,7 +81,7 @@ export default function ChairmanHero({ data }: { data: HeroInput }) {
       supabase.from('departments').select('id', { count: 'exact', head: true }).eq('is_active', true),
       holdingTarget(),
       supabase.from('company_revenue_actuals').select('revenue_inr'),
-      supabase.from('ai_agents').select('id, status, is_active'),
+      supabase.rpc('compute_workforce_truth'),
       supabase.from('execution_log').select('id', { count: 'exact', head: true }).gte('created_at', since),
       supabase.from('ceo_daily_briefing').select('work_date, summary, top_performers, underperformers, blockers, company_kpi_snapshot').order('work_date', { ascending: false }).limit(1),
     ]).then(([co, dep, tgt, act, ag, ex, br]) => {
@@ -93,9 +93,9 @@ export default function ChairmanHero({ data }: { data: HeroInput }) {
       const ht = holding ? tgtRows.find(t => t.company_id === holding.id) : null;
       setTarget2030(ht?.revenue_target_inr || tgtRows.reduce((s, r) => s + Number(r.revenue_target_inr || 0), 0));
       setActualTotal(((act.data || []) as { revenue_inr: number }[]).reduce((s, r) => s + Number(r.revenue_inr || 0), 0));
-      const agents = (ag.data || []) as { status: string | null; is_active: boolean | null }[];
-      setAgentTotal(agents.length);
-      setAgentActive(agents.filter(a => a.is_active || a.status === 'active').length);
+      const employees = ((ag.data as { employees?: { name: string; verdict: string }[] } | null)?.employees || []);
+      setAgentTotal(employees.length);
+      setAgentActive(employees.filter(e => e.verdict === 'PRODUCING').length);
       setOps24h(ex.count ?? null);
       const b = (br.data || [])[0] as Briefing | undefined;
       if (b) setBriefing(b);
@@ -146,7 +146,7 @@ export default function ChairmanHero({ data }: { data: HeroInput }) {
           <div className="flex flex-wrap items-center gap-5">
             <PulseStat icon={<Cpu className="w-3.5 h-3.5 text-cyan-400" />} label="Executive Cycles" value={s ? String(s.exec_cycles_total) : '—'} sub={`last ${relTime(s?.last_exec_cycle || null)}`} />
             <PulseStat icon={<Activity className="w-3.5 h-3.5 text-blue-400" />} label="Ops / 24h" value={ops24h === null ? '…' : String(ops24h)} sub="agent executions" />
-            <PulseStat icon={<Users className="w-3.5 h-3.5 text-emerald-400" />} label="AI Workforce" value={agentActive === null ? '…' : `${agentActive}`} sub={`of ${agentTotal ?? '…'} active`} />
+            <PulseStat icon={<Users className="w-3.5 h-3.5 text-emerald-400" />} label="AI Workforce" value={agentActive === null ? '…' : `${agentActive}`} sub={`of ${agentTotal ?? '…'} producing (24h)`} />
             <PulseStat icon={<ShieldCheck className="w-3.5 h-3.5 text-amber-400" />} label="Pending Reviews" value={s ? String(s.approval_queue) : '—'} sub="await your call" />
           </div>
         </div>

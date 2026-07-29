@@ -79,6 +79,16 @@ Deno.serve(async (req: Request) => {
     const { data: missionData, error: missionErr } = await supabase.rpc("compute_mission_progress");
     const mission = missionErr ? { error: missionErr.message } : missionData;
 
+    // FKAIOS Phase 0 Task 2 ("kill the fake workforce illusion"): ai_agents.is_active/
+    // status/last_active_at are unconditionally fabricated (always true/active).
+    // compute_workforce_truth() grades every agent from real agent_dispatch_log /
+    // total_tasks_completed evidence into PRODUCING/DORMANT/NAMEPLATE/BURNING —
+    // that verdict, not the fake columns, is what workforce[].is_active must reflect.
+    const { data: workforceTruthData, error: workforceTruthErr } = await supabase.rpc("compute_workforce_truth");
+    const workforceTruth = workforceTruthErr ? null : workforceTruthData;
+    const verdictByName: Record<string, string> = {};
+    for (const e of (workforceTruth?.employees ?? [])) verdictByName[e.name] = e.verdict;
+
     const latestKpi: Record<string, { value: number; evidence: unknown; measured_at: string }> = {};
     for (const row of kpiLatest.data ?? []) if (!latestKpi[row.kpi]) latestKpi[row.kpi] = { value: Number(row.value), evidence: row.evidence, measured_at: row.measured_at };
 
@@ -119,7 +129,10 @@ Deno.serve(async (req: Request) => {
       return {
         name: a.name, role: p.role || null, department: a.department || a.dept || null,
         company: a.company_id ? (companyName[a.company_id] || null) : null,
-        status: a.status || "unknown", is_active: a.is_active ?? true, autonomy_level: a.autonomy_level ?? null,
+        status: a.status || "unknown",
+        is_active: verdictByName[a.name] === "PRODUCING",
+        verdict: verdictByName[a.name] || null,
+        autonomy_level: a.autonomy_level ?? null,
         trust_level: p.trust_level || null, governance_score: p.governance_score ?? null,
         collaboration_quality: p.collaboration_quality ?? null, learning_progress: p.learning_progress || null,
         total_decisions: p.total_decisions ?? null, success_rate: (p.success_rate ?? a.success_rate) ?? null,
