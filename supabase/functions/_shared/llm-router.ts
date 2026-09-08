@@ -155,8 +155,8 @@ function getOpenAIApiKey(): string {
 // per-provider published pricing, $/1M tokens.
 const DEFAULT_PRICING = {
   anthropic: { inputPerMtok: 1.00, outputPerMtok: 5.00 }, // claude-haiku-4-5
-  gemini: { inputPerMtok: 1.50, outputPerMtok: 9.00 }, // gemini-3.5-flash
-  openai: { inputPerMtok: 0.75, outputPerMtok: 4.50 }, // gpt-5.4-mini
+  gemini: { inputPerMtok: 0.30, outputPerMtok: 2.50 }, // gemini-3.5-flash-lite
+  openai: { inputPerMtok: 1.00, outputPerMtok: 6.00 }, // gpt-5.6-luna
 } as const;
 
 export const anthropicAdapter: ProviderAdapter = {
@@ -213,7 +213,7 @@ export const openaiAdapter: ProviderAdapter = {
     if (!apiKey) {
       return { ok: false, httpStatus: 401, rawBody: { error: "OPENAI_API_KEY is not configured" }, latencyMs: 0 };
     }
-    const model = "gpt-5.4-mini";
+    const model = "gpt-5.6-luna";
     const maxTokens = request.maxTokens ?? 8192;
     const start = Date.now();
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -255,7 +255,7 @@ export const geminiAdapter: ProviderAdapter = {
     if (!apiKey) {
       return { ok: false, httpStatus: 401, rawBody: { error: "GEMINI_API_KEY is not configured" }, latencyMs: 0 };
     }
-    const model = "gemini-3.5-flash";
+    const model = "gemini-3.5-flash-lite";
     const maxTokens = request.maxTokens ?? 8192;
     const start = Date.now();
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
