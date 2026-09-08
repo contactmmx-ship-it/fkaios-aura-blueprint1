@@ -13,6 +13,11 @@ import {
   selectProvider,
   checkCostLimit,
   computeProviderHealth,
+  buildLogEntry,
+  getConfiguredDefaultProviders,
+  anthropicAdapter,
+  geminiAdapter,
+  openaiAdapter,
   type ProviderAdapter,
   type ProviderName,
   type LLMRequest,
@@ -341,4 +346,171 @@ Deno.test("Unit: computeProviderHealth reports null rather than guessing with ze
   const snapshot = computeProviderHealth("glm", []);
   assert(snapshot.sampleSize === 0, "sampleSize should be 0");
   assert(snapshot.successRate === null, "successRate must be null, not a guessed number, with no evidence");
+});
+
+// ---------------------------------------------------------------------------
+// Test 8: Three-provider fallback chain — Anthropic -> Gemini -> OpenAI
+// ---------------------------------------------------------------------------
+
+Deno.test("Test 8: Anthropic and Gemini both fail, OpenAI (third provider) succeeds", async () => {
+  const anthropic = mockAdapter("anthropic", async () => ({
+    ok: false,
+    httpStatus: 500,
+    rawBody: { error: "anthropic internal error" },
+    latencyMs: 5,
+  }));
+  const gemini = mockAdapter("gemini", async () => ({
+    ok: false,
+    httpStatus: 429,
+    rawBody: { error: { message: "gemini rate limit" } },
+    latencyMs: 6,
+  }));
+  const openai = mockAdapter("openai", async () => ({
+    ok: true,
+    httpStatus: 200,
+    content: "third provider succeeded",
+    rawBody: {},
+    inputTokens: 10,
+    outputTokens: 10,
+    latencyMs: 7,
+  }));
+
+  const result = await callLLM(baseRequest(), baseConfig([anthropic, gemini, openai]));
+
+  assert(result.status === "success", `Expected success, got ${result.status}`);
+  assert(result.log.successful_provider === "openai", "Expected openai to succeed as the third provider");
+  assert(
+    result.log.attempted_providers.join(",") === "anthropic,gemini,openai",
+    `Expected all three providers attempted in order, got ${result.log.attempted_providers.join(",")}`,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Test 9: Every provider attempt is recorded in failure_reason — not just
+// the last one. Regression test for the bug where buildLogEntry only kept
+// the most recent failure, silently discarding evidence of earlier failures
+// in the same call (see FKAIOS_PHASE6A_CALLLLM_SPECIFICATION.md Section 4).
+// ---------------------------------------------------------------------------
+
+Deno.test("Test 9: buildLogEntry records every failed attempt, not just the last failure", () => {
+  const attempts: CallAttempt[] = [
+    {
+      provider: "anthropic",
+      outcome: "failure",
+      failure: { category: "credit_exhaustion", detail: "credit balance too low", shouldFailover: true },
+      latencyMs: 10,
+      estimatedCostUsd: null,
+      wasFallback: false,
+      timedOut: false,
+    },
+    {
+      provider: "gemini",
+      outcome: "failure",
+      failure: { category: "rate_limit", detail: "429 rate limited", shouldFailover: true },
+      latencyMs: 12,
+      estimatedCostUsd: null,
+      wasFallback: true,
+      timedOut: false,
+    },
+    {
+      provider: "openai",
+      outcome: "failure",
+      failure: { category: "provider_outage", detail: "503 service unavailable", shouldFailover: true },
+      latencyMs: 8,
+      estimatedCostUsd: null,
+      wasFallback: true,
+      timedOut: false,
+    },
+  ];
+
+  const entry = buildLogEntry(baseRequest(), attempts, "failed_all_providers", null);
+
+  assert(!!entry.failure_reason, "failure_reason should not be null");
+  assert(entry.failure_reason!.includes("credit_exhaustion"), "Must record the anthropic (first) failure");
+  assert(entry.failure_reason!.includes("rate_limit"), "Must record the gemini (second) failure");
+  assert(entry.failure_reason!.includes("provider_outage"), "Must record the openai (third, last) failure");
+  assert(entry.failure_reason!.includes("anthropic:"), "Each failure should be attributable to its provider");
+  assert(entry.failure_reason!.includes("gemini:"), "Each failure should be attributable to its provider");
+  assert(entry.failure_reason!.includes("openai:"), "Each failure should be attributable to its provider");
+});
+
+Deno.test("Test 9b: end-to-end callLLM — all three providers fail, log records all three failures", async () => {
+  const anthropic = mockAdapter("anthropic", async () => ({
+    ok: false,
+    httpStatus: 400,
+    rawBody: { error: { type: "invalid_request_error", message: "Your credit balance is too low to access the Anthropic API." } },
+    latencyMs: 5,
+  }));
+  const gemini = mockAdapter("gemini", async () => ({
+    ok: false,
+    httpStatus: 429,
+    rawBody: { error: { message: "rate limited" } },
+    latencyMs: 6,
+  }));
+  const openai = mockAdapter("openai", async () => ({
+    ok: false,
+    httpStatus: 503,
+    rawBody: { error: "service unavailable" },
+    latencyMs: 7,
+  }));
+
+  const result = await callLLM(baseRequest(), baseConfig([anthropic, gemini, openai]));
+
+  assert(result.status === "failed_all_providers", `Expected failed_all_providers, got ${result.status}`);
+  assert(result.log.attempted_providers.length === 3, "All three providers should have been attempted");
+  assert(!!result.log.failure_reason?.includes("credit_exhaustion"), "Must retain the anthropic failure even though it wasn't last");
+  assert(!!result.log.failure_reason?.includes("rate_limit"), "Must retain the gemini failure even though it wasn't last");
+  assert(!!result.log.failure_reason?.includes("provider_outage"), "Must record the final openai failure too");
+});
+
+// ---------------------------------------------------------------------------
+// Test 10: Default provider configuration — Anthropic, Gemini, OpenAI order
+// ---------------------------------------------------------------------------
+
+Deno.test("Test 10: getConfiguredDefaultProviders returns Anthropic, Gemini, OpenAI in that order when all keys are set", () => {
+  const savedAnthropic = Deno.env.get("ANTHROPIC_API_KEY");
+  const savedGemini = Deno.env.get("GEMINI_API_KEY");
+  const savedOpenAI = Deno.env.get("OPENAI_API_KEY");
+  try {
+    Deno.env.set("ANTHROPIC_API_KEY", "test-anthropic-key");
+    Deno.env.set("GEMINI_API_KEY", "test-gemini-key");
+    Deno.env.set("OPENAI_API_KEY", "test-openai-key");
+
+    const providers = getConfiguredDefaultProviders();
+
+    assert(providers.length === 3, `Expected 3 configured providers, got ${providers.length}`);
+    assert(
+      providers.map((p) => p.name).join(",") === "anthropic,gemini,openai",
+      `Expected order anthropic,gemini,openai — got ${providers.map((p) => p.name).join(",")}`,
+    );
+    assert(providers[0] === anthropicAdapter, "First provider should be the anthropicAdapter singleton");
+    assert(providers[1] === geminiAdapter, "Second provider should be the geminiAdapter singleton");
+    assert(providers[2] === openaiAdapter, "Third provider should be the openaiAdapter singleton");
+  } finally {
+    if (savedAnthropic === undefined) Deno.env.delete("ANTHROPIC_API_KEY"); else Deno.env.set("ANTHROPIC_API_KEY", savedAnthropic);
+    if (savedGemini === undefined) Deno.env.delete("GEMINI_API_KEY"); else Deno.env.set("GEMINI_API_KEY", savedGemini);
+    if (savedOpenAI === undefined) Deno.env.delete("OPENAI_API_KEY"); else Deno.env.set("OPENAI_API_KEY", savedOpenAI);
+  }
+});
+
+Deno.test("Test 10b: getConfiguredDefaultProviders omits providers with no configured key", () => {
+  const savedAnthropic = Deno.env.get("ANTHROPIC_API_KEY");
+  const savedGemini = Deno.env.get("GEMINI_API_KEY");
+  const savedOpenAI = Deno.env.get("OPENAI_API_KEY");
+  try {
+    Deno.env.set("ANTHROPIC_API_KEY", "test-anthropic-key");
+    Deno.env.delete("GEMINI_API_KEY");
+    Deno.env.set("OPENAI_API_KEY", "test-openai-key");
+
+    const providers = getConfiguredDefaultProviders();
+
+    assert(
+      providers.map((p) => p.name).join(",") === "anthropic,openai",
+      `Expected gemini to be skipped when unconfigured — got ${providers.map((p) => p.name).join(",")}`,
+    );
+  } finally {
+    if (savedAnthropic === undefined) Deno.env.delete("ANTHROPIC_API_KEY"); else Deno.env.set("ANTHROPIC_API_KEY", savedAnthropic);
+    if (savedGemini === undefined) Deno.env.delete("GEMINI_API_KEY"); else Deno.env.set("GEMINI_API_KEY", savedGemini);
+    if (savedOpenAI === undefined) Deno.env.delete("OPENAI_API_KEY"); else Deno.env.set("OPENAI_API_KEY", savedOpenAI);
+  }
 });
