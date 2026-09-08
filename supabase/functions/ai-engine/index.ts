@@ -74,8 +74,9 @@ async function getFounderPrinciplesBlock(agentName: string): Promise<string> {
 
 const RATE_LIMIT_COOLDOWN_SECONDS = 30;
 const TOKEN_PRICING = {
-  anthropic: { inputPerMtok: 0.25, outputPerMtok: 1.25 },
-  openai: { inputPerMtok: 0.15, outputPerMtok: 0.60 },
+  anthropic: { inputPerMtok: 1.00, outputPerMtok: 5.00 }, // claude-haiku-4-5
+  gemini: { inputPerMtok: 0.30, outputPerMtok: 2.50 }, // gemini-3.5-flash-lite
+  openai: { inputPerMtok: 1.00, outputPerMtok: 6.00 }, // gpt-5.6-luna
 } as const;
 type TokenPricingProvider = keyof typeof TOKEN_PRICING;
 
@@ -477,7 +478,7 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
       const userContent = JSON.stringify({ type: job.type, payload: job.payload });
       // NOTE: any failure here THROWS. runJobs() records retry/failed with the real
       // error. It does NOT invent a result. This is the fix.
-      const llmResult = await callLLM(systemPrompt, userContent, "claude-3-haiku-20240307", cid);
+      const llmResult = await callLLM(systemPrompt, userContent, "claude-haiku-4-5", cid);
       await trackTokenUsage(agent.id, llmResult.model, llmResult.inputTokens, llmResult.outputTokens, llmResult.provider, cid);
       const cleaned = llmResult.text.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(cleaned);
@@ -495,7 +496,7 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
   const llmResult = await callLLM(
     `You are an AI engine. Job type: ${job.type}. Respond with ONLY a valid JSON object. No prose, no markdown fences. Never invent data.${principlesBlock}`,
     JSON.stringify({ type: job.type, payload: job.payload }),
-    "claude-3-haiku-20240307",
+    "claude-haiku-4-5",
     cid,
   );
   await trackTokenUsage(null, llmResult.model, llmResult.inputTokens, llmResult.outputTokens, llmResult.provider, cid);
@@ -545,7 +546,14 @@ async function callLLM(systemPrompt: string, userContent: string, _preferredMode
   }
 
   const provider = (result.log.successful_provider ?? "anthropic") as TokenPricingProvider;
-  const model = provider === "anthropic" ? "claude-3-haiku-20240307" : "gpt-4o-mini";
+  // Must track llm-router.ts's adapters — one model string per provider, not
+  // a binary anthropic/else split now that Gemini is a third provider.
+  const MODEL_BY_PROVIDER: Record<TokenPricingProvider, string> = {
+    anthropic: "claude-haiku-4-5",
+    gemini: "gemini-3.5-flash-lite",
+    openai: "gpt-5.6-luna",
+  };
+  const model = MODEL_BY_PROVIDER[provider];
 
   return {
     text: result.content ?? "",
@@ -567,7 +575,7 @@ async function chatWithAgent(agentId: string, message: string, cid: string) {
   const systemPrompt = `${agent.prompt}${principlesBlock}\n\nRespond conversationally as this agent would to your human manager at Franchisee Kart. Be concise and concrete. Never invent data — if you do not know, say so.`;
   const userContent = historyText ? `${historyText}\n\nUser: ${message}` : message;
   // A chat failure is reported as a failure. It is NOT answered with a fabrication.
-  const llmResult = await callLLM(systemPrompt, userContent, "claude-3-haiku-20240307", cid);
+  const llmResult = await callLLM(systemPrompt, userContent, "claude-haiku-4-5", cid);
   await trackTokenUsage(agentId, llmResult.model, llmResult.inputTokens, llmResult.outputTokens, llmResult.provider, cid);
   const responseText = llmResult.text;
   validateGrounding(responseText, `${systemPrompt}\n${userContent}`, cid);
