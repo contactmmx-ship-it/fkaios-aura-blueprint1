@@ -7,11 +7,11 @@
 // makes business decisions — it only decides which provider transports an
 // already fully-formed request. Preserve -> Enhance -> Extend.
 //
-// This file owns every provider adapter (Anthropic, OpenAI). Calling
+// This file owns every provider adapter (Anthropic, Gemini, OpenAI). Calling
 // functions (e.g. ai-engine) never construct or hold adapters themselves —
 // they import buildDefaultRouterConfig() and callLLM(), nothing else.
 
-export type ProviderName = "anthropic" | "openai" | "deepseek" | "glm";
+export type ProviderName = "anthropic" | "gemini" | "openai" | "deepseek" | "glm";
 
 export type FunctionClass =
   | "founder_intelligence" // quality priority
@@ -127,20 +127,36 @@ export interface RouterConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Provider Adapters — Anthropic, OpenAI
+// Provider Adapters — Anthropic, Gemini, OpenAI
 //
 // Concrete implementations owned entirely by this module, placed before the
 // router execution functions below. Those functions operate only against the
 // ProviderAdapter interface and never call a provider's HTTP endpoint
 // directly themselves.
+//
+// API keys are read lazily (per call) rather than cached into module-level
+// constants at import time — this lets tests (and a Supabase Edge Function
+// warm start) observe env vars set after the module first loads, which
+// matters for getConfiguredDefaultProviders() below.
 // ---------------------------------------------------------------------------
 
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
+function getAnthropicApiKey(): string {
+  return Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+}
+function getGeminiApiKey(): string {
+  return Deno.env.get("GEMINI_API_KEY") ?? "";
+}
+function getOpenAIApiKey(): string {
+  return Deno.env.get("OPENAI_API_KEY") ?? "";
+}
 
+// Pricing reflects each adapter's current model (see the `model` constant in
+// each adapter's call() below) — current as of the last model migration,
+// per-provider published pricing, $/1M tokens.
 const DEFAULT_PRICING = {
-  anthropic: { inputPerMtok: 0.25, outputPerMtok: 1.25 },
-  openai: { inputPerMtok: 0.15, outputPerMtok: 0.60 },
+  anthropic: { inputPerMtok: 1.00, outputPerMtok: 5.00 }, // claude-haiku-4-5
+  gemini: { inputPerMtok: 0.30, outputPerMtok: 2.50 }, // gemini-3.5-flash-lite
+  openai: { inputPerMtok: 1.00, outputPerMtok: 6.00 }, // gpt-5.6-luna
 } as const;
 
 export const anthropicAdapter: ProviderAdapter = {
@@ -149,15 +165,16 @@ export const anthropicAdapter: ProviderAdapter = {
     // API-key validation before making any HTTP request — an honest,
     // immediate failure rather than firing a request with a blank
     // Authorization header.
-    if (!ANTHROPIC_API_KEY) {
+    const apiKey = getAnthropicApiKey();
+    if (!apiKey) {
       return { ok: false, httpStatus: 401, rawBody: { error: "ANTHROPIC_API_KEY is not configured" }, latencyMs: 0 };
     }
-    const model = "claude-3-haiku-20240307";
+    const model = "claude-haiku-4-5";
     const maxTokens = request.maxTokens ?? 4096;
     const start = Date.now();
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: { "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
+      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
       body: JSON.stringify({ model, max_tokens: maxTokens, system: request.systemPrompt, messages: [{ role: "user", content: request.userContent }] }),
     });
     const latencyMs = Date.now() - start;
@@ -192,15 +209,16 @@ export const anthropicAdapter: ProviderAdapter = {
 export const openaiAdapter: ProviderAdapter = {
   name: "openai",
   async call(request) {
-    if (!OPENAI_API_KEY) {
+    const apiKey = getOpenAIApiKey();
+    if (!apiKey) {
       return { ok: false, httpStatus: 401, rawBody: { error: "OPENAI_API_KEY is not configured" }, latencyMs: 0 };
     }
-    const model = "gpt-4o-mini";
+    const model = "gpt-5.6-luna";
     const maxTokens = request.maxTokens ?? 8192;
     const start = Date.now();
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "system", content: request.systemPrompt }, { role: "user", content: request.userContent }] }),
     });
     const latencyMs = Date.now() - start;
@@ -230,11 +248,58 @@ export const openaiAdapter: ProviderAdapter = {
   },
 };
 
-/** Providers with a configured API key, in default preference order (Anthropic first). */
+export const geminiAdapter: ProviderAdapter = {
+  name: "gemini",
+  async call(request) {
+    const apiKey = getGeminiApiKey();
+    if (!apiKey) {
+      return { ok: false, httpStatus: 401, rawBody: { error: "GEMINI_API_KEY is not configured" }, latencyMs: 0 };
+    }
+    const model = "gemini-3.5-flash-lite";
+    const maxTokens = request.maxTokens ?? 8192;
+    const start = Date.now();
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: "POST",
+      headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: request.systemPrompt }] },
+        contents: [{ role: "user", parts: [{ text: request.userContent }] }],
+        generationConfig: { maxOutputTokens: maxTokens, temperature: request.temperature },
+      }),
+    });
+    const latencyMs = Date.now() - start;
+    if (!response.ok) {
+      const text = await response.text();
+      let parsedBody: unknown = text;
+      try { parsedBody = JSON.parse(text); } catch { /* keep as raw text */ }
+      return { ok: false, httpStatus: response.status, rawBody: parsedBody, latencyMs };
+    }
+    const data = await response.json();
+    return {
+      ok: true,
+      httpStatus: response.status,
+      content: data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "",
+      rawBody: data,
+      inputTokens: data?.usageMetadata?.promptTokenCount ?? 0,
+      outputTokens: data?.usageMetadata?.candidatesTokenCount ?? 0,
+      latencyMs,
+    };
+  },
+  estimateCost(_request, response) {
+    const pricing = DEFAULT_PRICING.gemini;
+    return ((response?.inputTokens ?? 0) / 1_000_000) * pricing.inputPerMtok + ((response?.outputTokens ?? 0) / 1_000_000) * pricing.outputPerMtok;
+  },
+  health() {
+    return { provider: "gemini", successRate: null, failureCount: 0, fallbackFrequency: null, avgLatencyMs: null, timeoutRate: null, costPerSuccessUsd: null, sampleSize: 0 };
+  },
+};
+
+/** Providers with a configured API key, in default fallback order: Anthropic, then Gemini, then OpenAI. */
 export function getConfiguredDefaultProviders(): ProviderAdapter[] {
   const providers: ProviderAdapter[] = [];
-  if (ANTHROPIC_API_KEY) providers.push(anthropicAdapter);
-  if (OPENAI_API_KEY) providers.push(openaiAdapter);
+  if (getAnthropicApiKey()) providers.push(anthropicAdapter);
+  if (getGeminiApiKey()) providers.push(geminiAdapter);
+  if (getOpenAIApiKey()) providers.push(openaiAdapter);
   return providers;
 }
 
@@ -478,6 +543,20 @@ export function computeProviderHealth(provider: ProviderName, callHistory: CallA
 // Logging
 // ---------------------------------------------------------------------------
 
+/**
+ * Renders every failed attempt into the log, not just the most recent one —
+ * per FKAIOS_PHASE6A_CALLLLM_SPECIFICATION.md Section 4 ("failure_reason —
+ * per failed attempt"). A three-provider failover chain must leave a record
+ * of what each of the three providers actually did, not just what killed the
+ * last one — otherwise a persistently-failing provider earlier in the chain
+ * goes invisible the moment a later provider also fails.
+ */
+function formatFailureReason(attempts: CallAttempt[]): string | null {
+  const failures = attempts.filter((a): a is CallAttempt & { failure: ClassifiedFailure } => a.failure !== undefined);
+  if (failures.length === 0) return null;
+  return failures.map((a) => `${a.provider}: ${a.failure.category}: ${a.failure.detail}`).join(" | ");
+}
+
 export function buildLogEntry(
   request: LLMRequest,
   attempts: CallAttempt[],
@@ -485,7 +564,6 @@ export function buildLogEntry(
   tokenUsage: { input: number; output: number } | null,
 ): LLMCallLogEntry {
   const successfulAttempt = attempts.find((a) => a.outcome === "success");
-  const lastFailure = [...attempts].reverse().find((a) => a.failure)?.failure;
   const totalLatency = attempts.reduce((sum, a) => sum + a.latencyMs, 0);
   const totalCost = attempts.reduce((sum, a) => sum + (a.estimatedCostUsd ?? 0), 0);
 
@@ -494,7 +572,7 @@ export function buildLogEntry(
     agent_name: request.agentName ?? null,
     requested_provider: attempts[0]?.provider ?? ("anthropic" as ProviderName),
     attempted_providers: attempts.map((a) => a.provider),
-    failure_reason: lastFailure ? `${lastFailure.category}: ${lastFailure.detail}` : null,
+    failure_reason: formatFailureReason(attempts),
     successful_provider: successfulAttempt?.provider ?? null,
     latency_ms: totalLatency,
     token_usage: tokenUsage,
@@ -510,12 +588,20 @@ export function buildLogEntry(
 class TimeoutError extends Error {}
 
 async function callWithTimeout(adapter: ProviderAdapter, request: LLMRequest, timeoutMs: number): Promise<RawProviderResponse> {
-  return await Promise.race([
-    adapter.call(request, timeoutMs),
-    new Promise<RawProviderResponse>((_, reject) => {
-      setTimeout(() => reject(new TimeoutError(`Provider ${adapter.name} exceeded ${timeoutMs}ms`)), timeoutMs);
-    }),
-  ]);
+  let timeoutId: ReturnType<typeof setTimeout>;
+  try {
+    return await Promise.race([
+      adapter.call(request, timeoutMs),
+      new Promise<RawProviderResponse>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new TimeoutError(`Provider ${adapter.name} exceeded ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    // Clear the losing timer once the race settles — otherwise a fast
+    // success/failure still leaves a dangling timeout running in the
+    // background for the rest of `timeoutMs`, one per call, forever.
+    clearTimeout(timeoutId!);
+  }
 }
 
 /**
