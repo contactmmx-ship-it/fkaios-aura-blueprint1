@@ -50,6 +50,8 @@ export interface RawProviderResponse {
   inputTokens?: number;
   outputTokens?: number;
   latencyMs: number;
+  /** The exact model identifier this attempt was made with — never inferred by a caller after the fact. */
+  model: string;
 }
 
 export interface ClassifiedFailure {
@@ -73,12 +75,23 @@ export interface ProviderHealthSnapshot {
 
 export interface CallAttempt {
   provider: ProviderName;
+  /** The actual model identifier used for this attempt — resolved once, at call time, never re-derived from `provider` afterward. */
+  model: string;
   outcome: "success" | "failure";
   failure?: ClassifiedFailure;
   latencyMs: number;
   estimatedCostUsd: number | null;
   wasFallback: boolean;
   timedOut: boolean;
+}
+
+/** A caller-facing, structured record of one attempt — the basis for both cost/telemetry tables and provider-health decisions. Never reconstruct this by parsing `failure_reason` strings. */
+export interface AttemptRecord {
+  provider: ProviderName;
+  model: string;
+  outcome: "success" | "failure";
+  wasFallback: boolean;
+  failureCategory: FailureCategory | null;
 }
 
 export interface LLMCallLogEntry {
@@ -88,6 +101,10 @@ export interface LLMCallLogEntry {
   attempted_providers: ProviderName[];
   failure_reason: string | null;
   successful_provider: ProviderName | null;
+  /** The actual model that produced the successful response, or null if every attempt failed. */
+  successful_model: string | null;
+  /** Structured per-attempt outcomes — provider, actual model, and failure category (if any) for every attempt made, in order. */
+  attempts: AttemptRecord[];
   latency_ms: number;
   token_usage: { input: number; output: number } | null;
   estimated_cost_usd: number | null;
@@ -98,6 +115,8 @@ export interface LLMResult {
   status: "success" | "failed_all_providers" | "invalid_response_received";
   content?: string;
   toolCall?: unknown;
+  /** The actual model that produced this result (successful attempt only). Null on failure — see log.attempts for what was actually tried. */
+  model?: string;
   log: LLMCallLogEntry;
 }
 
@@ -111,6 +130,13 @@ export interface ProviderAdapter {
   call(request: LLMRequest, timeoutMs: number): Promise<RawProviderResponse>;
   estimateCost(request: LLMRequest, response?: RawProviderResponse): number;
   health(): ProviderHealthSnapshot;
+  /**
+   * The model identifier this adapter will use right now (env-overridable,
+   * resolved lazily — see getAnthropicModel() etc. below). Exists so a
+   * failed attempt that never got as far as a RawProviderResponse (a thrown
+   * network error, a timeout) can still be attributed to the correct model.
+   */
+  getModel(): string;
 }
 
 export interface CostConfig {
@@ -150,49 +176,100 @@ function getOpenAIApiKey(): string {
   return Deno.env.get("OPENAI_API_KEY") ?? "";
 }
 
-// Pricing reflects each adapter's current model (see the `model` constant in
-// each adapter's call() below) — current as of the last model migration,
-// per-provider published pricing, $/1M tokens.
+// ---------------------------------------------------------------------------
+// Model identity — SINGLE SOURCE OF TRUTH. Every model string this module (or
+// any caller) ever logs, prices, or displays is resolved through these three
+// functions and nothing else. No other file may hardcode a model literal for
+// these providers — see FKAIOS production-fix telemetry incident: ai-engine
+// used to independently guess "claude-3-haiku-20240307" from the provider
+// name alone, which drifted from the model actually being called the moment
+// this constant changed. Env-overridable so a model migration is a config
+// change, not a code change scattered across callers.
+// ---------------------------------------------------------------------------
+function getAnthropicModel(): string {
+  return Deno.env.get("ANTHROPIC_MODEL") || "claude-haiku-4-5-20251001";
+}
+function getGeminiModel(): string {
+  return Deno.env.get("GEMINI_MODEL") || "gemini-3.5-flash-lite";
+}
+function getOpenAIModel(): string {
+  return Deno.env.get("OPENAI_MODEL") || "gpt-5.6-luna";
+}
+
+// Pricing reflects each adapter's current model (see getXModel() above) —
+// current as of the last model migration, per-provider published pricing,
+// $/1M tokens. If ANTHROPIC_MODEL/GEMINI_MODEL/OPENAI_MODEL is overridden to
+// a differently-priced model, this pricing table is stale until updated to
+// match — it is keyed by provider, not by model, in Phase 6A.
 const DEFAULT_PRICING = {
   anthropic: { inputPerMtok: 1.00, outputPerMtok: 5.00 }, // claude-haiku-4-5
   gemini: { inputPerMtok: 0.30, outputPerMtok: 2.50 }, // gemini-3.5-flash-lite
   openai: { inputPerMtok: 1.00, outputPerMtok: 6.00 }, // gpt-5.6-luna
 } as const;
 
+/** Anthropic tool definitions are `{name, description, input_schema}` — narrow enough to detect without importing Anthropic's SDK types. */
+function isAnthropicToolSchema(schema: unknown): schema is { name: string; description?: string; input_schema: unknown } {
+  return !!schema && typeof schema === "object" && typeof (schema as { name?: unknown }).name === "string" && "input_schema" in (schema as Record<string, unknown>);
+}
+
 export const anthropicAdapter: ProviderAdapter = {
   name: "anthropic",
+  getModel: getAnthropicModel,
   async call(request) {
     // API-key validation before making any HTTP request — an honest,
     // immediate failure rather than firing a request with a blank
     // Authorization header.
     const apiKey = getAnthropicApiKey();
+    const model = getAnthropicModel();
     if (!apiKey) {
-      return { ok: false, httpStatus: 401, rawBody: { error: "ANTHROPIC_API_KEY is not configured" }, latencyMs: 0 };
+      return { ok: false, httpStatus: 401, rawBody: { error: "ANTHROPIC_API_KEY is not configured" }, latencyMs: 0, model };
     }
-    const model = "claude-haiku-4-5-20251001";
     const maxTokens = request.maxTokens ?? 4096;
+    // Structured output: when the caller supplies an Anthropic tool schema,
+    // force the model to answer through that tool instead of free-form text.
+    // This is strictly additive — callers that never set toolSchema get the
+    // exact same request body as before.
+    const useTool = isAnthropicToolSchema(request.toolSchema);
+    const body: Record<string, unknown> = {
+      model,
+      max_tokens: maxTokens,
+      system: request.systemPrompt,
+      messages: [{ role: "user", content: request.userContent }],
+    };
+    if (request.temperature !== undefined) body.temperature = request.temperature;
+    if (useTool) {
+      body.tools = [request.toolSchema];
+      body.tool_choice = { type: "tool", name: (request.toolSchema as { name: string }).name };
+    }
     const start = Date.now();
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
-      body: JSON.stringify({ model, max_tokens: maxTokens, system: request.systemPrompt, messages: [{ role: "user", content: request.userContent }] }),
+      body: JSON.stringify(body),
     });
     const latencyMs = Date.now() - start;
     if (!response.ok) {
       const text = await response.text();
       let parsedBody: unknown = text;
       try { parsedBody = JSON.parse(text); } catch { /* keep as raw text */ }
-      return { ok: false, httpStatus: response.status, rawBody: parsedBody, latencyMs };
+      return { ok: false, httpStatus: response.status, rawBody: parsedBody, latencyMs, model };
     }
     const data = await response.json();
+    const blocks: unknown[] = Array.isArray(data?.content) ? data.content : [];
+    const toolUseBlock = useTool
+      ? (blocks.find((b): b is { type: string; input: unknown } => !!b && typeof b === "object" && (b as { type?: unknown }).type === "tool_use") as { input?: unknown } | undefined)
+      : undefined;
+    const textBlock = blocks.find((b): b is { type: string; text: string } => !!b && typeof b === "object" && (b as { type?: unknown }).type === "text") as { text?: string } | undefined;
     return {
       ok: true,
       httpStatus: response.status,
-      content: data?.content?.[0]?.text ?? "",
+      content: textBlock?.text ?? "",
+      toolCall: toolUseBlock?.input,
       rawBody: data,
       inputTokens: data?.usage?.input_tokens ?? 0,
       outputTokens: data?.usage?.output_tokens ?? 0,
       latencyMs,
+      model,
     };
   },
   estimateCost(_request, response) {
@@ -208,12 +285,13 @@ export const anthropicAdapter: ProviderAdapter = {
 
 export const openaiAdapter: ProviderAdapter = {
   name: "openai",
+  getModel: getOpenAIModel,
   async call(request) {
     const apiKey = getOpenAIApiKey();
+    const model = getOpenAIModel();
     if (!apiKey) {
-      return { ok: false, httpStatus: 401, rawBody: { error: "OPENAI_API_KEY is not configured" }, latencyMs: 0 };
+      return { ok: false, httpStatus: 401, rawBody: { error: "OPENAI_API_KEY is not configured" }, latencyMs: 0, model };
     }
-    const model = "gpt-5.6-luna";
     const maxTokens = request.maxTokens ?? 8192;
     const start = Date.now();
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -226,7 +304,7 @@ export const openaiAdapter: ProviderAdapter = {
       const text = await response.text();
       let parsedBody: unknown = text;
       try { parsedBody = JSON.parse(text); } catch { /* keep as raw text */ }
-      return { ok: false, httpStatus: response.status, rawBody: parsedBody, latencyMs };
+      return { ok: false, httpStatus: response.status, rawBody: parsedBody, latencyMs, model };
     }
     const data = await response.json();
     return {
@@ -237,6 +315,7 @@ export const openaiAdapter: ProviderAdapter = {
       inputTokens: data?.usage?.prompt_tokens ?? 0,
       outputTokens: data?.usage?.completion_tokens ?? 0,
       latencyMs,
+      model,
     };
   },
   estimateCost(_request, response) {
@@ -250,12 +329,13 @@ export const openaiAdapter: ProviderAdapter = {
 
 export const geminiAdapter: ProviderAdapter = {
   name: "gemini",
+  getModel: getGeminiModel,
   async call(request) {
     const apiKey = getGeminiApiKey();
+    const model = getGeminiModel();
     if (!apiKey) {
-      return { ok: false, httpStatus: 401, rawBody: { error: "GEMINI_API_KEY is not configured" }, latencyMs: 0 };
+      return { ok: false, httpStatus: 401, rawBody: { error: "GEMINI_API_KEY is not configured" }, latencyMs: 0, model };
     }
-    const model = "gemini-3.5-flash-lite";
     const maxTokens = request.maxTokens ?? 8192;
     const start = Date.now();
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
@@ -272,7 +352,7 @@ export const geminiAdapter: ProviderAdapter = {
       const text = await response.text();
       let parsedBody: unknown = text;
       try { parsedBody = JSON.parse(text); } catch { /* keep as raw text */ }
-      return { ok: false, httpStatus: response.status, rawBody: parsedBody, latencyMs };
+      return { ok: false, httpStatus: response.status, rawBody: parsedBody, latencyMs, model };
     }
     const data = await response.json();
     return {
@@ -283,6 +363,7 @@ export const geminiAdapter: ProviderAdapter = {
       inputTokens: data?.usageMetadata?.promptTokenCount ?? 0,
       outputTokens: data?.usageMetadata?.candidatesTokenCount ?? 0,
       latencyMs,
+      model,
     };
   },
   estimateCost(_request, response) {
@@ -294,12 +375,25 @@ export const geminiAdapter: ProviderAdapter = {
   },
 };
 
-/** Providers with a configured API key, in default fallback order: Anthropic, then Gemini, then OpenAI. */
+/**
+ * Explicit operator kill switch, independent of whether an API key happens
+ * to be configured. Defaults to enabled — this only ever REMOVES a provider
+ * that would otherwise be a candidate (e.g. PROVIDER_OPENAI_ENABLED=false
+ * while OPENAI_API_KEY is still set, because OpenAI has no credits in this
+ * deployment and every call to it is a guaranteed, wasted failure). Provider
+ * enablement is therefore configuration, never a hardcoded list in code.
+ */
+function isProviderEnabled(envVar: string): boolean {
+  const value = Deno.env.get(envVar);
+  return value !== "false" && value !== "0";
+}
+
+/** Providers with a configured API key AND not explicitly disabled, in default fallback order: Anthropic, then Gemini, then OpenAI. */
 export function getConfiguredDefaultProviders(): ProviderAdapter[] {
   const providers: ProviderAdapter[] = [];
-  if (getAnthropicApiKey()) providers.push(anthropicAdapter);
-  if (getGeminiApiKey()) providers.push(geminiAdapter);
-  if (getOpenAIApiKey()) providers.push(openaiAdapter);
+  if (getAnthropicApiKey() && isProviderEnabled("PROVIDER_ANTHROPIC_ENABLED")) providers.push(anthropicAdapter);
+  if (getGeminiApiKey() && isProviderEnabled("PROVIDER_GEMINI_ENABLED")) providers.push(geminiAdapter);
+  if (getOpenAIApiKey() && isProviderEnabled("PROVIDER_OPENAI_ENABLED")) providers.push(openaiAdapter);
   return providers;
 }
 
@@ -574,6 +668,14 @@ export function buildLogEntry(
     attempted_providers: attempts.map((a) => a.provider),
     failure_reason: formatFailureReason(attempts),
     successful_provider: successfulAttempt?.provider ?? null,
+    successful_model: successfulAttempt?.model ?? null,
+    attempts: attempts.map((a) => ({
+      provider: a.provider,
+      model: a.model,
+      outcome: a.outcome,
+      wasFallback: a.wasFallback,
+      failureCategory: a.failure?.category ?? null,
+    })),
     latency_ms: totalLatency,
     token_usage: tokenUsage,
     estimated_cost_usd: attempts.length > 0 ? totalCost : null,
@@ -644,16 +746,22 @@ export async function callLLM(request: LLMRequest, config: RouterConfig): Promis
 
     const latencyMs = Date.now() - start;
     const timedOut = thrown instanceof TimeoutError;
+    // The model actually targeted by this attempt — from the response when
+    // one exists (every adapter branch sets it, success or failure), or from
+    // the adapter's own resolver when the attempt never got a response at
+    // all (a thrown network error or a timeout raced ahead of it).
+    const attemptedModel = response?.model ?? adapter.getModel();
 
     if (response && response.ok && !isEmptyOrInvalidContent(response)) {
       // Real success — a genuine, usable response was received.
       tokenUsage = { input: response.inputTokens ?? 0, output: response.outputTokens ?? 0 };
       const cost = adapter.estimateCost(request, response);
-      attempts.push({ provider: providerName, outcome: "success", latencyMs, estimatedCostUsd: cost, wasFallback, timedOut: false });
+      attempts.push({ provider: providerName, model: attemptedModel, outcome: "success", latencyMs, estimatedCostUsd: cost, wasFallback, timedOut: false });
       return {
         status: "success",
         content: response.content,
         toolCall: response.toolCall,
+        model: attemptedModel,
         log: buildLogEntry(request, attempts, "success", tokenUsage),
       };
     }
@@ -665,6 +773,7 @@ export async function callLLM(request: LLMRequest, config: RouterConfig): Promis
 
     attempts.push({
       provider: providerName,
+      model: attemptedModel,
       outcome: "failure",
       failure,
       latencyMs,
