@@ -24,4 +24,4 @@
 -- Honest emptiness, not manufactured work. This is the discipline ai-engine lacked
 -- when it fabricated 5,970 completions.
 --
--- ROTATION NOTE: 15 crons now embed secret=kjhgfdsa.
+-- ROTATION NOTE: 15 crons now embed secret=<HEARTBEAT_SECRET>.

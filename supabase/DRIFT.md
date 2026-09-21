@@ -20,7 +20,7 @@
 | `avatar-debug-llm` | DEBUG | 🔒 **NEUTERED** → 410 Gone, verify_jwt TRUE |
 
 ## Security actions taken 2026-07-12 (verified in production via pg_net)
-1. **`market-intelligence` v2** — removed the hardcoded `?? "kjhgfdsa"` fallback
+1. **`market-intelligence` v2** — removed the hardcoded `?? "<HEARTBEAT_SECRET>"` fallback
    (the last remaining hardcoded secret in any live function source). Auth now
    reads `MARKET_INTEL_SECRET` → `HEARTBEAT_SECRET` → **fail closed (503)**.
    Verified: wrong secret → HTTP 401 (req 23645).
@@ -36,8 +36,8 @@
    authenticated callers. Verified: anonymous → HTTP 401 (req 23655).
 
 ## 🔒 Remaining FOUNDER dashboard actions (Claude has no tool for these)
-1. **Rotate the fleet secret** — still `kjhgfdsa`. Set `HEARTBEAT_SECRET` to a
-   strong value + update the 13 cron commands embedding `secret=kjhgfdsa`
+1. **Rotate the fleet secret** — still `<HEARTBEAT_SECRET>`. Set `HEARTBEAT_SECRET` to a
+   strong value + update the 13 cron commands embedding `secret=<HEARTBEAT_SECRET>`
    (jobs 13, 15, 16, 17, 18, 19, 20, 21, 22, 25, 26, 29, 31 — note: MORE than
    the 6 previously listed; job list verified live 2026-07-12).
    `market-intelligence` v2 picks up the rotation automatically.

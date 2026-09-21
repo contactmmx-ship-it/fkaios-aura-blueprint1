@@ -16,4 +16,4 @@
 --    opportunity-engine had NO CRON — the CEO would have thought ONCE and stopped.
 --    ~$0.05/cycle, fully attributed in the LLM execution graph.
 --
--- ROTATION NOTE: this is now the 14th cron embedding secret=kjhgfdsa.
+-- ROTATION NOTE: this is now the 14th cron embedding secret=<HEARTBEAT_SECRET>.
