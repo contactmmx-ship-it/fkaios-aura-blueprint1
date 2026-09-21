@@ -1049,11 +1049,41 @@ async function chatWithAgent(agentId: string, message: string, cid: string) {
 
 const MAX_RETRY_ATTEMPTS = 3;
 
+// STARVATION FIX (2026-09-21): a strict `ORDER BY created_at ASC` fetch lets
+// an old backlog of never-succeeding jobs (retry_count > 0, resurrected by
+// job-scheduler's claimEligibleRetryJobs after months dormant) permanently
+// outrank brand-new work, since resurrected retries keep their original,
+// older created_at forever. Observed live: 1,690 retry-status jobs dating to
+// July/August starved two same-day autonomy-test jobs across 5+ consecutive
+// 10-minute cron ticks. Fix: reserve part of each batch for jobs that have
+// never failed yet (retry_count = 0), so new work always gets a turn
+// regardless of how large the historical backlog is. This does not change
+// retry/exhaustion semantics (MAX_RETRY_ATTEMPTS below is untouched) — it
+// only changes fetch fairness.
+const FRESH_JOB_RESERVED_SLOTS = 5;
+const BACKLOG_JOB_SLOTS = 5;
+
+async function fetchJobBatch(cid: string): Promise<AIJob[]> {
+  const { data: freshJobs, error: freshError } = await supabase
+    .from("ai_jobs").select("*").eq("status", "pending").eq("retry_count", 0)
+    .order("created_at", { ascending: true }).limit(FRESH_JOB_RESERVED_SLOTS);
+  if (freshError) throw new Error(`Failed to fetch fresh jobs: ${freshError.message}`);
+  const { data: backlogJobs, error: backlogError } = await supabase
+    .from("ai_jobs").select("*").eq("status", "pending").gt("retry_count", 0)
+    .order("created_at", { ascending: true }).limit(BACKLOG_JOB_SLOTS);
+  if (backlogError) throw new Error(`Failed to fetch backlog jobs: ${backlogError.message}`);
+  const seen = new Set<string>();
+  const combined: AIJob[] = [];
+  for (const job of [...(freshJobs ?? []), ...(backlogJobs ?? [])]) {
+    if (!seen.has(job.id)) { seen.add(job.id); combined.push(job); }
+  }
+  structuredLog("INFO", "Fetched job batch", { fresh: freshJobs?.length ?? 0, backlog: backlogJobs?.length ?? 0 }, cid);
+  return combined;
+}
+
 async function runJobs(cid: string) {
   structuredLog("INFO", "Running pending jobs", {}, cid);
-  const { data: pendingJobs, error: fetchError } = await supabase.from("ai_jobs").select("*").eq("status", "pending").order("created_at", { ascending: true }).limit(10);
-  if (fetchError) { structuredLog("ERROR", "Failed to fetch jobs", { error: fetchError.message }, cid); throw new Error(`Failed to fetch jobs: ${fetchError.message}`); }
-  const jobs: AIJob[] = pendingJobs ?? [];
+  const jobs: AIJob[] = await fetchJobBatch(cid);
   const results: Array<{ job_id: string; status: string; result?: Record<string, unknown>; error?: string }> = [];
   for (const job of jobs) {
     // PHASE 0.1: these types cannot complete honestly via this generic runner
