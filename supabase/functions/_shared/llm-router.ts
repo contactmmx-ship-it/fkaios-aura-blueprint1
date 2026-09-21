@@ -169,7 +169,7 @@ export const anthropicAdapter: ProviderAdapter = {
     if (!apiKey) {
       return { ok: false, httpStatus: 401, rawBody: { error: "ANTHROPIC_API_KEY is not configured" }, latencyMs: 0 };
     }
-    const model = "claude-haiku-4-5";
+    const model = "claude-haiku-4-5-20251001";
     const maxTokens = request.maxTokens ?? 4096;
     const start = Date.now();
     const response = await fetch("https://api.anthropic.com/v1/messages", {
