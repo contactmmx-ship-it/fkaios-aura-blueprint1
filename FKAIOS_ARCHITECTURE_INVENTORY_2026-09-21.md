@@ -167,3 +167,46 @@ or merging any of `orchestrator-engine` / `orchestrator-brain` /
 `governance-engine` / `executive-intelligence` / `workday-engine` —
 requires a human decision about acceptable business risk, since all five
 run against live, revenue-relevant cron schedules today.
+
+## 7. Correction (2026-09-21, later same day) — Section 3 was wrong about two functions
+
+Section 3 above ("factory-intake / factory-planner NEITHER EXISTS as an
+edge function", "executive-brain — Does NOT exist as an edge function")
+was based on a repo-only search and is **incorrect**. Confirmed live via
+`list_edge_functions`/`get_edge_function` against the Supabase project
+directly:
+
+- **`factory-intake`** (slug `factory-intake`, ACTIVE, v10) is real and
+  deployed — a Founder-sentence-to-build-plan intake with a genuine
+  reuse-vs-rebuild "hallucination guard" (normalizes and checks claimed
+  reused components against a real `component_library` table, reclassifies
+  unmatched claims as new rather than trusting the LLM), stamps every
+  project `PLAN ONLY`, and never sets a price (files an `approvals` row
+  instead). No matching cron job — invoked on demand (presumably from a
+  Founder-facing UI action), not scheduled.
+- **`executive-brain`** (slug `executive-brain`, ACTIVE, v9) is real,
+  deployed, **and runs daily in production** — confirmed by
+  `cron.job.command` for `executive-brain-daily` (jobid 38, schedule
+  `30 4 * * *`, active) targeting this exact function's URL. It is a
+  genuinely designed adversarial multi-executive reasoner: six LLM
+  personas (CFO/CRO/CTO/COO/CMO/CPO) each argue ONLY from a narrow mandate
+  against shared telemetry, are explicitly forbidden from producing
+  consensus, and must name which other executive they conflict with —
+  writing to `executive_recommendations` (previous batch marked
+  `superseded` each run) rather than averaging into a single verdict.
+- **`factory-planner`** (slug `factory-planner`, ACTIVE, v9) was not read
+  in this correction pass; its existence as a deployed function is
+  confirmed, its behavior is not yet verified.
+
+None of these three are present anywhere in this git repository — this is
+the same repo/deploy drift pattern documented throughout this inventory,
+just larger than Section 3 originally reported. The root cause of the
+original error: the subagent that produced Section 3 searched local
+repository files only and never cross-checked the live deployment list.
+This correction was found by that same cross-check, done here because a
+separate investigation (see
+`FKAIOS_KERNEL_CONSOLIDATION_PHASE1_DEPENDENCY_GRAPH.md`, Section 8) needed
+to invoke `founder-brain-tick` and used `list_edge_functions` to diagnose
+why it 404'd — surfacing this in passing. **Any future inventory work
+should verify function existence against `list_edge_functions` directly,
+never against repo file presence alone.**

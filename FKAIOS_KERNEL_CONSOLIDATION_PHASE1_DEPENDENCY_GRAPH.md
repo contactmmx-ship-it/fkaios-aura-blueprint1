@@ -172,6 +172,67 @@ jobid 35 (`cron.alter_job(job_id:=35, active:=false)`) — reversible, and
 `proposal-engine`'s own hourly coverage is unchanged since jobid 36 remains
 active on the same schedule.
 
+## 8. Genuine external blocker: `founder-brain-tick` was never deployed at all
+
+Attempting the real end-to-end canonical-queue test (a single, monitored,
+non-recurring invocation — explicitly NOT enabling the dormant cron, per
+the function's own "founder-approval-gated" comment) surfaced a bigger gap
+than "unscheduled": `founder-brain-tick` **does not exist in the live
+Supabase project at all**. Invoking it returned HTTP 404 from `net._http_response`,
+and it is absent from the full `list_edge_functions` output (90 other
+functions listed, this one is not among them — confirmed, not a paging
+artifact). It exists only as source in this repo; it has never been
+deployed.
+
+**What deploying it would require**: `founder-brain-tick/index.ts` imports
+`_shared/founder-brain.ts` (1,562 lines — the cognitive kernel itself),
+which is imported by `_shared/executive-planner.ts` (1,190 lines) and
+`_shared/work-engine.ts` (287 lines), both of which also import
+`_shared/company-os.ts` (218 lines, the real capability-dispatch layer
+with WhatsApp/LinkedIn/etc. actions behind a `verified: true/false`
+allowlist). All four `_shared` files import only `npm:@supabase/supabase-js`
+beyond each other — no dependency on `_shared/llm-router.ts` (consistent
+with Section on router usage in the companion inventory: founder-brain.ts
+has its own separate, hardcoded 3-provider fallback chain). This is a
+knowable, bounded deploy — the blocker is not technical.
+
+**Why this is a genuine stop, not a technical gap I should quietly work
+around**: a first-ever deploy-and-invoke of this chain is not a small
+fix. `cognitiveTick()` makes 10+ real, currently-uncapped LLM calls per
+invocation (no cost limit found anywhere in `founder-brain.ts`); a
+successful tick creates a real `orchestrator_requests` objective, can
+create real `orchestration_projects`/`orchestration_tasks`, allocates a
+real `ai_jobs` row via `work-engine.ts`, and (on a *future* invocation,
+once completed `work_engine_task` jobs exist for `returnCompletedWork()`
+to find) can dispatch a real business action through `company-os.ts`
+(WhatsApp, LinkedIn, etc.). `founder-brain-tick/index.ts`'s own header
+comment states this outright: *"enabling a new recurring LLM-calling cron
+job is a founder-approval-gated action, not something to silently
+activate."* That sentence describes exactly the action a "real end-to-end
+autonomous job through the canonical queue" would require here — not
+scheduling, but the very first live activation of an entirely dormant
+cognitive engine, for real, on production data. This is the "required
+Founder decision" carve-out in this session's own operating rules, not a
+place to substitute my own judgment for the codebase's explicit gate.
+
+**What I did instead, so this isn't a dead end**: confirmed the exact,
+bounded set of files a deploy would need (above), confirmed the specific
+risk profile (uncapped spend, real writes, a currently-empty
+`work_engine_task` backlog meaning the *first* invocation specifically
+carries no risk of an unexpected `company-os` dispatch, since
+`returnCompletedWork()` would have nothing completed to act on yet), and
+left the function undeployed. **What's needed to unblock this**: explicit
+authorization (from the Founder, or whoever owns that decision for this
+project) to either (a) deploy + invoke once, manually, with results
+reported before anything is scheduled, or (b) go straight to enabling the
+existing-but-unapplied cron migration. Until then, task #16 (a real,
+live, end-to-end objective→project→task→job→execution→verification→
+completion run) cannot be honestly claimed as done — Path B (the `leads`
+triggers) already provides that evidence for the *simple-task* case (see
+the GENERATE_PROPOSAL/SCHEDULE_MEETING live verification in this
+session's commits `75f4492`/`2091df3`), but not for a founder-level,
+multi-step *objective*.
+
 ## What Phase 1 concludes
 
 The target canonical lifecycle already exists in code as Path A and is
