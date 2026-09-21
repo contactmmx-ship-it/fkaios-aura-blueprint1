@@ -16,3 +16,5 @@ bun.lock
 .env
 
 supabase/.temp/
+
+supabase/.temp/
