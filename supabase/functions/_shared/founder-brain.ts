@@ -1350,7 +1350,17 @@ export interface TickResult {
   learnedFromPast: number;
   predicted: string;
   goalEvaluation: string;
-  decision: "act" | "wait";
+  // DECISION WITHHELD SAFETY (Master Engineering Mandate, Section 11): "wait"
+  // means the Brain judged there is nothing worth doing — a confident
+  // conclusion. "withheld" means the Brain could not responsibly reach
+  // act/wait at all — missing/insufficient context, or the reasoning call
+  // itself failed. These were previously collapsed into a single silent
+  // "wait", which is a fabricated-confidence bug: a cycle that couldn't
+  // actually evaluate anything looked identical, from the outside, to one
+  // that deliberately concluded there was nothing to do. See
+  // decisionWithheldReason for why, whenever decision === "withheld".
+  decision: "act" | "wait" | "withheld";
+  decisionWithheldReason: string | null;
   strategySelected: Strategy | null;
   strategiesRejected: number;
   assessedRisk: RiskLevel | null;
@@ -1431,18 +1441,34 @@ export async function cognitiveTick(userId: string): Promise<TickResult> {
   }
 
   // 6. DECIDE — now informed by thought + prediction + goal evaluation.
-  let decision: "act" | "wait" = "wait";
+  // DECISION WITHHELD SAFETY: "withheld" is a real third answer, not a
+  // fallback label applied after the fact — the model is explicitly told to
+  // use it when the evidence doesn't support a confident act/wait call, so
+  // the Brain admits uncertainty instead of guessing. An empty `thought`
+  // (nothing was observed this cycle) and a failed reasoning call are both
+  // "withheld" with a distinct, honest reason — never silently "wait",
+  // which would misrepresent "couldn't evaluate" as "evaluated, nothing to
+  // do".
+  let decision: "act" | "wait" | "withheld" = "withheld";
+  let decisionWithheldReason: string | null = thought ? null : "no observation this cycle to reason from";
   if (thought) {
     try {
       const d = await reason(
-        "You decide, in ONE word, whether to ACT or WAIT. Answer ONLY 'act' or 'wait'. Act only if there's a concrete gap worth a real task AND it's relevant to the goal hierarchy below.",
+        "You decide, in ONE word, whether to ACT, WAIT, or WITHHOLD. Answer ONLY 'act', 'wait', or 'withhold'. Act only if there's a concrete gap worth a real task AND it's relevant to the goal hierarchy below. Wait only if you are confident there is genuinely nothing worth doing right now. Withhold if the observation, prediction, or goal relevance below is too thin, ambiguous, or contradictory to responsibly choose act or wait — never guess to avoid answering withhold.",
         `OBSERVATION:\n${thought}\n\nPREDICTED OUTCOME IF ACTED ON:\n${predicted}\n\nGOAL RELEVANCE:\n${goalEvaluation}`,
         10,
         correlationId,
       );
-      decision = d.text.trim().toLowerCase().startsWith("act") ? "act" : "wait";
+      const word = d.text.trim().toLowerCase();
+      if (word.startsWith("act")) { decision = "act"; decisionWithheldReason = null; }
+      else if (word.startsWith("wait")) { decision = "wait"; decisionWithheldReason = null; }
+      else if (word.startsWith("withhold")) { decision = "withheld"; decisionWithheldReason = "Brain judged the evidence insufficient to responsibly choose act or wait"; }
+      else { decision = "withheld"; decisionWithheldReason = `unparseable decide response: "${d.text.slice(0, 200)}"`; }
     } catch (err) {
-      log("ERROR", "cycle: decide failed", { error: err instanceof Error ? err.message : String(err) }, correlationId);
+      const msg = err instanceof Error ? err.message : String(err);
+      log("ERROR", "cycle: decide failed", { error: msg }, correlationId);
+      decision = "withheld";
+      decisionWithheldReason = `decide reasoning call failed: ${msg}`;
     }
   }
 
@@ -1551,12 +1577,12 @@ export async function cognitiveTick(userId: string): Promise<TickResult> {
   try {
     await founderMemory.episodic.append({
       function_name: "founder-brain-tick", action: "cognitive_cycle", status: "success",
-      output_summary: `observed=${observed} decision=${decision} dept=${assignedDepartment} assigned=${!!assigned} reviewed=${reviewedCount} improved=${!!improved}`.slice(0, 300),
+      output_summary: `observed=${observed} decision=${decision}${decision === "withheld" ? ` (${decisionWithheldReason})` : ""} dept=${assignedDepartment} assigned=${!!assigned} reviewed=${reviewedCount} improved=${!!improved}`.slice(0, 300),
     });
   } catch { /* non-blocking */ }
 
   return {
-    observed, thought, imagined, learnedFromPast: pastOutcomes.length, predicted, goalEvaluation, decision,
+    observed, thought, imagined, learnedFromPast: pastOutcomes.length, predicted, goalEvaluation, decision, decisionWithheldReason,
     strategySelected, strategiesRejected, assessedRisk: decision === "act" && strategySelected ? assessedRisk : null, assignedDepartment, assigned, reviewed: reviewedCount, improved, correlationId,
   };
 }
