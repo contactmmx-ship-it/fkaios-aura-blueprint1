@@ -43,6 +43,7 @@
 // ============================================================================
 
 import { createClient, SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
+import { callLLM as routedCallLLM, buildDefaultRouterConfig, type ProviderName } from "./llm-router.ts";
 
 // ──────────────────────────────────────────────
 // Client
@@ -91,97 +92,63 @@ export interface FounderContext {
 
 // ──────────────────────────────────────────────
 // reason() — the ONE LLM call path.
-// Anthropic (claude-sonnet-4-6) -> Gemini (2.5-flash) -> OpenAI (gpt-4o-mini)
+//
+// CONSOLIDATION (Master Engineering Mandate Section 9, "one reasoning
+// path... provider routing underneath"): this used to be its own hardcoded
+// 3-provider fallback chain (Anthropic -> Gemini -> OpenAI), duplicating
+// _shared/llm-router.ts's failure classification, retry/timeout policy, and
+// structured attempt logging in a second, unmaintained implementation.
+// Provider routing/fallback now lives ONLY in llm-router.ts; this function
+// is the Brain's thin, stable calling convention on top of it —
+// functionClass: "founder_intelligence" gets the quality-tier model per
+// provider (see llm-router.ts's *_CLASS_DEFAULTS constants) with zero
+// configuration required, matching this function's own historical
+// hardcoded models (claude-sonnet-4-6 / gemini-2.5-flash / gpt-4o-mini)
+// exactly — a consolidation, not a silent downgrade.
+//
+// The only supported providers in FounderBrain's own LLMResult.provider
+// type are anthropic/gemini/openai (unchanged); llm-router.ts's default
+// config never configures deepseek/glm adapters, so successful_provider is
+// guaranteed to be one of the three in practice — mapped defensively below
+// rather than assumed.
 // ──────────────────────────────────────────────
+function toFounderBrainProvider(name: ProviderName): "anthropic" | "gemini" | "openai" {
+  return name === "gemini" || name === "openai" ? name : "anthropic";
+}
+
 async function reasonCore(
   systemPrompt: string,
   userContent: string,
   maxTokens = 1500,
   correlationId: string = cid(),
 ): Promise<LLMResult> {
-  const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-  const geminiKey = Deno.env.get("GEMINI_API_KEY") ?? "";
-  const openaiKey = Deno.env.get("OPENAI_API_KEY") ?? "";
+  const result = await routedCallLLM(
+    {
+      systemPrompt,
+      userContent,
+      maxTokens,
+      functionName: "founder-brain",
+      functionClass: "founder_intelligence",
+    },
+    buildDefaultRouterConfig(),
+  );
 
-  if (anthropicKey) {
-    try {
-      const model = "claude-sonnet-4-6";
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "x-api-key": anthropicKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-        body: JSON.stringify({ model, max_tokens: maxTokens, system: systemPrompt, messages: [{ role: "user", content: userContent }] }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return {
-          text: data?.content?.[0]?.text ?? "",
-          inputTokens: data?.usage?.input_tokens ?? 0,
-          outputTokens: data?.usage?.output_tokens ?? 0,
-          model,
-          provider: "anthropic",
-        };
-      }
-      log("ERROR", "Anthropic call failed, trying Gemini", { status: res.status }, correlationId);
-    } catch (err) {
-      log("ERROR", "Anthropic fetch threw, trying Gemini", { error: err instanceof Error ? err.message : String(err) }, correlationId);
-    }
+  if (result.status !== "success") {
+    log("ERROR", "reasonCore: all configured LLM providers failed", { status: result.status, failureReason: result.log.failure_reason }, correlationId);
+    throw new Error(`Founder Brain: no LLM provider succeeded (${result.log.failure_reason ?? "unknown reason"}). Verify ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY secrets.`);
   }
 
-  if (geminiKey) {
-    try {
-      const contents = [{ role: "user", parts: [{ text: userContent }] }];
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
-        {
-          method: "POST",
-          headers: { "x-goog-api-key": geminiKey, "content-type": "application/json" },
-          body: JSON.stringify({
-            ...(systemPrompt ? { systemInstruction: { parts: [{ text: systemPrompt }] } } : {}),
-            contents,
-            generationConfig: { maxOutputTokens: maxTokens + 256 },
-          }),
-        },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const text = (data.candidates?.[0]?.content?.parts ?? []).map((p: { text?: string }) => p.text ?? "").join("");
-        return { text, inputTokens: 0, outputTokens: 0, model: "gemini-2.5-flash", provider: "gemini" };
-      }
-      log("ERROR", "Gemini call failed, trying OpenAI", { status: res.status }, correlationId);
-    } catch (err) {
-      log("ERROR", "Gemini fetch threw, trying OpenAI", { error: err instanceof Error ? err.message : String(err) }, correlationId);
-    }
+  if (result.log.attempted_providers.length > 1) {
+    log("INFO", "reasonCore: provider fallback succeeded", { attempted: result.log.attempted_providers, successful: result.log.successful_provider, model: result.model }, correlationId);
   }
 
-  if (openaiKey) {
-    try {
-      const model = "gpt-4o-mini";
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${openaiKey}`, "content-type": "application/json" },
-        body: JSON.stringify({
-          model,
-          max_tokens: maxTokens,
-          messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userContent }],
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return {
-          text: data?.choices?.[0]?.message?.content ?? "",
-          inputTokens: data?.usage?.prompt_tokens ?? 0,
-          outputTokens: data?.usage?.completion_tokens ?? 0,
-          model,
-          provider: "openai",
-        };
-      }
-      log("ERROR", "OpenAI call failed — all providers exhausted", { status: res.status }, correlationId);
-    } catch (err) {
-      log("ERROR", "OpenAI fetch threw — all providers exhausted", { error: err instanceof Error ? err.message : String(err) }, correlationId);
-    }
-  }
-
-  throw new Error("Founder Brain: no LLM provider succeeded (checked Anthropic, Gemini, OpenAI). Verify ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY secrets.");
+  return {
+    text: result.content ?? "",
+    inputTokens: result.log.token_usage?.input ?? 0,
+    outputTokens: result.log.token_usage?.output ?? 0,
+    model: result.model ?? result.log.successful_model ?? "unknown",
+    provider: toFounderBrainProvider((result.log.successful_provider ?? "anthropic") as ProviderName),
+  };
 }
 
 // ──────────────────────────────────────────────

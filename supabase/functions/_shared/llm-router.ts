@@ -189,7 +189,7 @@ function getOpenAIApiKey(): string {
 // this constant changed. Env-overridable so a model migration is a config
 // change, not a code change scattered across callers.
 //
-// PER-CLASS OVERRIDE (Master Engineering Mandate Section 9, "one reasoning
+// PER-CLASS MODEL (Master Engineering Mandate Section 9, "one reasoning
 // path... provider routing underneath"): `founder_intelligence` has always
 // been documented here as the quality-priority class (CLASS_PRIORITY below
 // weights it quality:1.0), but until now that priority only affected WHICH
@@ -198,28 +198,58 @@ function getOpenAIApiKey(): string {
 // Routing founder-brain.ts's reason() through this router (a real
 // consolidation the codebase's own reasoning-duplication problem calls for)
 // would have been a silent quality regression without this: `reason()`
-// currently hardcodes claude-sonnet-4-6, while this router's own
-// ANTHROPIC_MODEL default is the smaller/cheaper claude-haiku-4-5.
-// An optional per-class env var (`ANTHROPIC_MODEL_FOUNDER_INTELLIGENCE`,
-// etc.) now takes priority over the global override, which still takes
-// priority over the hardcoded default — additive only: unset for every
-// existing class, this resolves identically to before.
+// currently hardcodes claude-sonnet-4-6/gemini-2.5-flash/gpt-4o-mini, while
+// this router's own defaults are the smaller/cheaper claude-haiku-4-5/
+// gemini-3.5-flash-lite/gpt-5.6-luna.
+//
+// Resolution order, most to least specific — an operator's explicit env
+// var always wins over any hardcoded default, class-specific or not, so a
+// deliberate provider-wide override (e.g. during an incident) still applies
+// everywhere:
+//   1. Per-class env var       (e.g. ANTHROPIC_MODEL_FOUNDER_INTELLIGENCE)
+//   2. Global env var          (e.g. ANTHROPIC_MODEL)
+//   3. Per-class hardcoded default (CLASS_MODEL_DEFAULTS below)
+//   4. Global hardcoded default
+// Deliberately NOT env-var-dependent for correctness: this module has no
+// access to Supabase project secrets, so making founder_intelligence's
+// quality depend on an operator remembering to set an env var would be the
+// exact "looks connected, isn't" gap this mandate exists to close. With no
+// env var set anywhere (today's actual state), every existing class other
+// than founder_intelligence resolves identically to before this change.
 // ---------------------------------------------------------------------------
-function resolveModel(globalEnvVar: string, hardcodedDefault: string, functionClass?: FunctionClass): string {
+const ANTHROPIC_CLASS_DEFAULTS: Partial<Record<FunctionClass, string>> = {
+  founder_intelligence: "claude-sonnet-4-6", // matches founder-brain.ts reasonCore()'s own historical hardcoded model
+};
+const GEMINI_CLASS_DEFAULTS: Partial<Record<FunctionClass, string>> = {
+  founder_intelligence: "gemini-2.5-flash",
+};
+const OPENAI_CLASS_DEFAULTS: Partial<Record<FunctionClass, string>> = {
+  founder_intelligence: "gpt-4o-mini",
+};
+
+function resolveModel(
+  globalEnvVar: string,
+  hardcodedDefault: string,
+  classDefaults: Partial<Record<FunctionClass, string>>,
+  functionClass?: FunctionClass,
+): string {
   if (functionClass) {
-    const perClass = Deno.env.get(`${globalEnvVar}_${functionClass.toUpperCase()}`);
-    if (perClass) return perClass;
+    const perClassEnv = Deno.env.get(`${globalEnvVar}_${functionClass.toUpperCase()}`);
+    if (perClassEnv) return perClassEnv;
   }
-  return Deno.env.get(globalEnvVar) || hardcodedDefault;
+  const globalEnv = Deno.env.get(globalEnvVar);
+  if (globalEnv) return globalEnv;
+  if (functionClass && classDefaults[functionClass]) return classDefaults[functionClass]!;
+  return hardcodedDefault;
 }
 function getAnthropicModel(functionClass?: FunctionClass): string {
-  return resolveModel("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001", functionClass);
+  return resolveModel("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001", ANTHROPIC_CLASS_DEFAULTS, functionClass);
 }
 function getGeminiModel(functionClass?: FunctionClass): string {
-  return resolveModel("GEMINI_MODEL", "gemini-3.5-flash-lite", functionClass);
+  return resolveModel("GEMINI_MODEL", "gemini-3.5-flash-lite", GEMINI_CLASS_DEFAULTS, functionClass);
 }
 function getOpenAIModel(functionClass?: FunctionClass): string {
-  return resolveModel("OPENAI_MODEL", "gpt-5.6-luna", functionClass);
+  return resolveModel("OPENAI_MODEL", "gpt-5.6-luna", OPENAI_CLASS_DEFAULTS, functionClass);
 }
 
 // Pricing reflects each adapter's current model (see getXModel() above) —

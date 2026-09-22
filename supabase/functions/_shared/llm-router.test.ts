@@ -604,19 +604,29 @@ function withEnvSync(vars: Record<string, string | undefined>, fn: () => void): 
 // behavior when the var is unset.
 // ---------------------------------------------------------------------------
 
-Deno.test("Test 14: a per-class model override takes priority over the global override for that class only", () => {
-  withEnvSync({ ANTHROPIC_MODEL: "claude-global-override", ANTHROPIC_MODEL_FOUNDER_INTELLIGENCE: "claude-sonnet-4-6" }, () => {
-    assert(anthropicAdapter.getModel("founder_intelligence") === "claude-sonnet-4-6", "founder_intelligence must resolve its own per-class override");
-    assert(anthropicAdapter.getModel("business_agent") === "claude-global-override", "a class with no per-class override must still fall back to the global override");
-    assert(anthropicAdapter.getModel() === "claude-global-override", "calling with no class at all must still resolve the global override, unchanged from before this feature existed");
+Deno.test("Test 14: a per-class env var takes priority over the global env var, which takes priority over any hardcoded default", () => {
+  withEnvSync({ ANTHROPIC_MODEL: "claude-global-env-override", ANTHROPIC_MODEL_FOUNDER_INTELLIGENCE: "claude-per-class-env-override" }, () => {
+    assert(anthropicAdapter.getModel("founder_intelligence") === "claude-per-class-env-override", "founder_intelligence must resolve its own per-class env var over the global one");
+    assert(anthropicAdapter.getModel("business_agent") === "claude-global-env-override", "a class with no per-class env var must still fall back to the global env var");
+    assert(anthropicAdapter.getModel() === "claude-global-env-override", "calling with no class at all must still resolve the global env var, unchanged from before this feature existed");
   });
 });
 
-Deno.test("Test 14b: with no per-class or global override set, every class resolves to the same hardcoded default (today's behavior, unchanged)", () => {
+Deno.test("Test 14b: with no env vars set at all, unlisted classes fall back to the shared hardcoded default (today's behavior, unchanged)", () => {
   withEnvSync({ ANTHROPIC_MODEL: undefined, ANTHROPIC_MODEL_FOUNDER_INTELLIGENCE: undefined }, () => {
-    assert(anthropicAdapter.getModel("founder_intelligence") === "claude-haiku-4-5-20251001", "founder_intelligence with no override must fall back to the shared default");
+    assert(anthropicAdapter.getModel("business_agent") === "claude-haiku-4-5-20251001", "business_agent with no override must fall back to the shared default");
     assert(anthropicAdapter.getModel("background_agent") === "claude-haiku-4-5-20251001", "background_agent with no override must fall back to the shared default");
     assert(anthropicAdapter.getModel() === "claude-haiku-4-5-20251001", "no class at all must still fall back to the shared default");
+  });
+});
+
+Deno.test("Test 14d: with no env vars set at all, founder_intelligence still resolves its own hardcoded quality-tier default across all three providers -- this is the actual fix, not just the env-var plumbing", () => {
+  withEnvSync({ ANTHROPIC_MODEL: undefined, ANTHROPIC_MODEL_FOUNDER_INTELLIGENCE: undefined, GEMINI_MODEL: undefined, GEMINI_MODEL_FOUNDER_INTELLIGENCE: undefined, OPENAI_MODEL: undefined, OPENAI_MODEL_FOUNDER_INTELLIGENCE: undefined }, () => {
+    assert(anthropicAdapter.getModel("founder_intelligence") === "claude-sonnet-4-6", "founder_intelligence must get the quality-tier Anthropic model with zero configuration required, matching reason()'s own historical hardcoded model");
+    assert(geminiAdapter.getModel("founder_intelligence") === "gemini-2.5-flash", "founder_intelligence must get the quality-tier Gemini model with zero configuration required");
+    assert(openaiAdapter.getModel("founder_intelligence") === "gpt-4o-mini", "founder_intelligence must get the quality-tier OpenAI model with zero configuration required");
+    // and it must NOT leak into other classes as a side effect
+    assert(anthropicAdapter.getModel("background_agent") === "claude-haiku-4-5-20251001", "founder_intelligence's dedicated default must not affect other classes");
   });
 });
 
