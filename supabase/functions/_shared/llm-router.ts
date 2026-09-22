@@ -131,12 +131,15 @@ export interface ProviderAdapter {
   estimateCost(request: LLMRequest, response?: RawProviderResponse): number;
   health(): ProviderHealthSnapshot;
   /**
-   * The model identifier this adapter will use right now (env-overridable,
-   * resolved lazily — see getAnthropicModel() etc. below). Exists so a
-   * failed attempt that never got as far as a RawProviderResponse (a thrown
-   * network error, a timeout) can still be attributed to the correct model.
+   * The model identifier this adapter will use right now for the given
+   * function class (env-overridable per class or globally, resolved lazily
+   * — see getAnthropicModel() etc. below). Exists so a failed attempt that
+   * never got as far as a RawProviderResponse (a thrown network error, a
+   * timeout) can still be attributed to the correct model. functionClass is
+   * optional so existing callers with no class in scope still resolve the
+   * global/default model exactly as before.
    */
-  getModel(): string;
+  getModel(functionClass?: FunctionClass): string;
 }
 
 export interface CostConfig {
@@ -185,15 +188,38 @@ function getOpenAIApiKey(): string {
 // name alone, which drifted from the model actually being called the moment
 // this constant changed. Env-overridable so a model migration is a config
 // change, not a code change scattered across callers.
+//
+// PER-CLASS OVERRIDE (Master Engineering Mandate Section 9, "one reasoning
+// path... provider routing underneath"): `founder_intelligence` has always
+// been documented here as the quality-priority class (CLASS_PRIORITY below
+// weights it quality:1.0), but until now that priority only affected WHICH
+// PROVIDER got tried first — every class shared the exact same per-provider
+// model, so "quality priority" never actually meant "a stronger model."
+// Routing founder-brain.ts's reason() through this router (a real
+// consolidation the codebase's own reasoning-duplication problem calls for)
+// would have been a silent quality regression without this: `reason()`
+// currently hardcodes claude-sonnet-4-6, while this router's own
+// ANTHROPIC_MODEL default is the smaller/cheaper claude-haiku-4-5.
+// An optional per-class env var (`ANTHROPIC_MODEL_FOUNDER_INTELLIGENCE`,
+// etc.) now takes priority over the global override, which still takes
+// priority over the hardcoded default — additive only: unset for every
+// existing class, this resolves identically to before.
 // ---------------------------------------------------------------------------
-function getAnthropicModel(): string {
-  return Deno.env.get("ANTHROPIC_MODEL") || "claude-haiku-4-5-20251001";
+function resolveModel(globalEnvVar: string, hardcodedDefault: string, functionClass?: FunctionClass): string {
+  if (functionClass) {
+    const perClass = Deno.env.get(`${globalEnvVar}_${functionClass.toUpperCase()}`);
+    if (perClass) return perClass;
+  }
+  return Deno.env.get(globalEnvVar) || hardcodedDefault;
 }
-function getGeminiModel(): string {
-  return Deno.env.get("GEMINI_MODEL") || "gemini-3.5-flash-lite";
+function getAnthropicModel(functionClass?: FunctionClass): string {
+  return resolveModel("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001", functionClass);
 }
-function getOpenAIModel(): string {
-  return Deno.env.get("OPENAI_MODEL") || "gpt-5.6-luna";
+function getGeminiModel(functionClass?: FunctionClass): string {
+  return resolveModel("GEMINI_MODEL", "gemini-3.5-flash-lite", functionClass);
+}
+function getOpenAIModel(functionClass?: FunctionClass): string {
+  return resolveModel("OPENAI_MODEL", "gpt-5.6-luna", functionClass);
 }
 
 // Pricing reflects each adapter's current model (see getXModel() above) —
@@ -220,7 +246,7 @@ export const anthropicAdapter: ProviderAdapter = {
     // immediate failure rather than firing a request with a blank
     // Authorization header.
     const apiKey = getAnthropicApiKey();
-    const model = getAnthropicModel();
+    const model = getAnthropicModel(request.functionClass);
     if (!apiKey) {
       return { ok: false, httpStatus: 401, rawBody: { error: "ANTHROPIC_API_KEY is not configured" }, latencyMs: 0, model };
     }
@@ -288,7 +314,7 @@ export const openaiAdapter: ProviderAdapter = {
   getModel: getOpenAIModel,
   async call(request) {
     const apiKey = getOpenAIApiKey();
-    const model = getOpenAIModel();
+    const model = getOpenAIModel(request.functionClass);
     if (!apiKey) {
       return { ok: false, httpStatus: 401, rawBody: { error: "OPENAI_API_KEY is not configured" }, latencyMs: 0, model };
     }
@@ -332,7 +358,7 @@ export const geminiAdapter: ProviderAdapter = {
   getModel: getGeminiModel,
   async call(request) {
     const apiKey = getGeminiApiKey();
-    const model = getGeminiModel();
+    const model = getGeminiModel(request.functionClass);
     if (!apiKey) {
       return { ok: false, httpStatus: 401, rawBody: { error: "GEMINI_API_KEY is not configured" }, latencyMs: 0, model };
     }
@@ -750,7 +776,7 @@ export async function callLLM(request: LLMRequest, config: RouterConfig): Promis
     // one exists (every adapter branch sets it, success or failure), or from
     // the adapter's own resolver when the attempt never got a response at
     // all (a thrown network error or a timeout raced ahead of it).
-    const attemptedModel = response?.model ?? adapter.getModel();
+    const attemptedModel = response?.model ?? adapter.getModel(request.functionClass);
 
     if (response && response.ok && !isEmptyOrInvalidContent(response)) {
       // Real success — a genuine, usable response was received.

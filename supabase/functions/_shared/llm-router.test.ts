@@ -592,6 +592,52 @@ function withEnvSync(vars: Record<string, string | undefined>, fn: () => void): 
   }
 }
 
+// ---------------------------------------------------------------------------
+// Test 14: per-function-class model override (Master Engineering Mandate
+// Section 9 — "one reasoning path... provider routing underneath"). Before
+// this, `founder_intelligence`'s quality-priority weighting only affected
+// which PROVIDER got tried first; every class resolved to the exact same
+// model per provider, so routing founder-brain.ts's reason() through this
+// module would have silently downgraded it from its current hardcoded
+// claude-sonnet-4-6 to this router's own cheaper ANTHROPIC_MODEL default.
+// A per-class env var closes that gap without touching any existing class's
+// behavior when the var is unset.
+// ---------------------------------------------------------------------------
+
+Deno.test("Test 14: a per-class model override takes priority over the global override for that class only", () => {
+  withEnvSync({ ANTHROPIC_MODEL: "claude-global-override", ANTHROPIC_MODEL_FOUNDER_INTELLIGENCE: "claude-sonnet-4-6" }, () => {
+    assert(anthropicAdapter.getModel("founder_intelligence") === "claude-sonnet-4-6", "founder_intelligence must resolve its own per-class override");
+    assert(anthropicAdapter.getModel("business_agent") === "claude-global-override", "a class with no per-class override must still fall back to the global override");
+    assert(anthropicAdapter.getModel() === "claude-global-override", "calling with no class at all must still resolve the global override, unchanged from before this feature existed");
+  });
+});
+
+Deno.test("Test 14b: with no per-class or global override set, every class resolves to the same hardcoded default (today's behavior, unchanged)", () => {
+  withEnvSync({ ANTHROPIC_MODEL: undefined, ANTHROPIC_MODEL_FOUNDER_INTELLIGENCE: undefined }, () => {
+    assert(anthropicAdapter.getModel("founder_intelligence") === "claude-haiku-4-5-20251001", "founder_intelligence with no override must fall back to the shared default");
+    assert(anthropicAdapter.getModel("background_agent") === "claude-haiku-4-5-20251001", "background_agent with no override must fall back to the shared default");
+    assert(anthropicAdapter.getModel() === "claude-haiku-4-5-20251001", "no class at all must still fall back to the shared default");
+  });
+});
+
+Deno.test("Test 14c: callLLM() threads the request's functionClass through to the adapter for model resolution", async () => {
+  await withEnv({ ANTHROPIC_MODEL: undefined, ANTHROPIC_MODEL_FOUNDER_INTELLIGENCE: "claude-sonnet-4-6-founder-only" }, async () => {
+    let modelSeenByAdapter: string | null = null;
+    const anthropic: ProviderAdapter = {
+      ...anthropicAdapter,
+      call: async (request) => {
+        modelSeenByAdapter = anthropicAdapter.getModel(request.functionClass);
+        return { ok: true, httpStatus: 200, content: "ok", rawBody: {}, inputTokens: 1, outputTokens: 1, latencyMs: 1, model: modelSeenByAdapter };
+      },
+    };
+
+    const result = await callLLM(baseRequest({ functionClass: "founder_intelligence" }), baseConfig([anthropic]));
+
+    assert(modelSeenByAdapter === "claude-sonnet-4-6-founder-only", `expected the founder_intelligence override, got ${modelSeenByAdapter}`);
+    assert(result.model === "claude-sonnet-4-6-founder-only", "the router's own result.model must reflect the class-specific model actually used");
+  });
+});
+
 Deno.test("Test 11c: failover records the ACTUAL provider and model that answered, not the originally requested one", async () => {
   await withEnv({ ANTHROPIC_MODEL: undefined, GEMINI_MODEL: "gemini-test-override" }, async () => {
     const anthropic = mockAdapter("anthropic", async () => ({
