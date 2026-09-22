@@ -312,8 +312,70 @@ each already have the consolidated, `founder-brain.ts`-importing version
 sitting in this repo, ready to deploy — the code exists, is not
 integrated (per the evidence-standard distinction in Section 6 of the
 architecture inventory), and deploying it is real, valuable follow-up
-work. It was deliberately not attempted in this pass: five separate
-production redeployments, each needing its own before/after verification,
-is a larger and riskier undertaking than fits safely alongside everything
-else done in this session, and deserves its own dedicated pass rather than
-being rushed.
+work.
+
+## Section 10: `my-brain-engine` deployed onto the canonical reasoning path
+
+**What was done**: `my-brain-engine` was redeployed live (Supabase project
+`nrlsqshkjuuwiovthrnb`) to replace its previously self-contained, hardcoded
+Anthropic→Gemini fallback chain with the repo's already-written
+`founderBrainReason()` import (`../_shared/founder-brain.ts`'s `reason()`),
+consolidating its LLM calls onto the same `llm-router.ts` routing/failover
+logic every other migrated function now shares. This is the first of the
+five drifted functions named above to actually go live.
+
+**A real deploy bug was caught and fixed in this same pass**: the first
+deploy attempt (version 13) reconstructed `_shared/founder-brain.ts` from
+manually-split chunks and silently dropped the last chunk — 54 lines (the
+`captureDecision()`/`getDecisionHistory()` functions, Decision Intelligence
+Phase 2B) were missing from the deployed bundle. This did not break
+`my-brain-engine` itself (it only imports `reason()`, never `cognitiveTick()`
+or `captureDecision()`), but it was a genuine incomplete deploy of a shared
+module — caught by diffing the deployed source against the local repo file
+byte-for-byte rather than trusting the deploy tool's success response.
+Fixed by redeploying (version 14) with the complete file content, then
+re-verifying.
+
+**Verification performed on version 14**:
+1. **Byte-exact diff**: all three bundled files (`my-brain-engine/index.ts`,
+   `_shared/founder-brain.ts`, `_shared/llm-router.ts`) fetched back from
+   the live deployment and diffed against the local repo copies — identical,
+   zero differences.
+2. **Static correctness**: `deno check` passes clean on `founder-brain.ts`
+   and `llm-router.ts` as deployed; `my-brain-engine/index.ts` type-checks
+   against a local `npm:` substitute for its `esm.sh` import (this sandbox
+   cannot reach `esm.sh` directly to check the exact deployed specifier,
+   but the deployed file content is already confirmed byte-identical to
+   the repo, so this only re-confirms the logic type-checks).
+3. **Regression suite**: `llm-router.test.ts`'s full 29 tests pass
+   (`deno test --allow-env`), covering the failover, per-class model
+   resolution, and cost-governance logic `my-brain-engine` now depends on
+   transitively.
+4. **NOT performed, and why**: a live authenticated invocation of
+   `my-brain-engine` itself (e.g. `create_project`). This function accepts
+   either a real user JWT or the `x-heartbeat-secret` service bypass —
+   neither is something this session can produce: a user JWT requires a
+   real authenticated session, and `HEARTBEAT_SECRET` is an Edge Function
+   secret (not in the Postgres vault, not queryable via SQL) that the
+   standing directive explicitly says not to touch. Fabricating either
+   would violate "never fabricate," not fix the gap. As indirect evidence,
+   `agent_performance_metrics` already shows real production rows for
+   `agent_id: 'founder-brain'` resolving to `model: claude-sonnet-4-6`,
+   `provider: anthropic` — the exact `founder_intelligence` class default
+   — via `executive-intelligence`'s existing live calls into the same
+   `reason()`/router path `my-brain-engine` now also uses. This confirms
+   the underlying path works correctly in production; it does not confirm
+   `my-brain-engine`'s own HTTP handler specifically. A real end-to-end
+   test of `my-brain-engine` remains open, blocked on credentials this
+   session does not have and should not obtain on its own.
+
+**Remaining**: `sales-engine`, `staff-engine`, `decision-engine`, and
+`brain-engine` still run their own separate, undeployed-consolidation
+hardcoded LLM chains live. Each needs the same deploy-then-byte-diff
+discipline established here — and this session's own near-miss (the
+silently-truncated first attempt) is a concrete argument for verifying
+every one of those the same way, not skipping the diff because "it
+probably worked." Deploying all five in one pass was deliberately not
+attempted: five separate production redeployments, each needing its own
+before/after verification, is a larger undertaking than fits safely in one
+sitting, and deserves its own dedicated pass rather than being rushed.
