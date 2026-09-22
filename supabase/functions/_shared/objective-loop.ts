@@ -25,6 +25,8 @@ type ObjectiveEvaluation = {
   next_action: string;
 };
 
+const MAX_REPLAN_ATTEMPTS = 5;
+
 function getSupabaseAdmin() {
   const url = Deno.env.get("SUPABASE_URL");
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -376,8 +378,35 @@ export async function runObjectiveLoop(
 
       /*
        * Objective is not achieved and execution is no longer active.
-       * Re-enter the planner and create the next executable cycle.
+       * Re-enter the planner and create the next executable cycle —
+       * unless it already has, too many times. planObjective() always
+       * INSERTs a new orchestration_projects row (never updates one), so
+       * state.projects.length is exactly the number of planning passes
+       * this objective has already been through — a real, already-queried
+       * signal, not a new counter/column. Without this cap, an objective
+       * whose evaluation never reaches achieved/blocked/failed would
+       * replan forever, once per tick, with no backoff — a genuine
+       * unbounded-cost bug (Section 22: "avoid infinite retry loops").
+       * Escalating to awaiting_approval mirrors how every other genuine
+       * blocker in this codebase is surfaced — a stuck objective is a
+       * real one, not silently dropped.
        */
+      if (state.projects.length >= MAX_REPLAN_ATTEMPTS) {
+        await markObjective(
+          supabase,
+          String(objective.id),
+          "awaiting_approval",
+          `Objective replanned ${state.projects.length} times without reaching achieved/blocked/failed. Last evaluator reason: ${evaluation.reason || evaluation.next_action || "none given"}.`,
+        );
+        results.push({
+          objectiveId: String(objective.id),
+          action: "blocked",
+          projectId: state.projects[0]?.id ? String(state.projects[0].id) : null,
+          summary: `Escalated after ${state.projects.length} replan attempts without convergence — needs human review.`,
+        });
+        continue;
+      }
+
       const continuation = await createContinuationProject(
         objective,
         correlationId,
