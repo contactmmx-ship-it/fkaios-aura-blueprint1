@@ -256,3 +256,64 @@ much as:
   triggers do, and what escalation/approval gate exists before a founder-
   level objective starts spending real LLM budget. That safety work is
   Phase 1/2's remaining scope (task #14), not yet done.
+
+## 9. `reason()` consolidation (D2/P4) — a second, larger repo/deploy drift found
+
+Migrating `founder-brain.ts`'s `reason()` off its own hardcoded 3-provider
+fallback and onto `_shared/llm-router.ts` (commits `3330314`, `e66ed0e`)
+required first checking every live consumer for a quality regression —
+`llm-router.ts`'s per-provider model defaults are cheaper than
+`reason()`'s historical hardcoded ones, so blind consolidation would have
+silently downgraded quality. Fixed by giving `founder_intelligence` its
+own hardcoded per-provider default (matching `reason()`'s exact prior
+models), not by relying on an env var this module has no way to guarantee
+is set.
+
+Checking those consumers surfaced something bigger than the regression
+risk itself: **`sales-engine`, `staff-engine`, `decision-engine`,
+`brain-engine`, and `my-brain-engine` are all deployed live with their own
+separate, still-active, hardcoded LLM fallback chains** — none of them
+actually import `founder-brain.ts` in production, confirmed by reading
+each one's live source via `get_edge_function` and finding no
+`founder-brain` import statement, only each function's own embedded
+`llmFetch()`/`callClaude()`. This directly contradicts comments already
+present in this repo's own local source — e.g. `decision-engine/index.ts`:
+*"SPRINT 4 (M1-S4): Decision Engine now routes its LLM call through the
+canonical Founder Brain instead of its own local llmFetch/callClaudeJSON"*
+— a migration that was written, committed, and described as done, but
+**never deployed**, for at least five functions. This is the same
+repo-vs-live-deployment drift pattern documented earlier for
+`factory-intake`/`executive-brain` (Section 7 of the architecture
+inventory), just running in the opposite direction and at larger scale:
+there, the live deployment was ahead of the repo; here, the repo is ahead
+of the live deployment.
+
+**Correction to this file's own commit message**: `e66ed0e`'s commit
+message states cognitiveTick() is "the only real caller in production
+right now." That is not quite right. `executive-intelligence` — which
+genuinely does run live, daily, via the `executive-intelligence-daily`
+cron — imports and calls `assessRisk()`, `simulateStrategies()`, and
+`imagine()` from `founder-brain.ts` (confirmed: all three are actually
+invoked in its live source, not just imported), and all three call
+`reason()` internally. So `reason()`'s consolidation onto llm-router.ts
+does reach real production traffic today, through this one path. Verified
+this is still safe: the model resolved for `founder_intelligence` is
+identical before and after (`claude-sonnet-4-6`), so there is no quality
+change; the only behavioral difference is that llm-router.ts imposes an
+explicit 60-second per-attempt timeout with structured fallback, where the
+old hardcoded chain had no explicit timeout at all — a reliability
+improvement in the same direction as this session's other execution-truth
+work, not a new risk.
+
+**What this means for D2 going forward**: the actual "one reasoning path"
+consolidation is larger than the two commits above. `sales-engine`,
+`staff-engine`, `decision-engine`, `brain-engine`, and `my-brain-engine`
+each already have the consolidated, `founder-brain.ts`-importing version
+sitting in this repo, ready to deploy — the code exists, is not
+integrated (per the evidence-standard distinction in Section 6 of the
+architecture inventory), and deploying it is real, valuable follow-up
+work. It was deliberately not attempted in this pass: five separate
+production redeployments, each needing its own before/after verification,
+is a larger and riskier undertaking than fits safely alongside everything
+else done in this session, and deserves its own dedicated pass rather than
+being rushed.
