@@ -379,3 +379,80 @@ probably worked." Deploying all five in one pass was deliberately not
 attempted: five separate production redeployments, each needing its own
 before/after verification, is a larger undertaking than fits safely in one
 sitting, and deserves its own dedicated pass rather than being rushed.
+
+## Section 11: `staff-engine`, `decision-engine`, `sales-engine` deployed — two more dropped-capability regressions caught before going live
+
+**What was done**: continuing the consolidation, `staff-engine` (v49),
+`decision-engine` (v48), and `sales-engine` (v36) were redeployed onto
+`founder-brain.ts`'s `reason()` / `llm-router.ts`, the same pattern as
+`my-brain-engine`. `brain-engine` was deliberately left alone this pass —
+see below.
+
+**Two more real regressions in the repo's own pre-written "Sprint 4"
+migration were caught by diffing the local (about-to-deploy) source
+against each function's actual live source, not by trusting the
+migration's own commit message**:
+
+1. **All three** (`staff-engine`, `decision-engine`, `sales-engine`) had
+   their live `getFounderPrinciplesBlock()` — a local query against
+   `founder_principles`, filtered by `applies_to`, injected into the
+   system prompt — silently dropped when the Sprint 4 rewrite switched to
+   `founderBrainReason()`. Fixed by calling `founder-brain.ts`'s own
+   `getFounderPrinciples(agentContext)`, which already does the identical
+   `applies_to`-filtered query (added in Phase 2B, Section 9's
+   `evaluateAgainstGoals()`/`think()` work) — restoring the grounding
+   through the canonical Brain instead of re-adding a second local query.
+2. **`sales-engine` additionally** had dropped its entire `speak` action
+   — real ElevenLabs text-to-speech (`elevenLabsSpeak()`,
+   `ELEVEN_VOICE_BY_TONE`) plus `voice_call_log` telemetry on both the
+   success and failure paths. This is a real business capability, not
+   duplicate reasoning logic that the "one reasoning path" consolidation
+   was ever meant to touch — restored verbatim from the live source.
+
+Same evidence standard as Section 10: this is exactly the "CODE EXISTS ≠
+OPERATIONAL" trap the mandate names — the pre-written migration's own
+commit message claimed a clean swap of the LLM call, but the live diff
+showed it silently deleted two real, in-use features. Deploying it
+unexamined would have been a customer-visible regression (Chief-of-Staff
+reports and decision scores losing founder-principle grounding; the sales
+voice feature returning `Unknown action: speak` to every caller).
+
+**Verification performed** (same discipline as Section 10, all three
+functions): byte-exact diff of the deployed source against the local
+fixed files (all three: identical, zero differences), `deno check` passing
+clean on each fixed `index.ts` (via the same local `npm:` substitute for
+the `esm.sh` import used in Section 10 — this sandbox cannot reach
+`esm.sh` directly, but the deployed content is already confirmed
+byte-identical to the checked file), and the 29-test `llm-router.test.ts`
+suite passing unchanged (`founder-brain.ts`/`llm-router.ts` were not
+modified this pass). No live authenticated invocation test was performed,
+for the same reason as `my-brain-engine`: `decision-engine`/`sales-engine`
+require a real user JWT with no service bypass, and `staff-engine`'s
+heartbeat-secret bypass still requires a secret this session does not have
+and should not obtain.
+
+**`brain-engine` intentionally NOT migrated this pass**: its live source
+passes Anthropic's native `web_search_20250305` server tool
+(`tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }]`,
+no `tool_choice` — the model decides per-message whether to search) so
+Brain Chat can answer with current information. `founder-brain.ts`'s
+public `reason()` has no parameter to pass a tool schema through at all.
+Even if it did, `llm-router.ts`'s existing tool-schema plumbing
+(`isAnthropicToolSchema()`, used by whatever caller needed a forced
+single-tool structured-output call) requires an `input_schema` field that
+`web_search_20250305` doesn't have, and always sets a forcing
+`tool_choice` — reusing it as-is would either silently drop web search
+entirely (if the type guard rejects the schema, which it does) or force
+every single chat message to trigger a search (if the forcing logic were
+bypassed some other way), neither of which is the live behavior today.
+This is a real architectural gap — "make this tool optionally available"
+is a different `LLMRequest` shape than "force this exact tool" — that
+needs its own scoped router extension, not a rushed fix bundled into this
+pass. `brain-engine` keeps running its own working hardcoded chain
+(including web search) until that extension exists and is verified.
+
+**Remaining**: only `brain-engine` is left un-consolidated, blocked on the
+router's tool-availability gap described above, not on any deploy-process
+risk. Fixing that gap (an optional, non-forcing tool schema mode in
+`llm-router.ts`) is the concrete next step for D2's "one reasoning path"
+goal.
