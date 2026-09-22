@@ -26,6 +26,7 @@
 import { cognitiveTick, getGoals, seedGoalHierarchy } from "../_shared/founder-brain.ts";
 import { planObjective, escalateBlocked } from "../_shared/executive-planner.ts";
 import { allocateProjectWork, returnCompletedWork } from "../_shared/work-engine.ts";
+import { runObjectiveLoop } from "../_shared/objective-loop.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
 const corsHeaders = {
@@ -123,7 +124,22 @@ Deno.serve(async (req: Request) => {
     if (returnResult.status === "fulfilled") { returned = returnResult.value.returned; dispatched = returnResult.value.dispatched; }
     else console.error("founder-brain-tick: returnCompletedWork failed", returnResult.reason instanceof Error ? returnResult.reason.message : String(returnResult.reason));
 
-    return new Response(JSON.stringify({ ...result, planned, allocated, escalated, returned, dispatched, parallelExecutionSummary }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    // OBJECTIVE CONTINUATION LOOP: closes the loop that previously stopped
+    // at "task done" — objective -> plan -> execute -> observe -> evaluate
+    // the ORIGINAL objective (not just task completion) -> complete /
+    // blocked / failed / replan -> execute again. Reuses the same
+    // reason()/planObjective()/allocateProjectWork()/returnCompletedWork()
+    // primitives already wired above; not a second orchestration path.
+    // Best-effort, same as every other step in this tick — a failure here
+    // never breaks the tick's response.
+    let objectiveLoop: unknown[] = [];
+    try {
+      objectiveLoop = await runObjectiveLoop(result.correlationId);
+    } catch (err) {
+      console.error("founder-brain-tick: objective loop failed", err instanceof Error ? err.message : String(err));
+    }
+
+    return new Response(JSON.stringify({ ...result, planned, allocated, escalated, returned, dispatched, objectiveLoop, parallelExecutionSummary }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("founder-brain-tick error:", msg);

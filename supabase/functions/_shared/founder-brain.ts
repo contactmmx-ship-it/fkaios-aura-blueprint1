@@ -1248,14 +1248,56 @@ export async function simulateStrategies(userId: string, situation: string, coun
     correlationId,
   );
 
+  // ROBUST JSON EXTRACTION (objective-loop reconciliation): models don't
+  // reliably return bare JSON — fenced ```json blocks and JSON embedded in
+  // surrounding prose are both common. Tries progressively looser
+  // extraction (raw -> stripped fences -> first [...] substring) before
+  // giving up, rather than discarding every strategy on the first
+  // JSON.parse failure. Every candidate is then validated field-by-field
+  // and scores clamped to the documented 1-10 range — a strategy with a
+  // malformed or out-of-range score is dropped or corrected, never passed
+  // through to sorting/selection with a garbage value.
   let strategies: Strategy[] = [];
-  try {
-    const parsed = JSON.parse(gen.text);
-    if (Array.isArray(parsed)) strategies = parsed;
-  } catch {
-    // Honest fallback — no fabricated strategies if parsing fails.
-    return { selected: null, rejected: [] };
+  const raw = gen.text.trim();
+  const candidates = [
+    raw,
+    raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim(),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (Array.isArray(parsed)) {
+        strategies = parsed;
+        break;
+      }
+    } catch { /* try the next candidate */ }
   }
+
+  if (strategies.length === 0) {
+    const start = raw.indexOf("[");
+    const end = raw.lastIndexOf("]");
+    if (start >= 0 && end > start) {
+      try {
+        const parsed = JSON.parse(raw.slice(start, end + 1));
+        if (Array.isArray(parsed)) strategies = parsed;
+      } catch { /* honest fallback below */ }
+    }
+  }
+
+  strategies = strategies
+    .filter((s) =>
+      !!s &&
+      typeof s === "object" &&
+      typeof s.description === "string" &&
+      s.description.trim().length > 0 &&
+      typeof s.predictedOutcome === "string" &&
+      Number.isFinite(Number(s.score)))
+    .map((s) => ({
+      description: s.description.trim(),
+      predictedOutcome: s.predictedOutcome.trim(),
+      score: Math.max(1, Math.min(10, Number(s.score))),
+    }));
 
   if (strategies.length === 0) return { selected: null, rejected: [] };
   const sorted = [...strategies].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));

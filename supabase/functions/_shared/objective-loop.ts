@@ -1,0 +1,424 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { reason } from "./founder-brain.ts";
+import { planObjective } from "./executive-planner.ts";
+import { allocateProjectWork, returnCompletedWork } from "./work-engine.ts";
+
+type ObjectiveLoopResult = {
+  objectiveId: string;
+  action:
+    | "continue_execution"
+    | "replan"
+    | "completed"
+    | "blocked"
+    | "failed"
+    | "no_action";
+  projectId?: string | null;
+  tasksCreated?: number;
+  summary: string;
+};
+
+type ObjectiveEvaluation = {
+  achieved: boolean;
+  blocked: boolean;
+  failed: boolean;
+  reason: string;
+  next_action: string;
+};
+
+function getSupabaseAdmin() {
+  const url = Deno.env.get("SUPABASE_URL");
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!url || !key) {
+    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+  }
+
+  return createClient(url, key, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
+// ROBUST JSON EXTRACTION (reconciliation fix): reason() always returns an
+// LLMResult object ({text, inputTokens, outputTokens, model, provider}),
+// never a bare string — the original objective-loop draft's
+// `typeof response === "string"` check was therefore always false, and
+// casting the LLMResult wrapper itself as ObjectiveEvaluation meant
+// achieved/blocked/failed read as undefined -> always false, so no
+// objective could ever be marked completed/blocked/failed by this
+// function; every idle objective would silently replan forever. Fixed by
+// parsing response.text, with the same progressively-looser JSON
+// extraction (raw -> stripped fences -> first {...} substring) already
+// used for strategy parsing in founder-brain.ts's simulateStrategies() —
+// same tolerance, applied to an object shape instead of an array.
+function extractJsonObject(raw: string): Record<string, unknown> | null {
+  const trimmed = raw.trim();
+  const candidates = [
+    trimmed,
+    trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim(),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch { /* try the next candidate */ }
+  }
+
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    try {
+      const parsed = JSON.parse(trimmed.slice(start, end + 1));
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch { /* fall through to null below */ }
+  }
+
+  return null;
+}
+
+async function evaluateObjective(
+  objective: Record<string, unknown>,
+  projects: Record<string, unknown>[],
+  tasks: Record<string, unknown>[],
+  correlationId?: string,
+): Promise<ObjectiveEvaluation> {
+  const prompt = `
+You are the Objective Evaluator for FKAIOS.
+
+Your job is NOT to judge whether the tasks merely finished.
+Your job is to determine whether the ORIGINAL BUSINESS OBJECTIVE has actually been achieved.
+
+Original objective:
+${String(objective.raw_request ?? "")}
+
+Current projects:
+${JSON.stringify(projects, null, 2)}
+
+Current task execution records:
+${JSON.stringify(tasks, null, 2)}
+
+Evaluate using only the evidence supplied above.
+
+Rules:
+1. completed tasks do NOT automatically mean the objective is achieved.
+2. If evidence shows the business objective is achieved, return achieved=true.
+3. If work is still required and another executable cycle should happen, return achieved=false, blocked=false, failed=false.
+4. If execution cannot continue without a human decision/approval, return blocked=true.
+5. If the objective cannot reasonably be completed because of a terminal failure, return failed=true.
+6. Never invent business facts.
+7. If evidence is insufficient, prefer achieved=false and blocked=false.
+8. Return ONLY valid JSON.
+
+Schema:
+{
+  "achieved": boolean,
+  "blocked": boolean,
+  "failed": boolean,
+  "reason": string,
+  "next_action": string
+}
+`;
+
+  const response = await reason(
+    "You are the FKAIOS Objective Evaluator. Evaluate whether the original business objective has actually been achieved using only the supplied execution evidence.",
+    prompt,
+    800,
+    correlationId,
+  );
+
+  if (!response || typeof response.text !== "string" || response.text.trim().length === 0) {
+    return {
+      achieved: false,
+      blocked: false,
+      failed: false,
+      reason: "Objective evaluation returned no response.",
+      next_action: "Continue execution and evaluate again.",
+    };
+  }
+
+  const parsed = extractJsonObject(response.text);
+
+  if (!parsed) {
+    return {
+      achieved: false,
+      blocked: false,
+      failed: false,
+      reason: "Objective evaluation returned invalid JSON.",
+      next_action: "Retry evaluation on the next cycle.",
+    };
+  }
+
+  return {
+    achieved: parsed.achieved === true,
+    blocked: parsed.blocked === true,
+    failed: parsed.failed === true,
+    reason: String(parsed.reason ?? ""),
+    next_action: String(parsed.next_action ?? ""),
+  };
+}
+
+async function loadObjectiveState(
+  supabase: ReturnType<typeof createClient>,
+  objectiveId: string,
+) {
+  const { data: projects, error: projectError } = await supabase
+    .from("orchestration_projects")
+    .select("*")
+    .like("request", `[objective:${objectiveId}]%`)
+    .order("created_at", { ascending: false });
+
+  if (projectError) {
+    throw new Error(`Failed loading objective projects: ${projectError.message}`);
+  }
+
+  const projectIds = (projects ?? [])
+    .map((project) => project.id)
+    .filter(Boolean);
+
+  let tasks: Record<string, unknown>[] = [];
+
+  if (projectIds.length > 0) {
+    const { data: taskRows, error: taskError } = await supabase
+      .from("orchestration_tasks")
+      .select("*")
+      .in("project_id", projectIds);
+
+    if (taskError) {
+      throw new Error(`Failed loading objective tasks: ${taskError.message}`);
+    }
+
+    tasks = taskRows ?? [];
+  }
+
+  return {
+    projects: projects ?? [],
+    tasks,
+  };
+}
+
+async function markObjective(
+  supabase: ReturnType<typeof createClient>,
+  objectiveId: string,
+  status: "completed" | "failed" | "awaiting_approval",
+  summary: string,
+) {
+  const { error } = await supabase
+    .from("orchestrator_requests")
+    .update({
+      status,
+      result_summary: summary.slice(0, 5000),
+      action_taken: "objective_loop",
+    })
+    .eq("id", objectiveId);
+
+  if (error) {
+    throw new Error(`Failed updating objective ${objectiveId}: ${error.message}`);
+  }
+}
+
+async function createContinuationProject(
+  objective: Record<string, unknown>,
+  correlationId?: string,
+) {
+  const plan = await planObjective(
+    {
+      id: String(objective.id),
+      raw_request: String(objective.raw_request ?? ""),
+      department_code: objective.department_code
+        ? String(objective.department_code)
+        : null,
+      status: String(objective.status ?? "processing"),
+    },
+    correlationId,
+  );
+
+  if (!plan.projectId) {
+    return {
+      projectId: null,
+      tasksCreated: 0,
+      error: plan.error ?? "Planner did not create a continuation project.",
+    };
+  }
+
+  await allocateProjectWork(plan.projectId);
+
+  return {
+    projectId: plan.projectId,
+    tasksCreated: plan.tasksCreated,
+  };
+}
+
+export async function runObjectiveLoop(
+  correlationId?: string,
+): Promise<ObjectiveLoopResult[]> {
+  const supabase = getSupabaseAdmin();
+
+  const { data: objectives, error } = await supabase
+    .from("orchestrator_requests")
+    .select("*")
+    .eq("requested_by", "founder-brain")
+    .eq("status", "processing")
+    .order("created_at", { ascending: true })
+    .limit(10);
+
+  if (error) {
+    throw new Error(`Failed loading active objectives: ${error.message}`);
+  }
+
+  const results: ObjectiveLoopResult[] = [];
+
+  for (const objective of objectives ?? []) {
+    try {
+      const state = await loadObjectiveState(
+        supabase,
+        String(objective.id),
+      );
+
+      const activeTasks = state.tasks.filter((task) =>
+        ["pending", "assigned", "running", "working"].includes(
+          String(task.status ?? ""),
+        )
+      );
+
+      /*
+       * If work is still executing, do not create duplicate projects.
+       */
+      if (activeTasks.length > 0) {
+        results.push({
+          objectiveId: String(objective.id),
+          action: "continue_execution",
+          projectId: state.projects[0]?.id
+            ? String(state.projects[0].id)
+            : null,
+          summary: `${activeTasks.length} task(s) are still active.`,
+        });
+        continue;
+      }
+
+      /*
+       * No active work remains.
+       * Now evaluate the ORIGINAL OBJECTIVE rather than merely
+       * checking whether tasks completed.
+       */
+      const evaluation = await evaluateObjective(
+        objective,
+        state.projects,
+        state.tasks,
+        correlationId,
+      );
+
+      if (evaluation.achieved) {
+        await markObjective(
+          supabase,
+          String(objective.id),
+          "completed",
+          evaluation.reason || "Objective achieved.",
+        );
+
+        results.push({
+          objectiveId: String(objective.id),
+          action: "completed",
+          projectId: state.projects[0]?.id
+            ? String(state.projects[0].id)
+            : null,
+          summary: evaluation.reason || "Objective achieved.",
+        });
+
+        continue;
+      }
+
+      if (evaluation.blocked) {
+        await markObjective(
+          supabase,
+          String(objective.id),
+          "awaiting_approval",
+          evaluation.reason || evaluation.next_action,
+        );
+
+        results.push({
+          objectiveId: String(objective.id),
+          action: "blocked",
+          projectId: state.projects[0]?.id
+            ? String(state.projects[0].id)
+            : null,
+          summary: evaluation.reason || "Human approval is required.",
+        });
+
+        continue;
+      }
+
+      if (evaluation.failed) {
+        await markObjective(
+          supabase,
+          String(objective.id),
+          "failed",
+          evaluation.reason || "Objective reached a terminal failure.",
+        );
+
+        results.push({
+          objectiveId: String(objective.id),
+          action: "failed",
+          projectId: state.projects[0]?.id
+            ? String(state.projects[0].id)
+            : null,
+          summary: evaluation.reason || "Objective failed.",
+        });
+
+        continue;
+      }
+
+      /*
+       * Objective is not achieved and execution is no longer active.
+       * Re-enter the planner and create the next executable cycle.
+       */
+      const continuation = await createContinuationProject(
+        objective,
+        correlationId,
+      );
+
+      if (!continuation.projectId) {
+        results.push({
+          objectiveId: String(objective.id),
+          action: "no_action",
+          summary: continuation.error ??
+            "Objective requires continuation but planning failed.",
+        });
+        continue;
+      }
+
+      results.push({
+        objectiveId: String(objective.id),
+        action: "replan",
+        projectId: continuation.projectId,
+        tasksCreated: continuation.tasksCreated,
+        summary: evaluation.reason ||
+          "Objective remains incomplete; continuation work created.",
+      });
+    } catch (objectiveError) {
+      const message = objectiveError instanceof Error
+        ? objectiveError.message
+        : String(objectiveError);
+
+      results.push({
+        objectiveId: String(objective.id),
+        action: "no_action",
+        summary: `Objective loop error: ${message}`,
+      });
+    }
+  }
+
+  /*
+   * Return completed work to the Company OS after processing the loop.
+   * This keeps the existing execution/persistence path intact.
+   */
+  await returnCompletedWork();
+
+  return results;
+}
