@@ -192,28 +192,37 @@ async function getGoogleAuthHeaders(
   };
 }
 
+interface AvailableSlotsResult {
+  slots: Array<{ time: string; available: boolean }>;
+  /** false means no real calendar was ever consulted — the caller must never treat an empty/placeholder result as a genuine availability check. */
+  calendarConfigured: boolean;
+}
+
 async function getAvailableSlots(
   rmEmail: string,
   startDate: string,
   endDate: string,
   consultantId: string | null,
   cid: string,
-) {
+): Promise<AvailableSlotsResult> {
   const authResult = await getGoogleAuthHeaders(consultantId, false, cid);
   if ("error" in authResult) {
     structuredLog("WARN", authResult.error, {}, cid);
-    return [];
+    return { slots: [], calendarConfigured: false };
   }
 
   const calId = googleCalendarId;
   if (!calId && !authResult.oauthAvailable) {
-    structuredLog("WARN", "Google Calendar not configured, returning placeholder slots", {}, cid);
-    const now = new Date();
-    return [
-      { time: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(), available: true },
-      { time: new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString(), available: true },
-      { time: new Date(now.getTime() + 72 * 60 * 60 * 1000).toISOString(), available: true },
-    ];
+    // HONEST EMPTY, not a fabricated slot list. A prior version of this
+    // function returned three placeholder timestamps (now+24h/48h/72h) here,
+    // unconditionally "available" — meaning a meeting could be reported as
+    // scheduled off a real freebusy check that never actually happened. That
+    // is exactly the fake-success this engine must never produce; see the
+    // FKAIOS production-fix truth-in-telemetry pass. Callers MUST check
+    // calendarConfigured before treating an empty slot list as "fully
+    // booked" rather than "never actually checked".
+    structuredLog("WARN", "Google Calendar not configured — no real availability check possible, returning no slots (not fabricated ones)", {}, cid);
+    return { slots: [], calendarConfigured: false };
   }
 
   try {
@@ -233,7 +242,7 @@ async function getAvailableSlots(
 
     if (!response.ok) {
       structuredLog("ERROR", "Google Calendar API error", { status: response.status }, cid);
-      return [];
+      return { slots: [], calendarConfigured: true };
     }
 
     const data = await response.json();
@@ -261,11 +270,11 @@ async function getAvailableSlots(
       }
     }
 
-    return slots;
+    return { slots, calendarConfigured: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown";
     structuredLog("ERROR", "Error fetching available slots", { error: msg }, cid);
-    return [];
+    return { slots: [], calendarConfigured: true };
   }
 }
 
@@ -361,7 +370,7 @@ async function handleScheduleMeeting(req: Request, cid: string) {
     const startDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
     const endDate = new Date(startDate.getTime() + 5 * 24 * 60 * 60 * 1000);
 
-    const availableSlots = await getAvailableSlots(
+    const { slots: availableSlots, calendarConfigured } = await getAvailableSlots(
       rm.email,
       startDate.toISOString(),
       endDate.toISOString(),
@@ -369,9 +378,22 @@ async function handleScheduleMeeting(req: Request, cid: string) {
       cid,
     );
 
+    if (!calendarConfigured) {
+      // Distinguishable from "genuinely fully booked" — no real calendar was
+      // ever consulted, so this must never be reported as a scheduling
+      // attempt that happened and simply found nothing.
+      return successResponse({
+        success: false,
+        reason: "calendar_not_configured",
+        message: "No Google Calendar integration is configured for this consultant (or globally) — no real availability check was performed. Configure GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET (OAuth) or GOOGLE_CALENDAR_API_KEY + GOOGLE_CALENDAR_ID before meetings can be scheduled automatically.",
+        available_slots: [],
+      }, 200, cid);
+    }
+
     if (availableSlots.length === 0) {
       return successResponse({
         success: false,
+        reason: "no_slots_available",
         message: "No available slots found for RM",
         available_slots: [],
       }, 200, cid);
@@ -1110,10 +1132,23 @@ Deno.serve(async (req: Request) => {
       return errorResponse(envError, 500, "Configuration error", cid);
     }
 
+    // Service-to-service bypass, same pattern already used by
+    // heartbeat-engine/vault-engine/agent-scheduler/job-scheduler — added
+    // during the FKAIOS production-fix pass so ai-engine can invoke
+    // meeting-scheduler's schedule_meeting action for a real SCHEDULE_MEETING
+    // ai_job. The service_role key is a static, pre-signed JWT with
+    // iss:"supabase" and does not satisfy verifyJWT()'s check for a real
+    // auth-session issuer, so this is the same explicit shared-secret path
+    // every other internal caller in this codebase already uses — not a new
+    // auth mechanism.
+    const hbSecret = Deno.env.get("HEARTBEAT_SECRET");
+    const providedSecret = req.headers.get("x-heartbeat-secret") || new URL(req.url).searchParams.get("secret");
+    const isServiceCall = !!(hbSecret && providedSecret === hbSecret);
+
     const authHeader = req.headers.get("Authorization") || "";
-    const user = await verifyJWT(authHeader, supabaseUrl, supabaseAnonKey);
+    const user = isServiceCall ? { userId: "service", role: "service_role" } : await verifyJWT(authHeader, supabaseUrl, supabaseAnonKey);
     if (!user) {
-      return errorResponse("Unauthorized: valid JWT required", 401, undefined, cid);
+      return errorResponse("Unauthorized: valid JWT or service token required", 401, undefined, cid);
     }
 
     if (req.method !== "POST") {

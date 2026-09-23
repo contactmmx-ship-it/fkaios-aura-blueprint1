@@ -38,6 +38,8 @@ import {
 import {
   callLLM as routedCallLLM,
   buildDefaultRouterConfig,
+  type AttemptRecord,
+  type FailureCategory,
 } from "../_shared/llm-router.ts";
 
 const corsHeaders = {
@@ -76,6 +78,14 @@ const RATE_LIMIT_COOLDOWN_SECONDS = 30;
 const TOKEN_PRICING = {
   anthropic: { inputPerMtok: 0.25, outputPerMtok: 1.25 },
   openai: { inputPerMtok: 0.15, outputPerMtok: 0.60 },
+  // Added during the production-fix telemetry pass: gemini is a real,
+  // actively-configured fallback provider in buildDefaultRouterConfig()'s
+  // chain, not a hypothetical one — without an entry here, a Gemini success
+  // silently priced itself as anthropic (the TOKEN_PRICING[provider] fallback
+  // below), which is a cost-attribution error of the same shape as the
+  // model-mislabeling this pass fixes. Figures match llm-router.ts's own
+  // DEFAULT_PRICING for gemini-3.5-flash-lite.
+  gemini: { inputPerMtok: 0.30, outputPerMtok: 2.50 },
 } as const;
 type TokenPricingProvider = keyof typeof TOKEN_PRICING;
 
@@ -83,29 +93,64 @@ interface AIJob {
   id: string; agent_id: string | null; type: string; payload: Record<string, unknown>;
   status: string; result: Record<string, unknown> | null; retry_count: number; created_at: string; updated_at: string;
 }
-interface LLMResult { text: string; inputTokens: number; outputTokens: number; model: string; provider: TokenPricingProvider; }
+interface LLMResult { text: string; inputTokens: number; outputTokens: number; model: string; provider: TokenPricingProvider; toolCall?: unknown; }
 
 // PHASE 0.1 EXECUTION TRUTH LAYER (2026-07-27): executeJob() has never had a
 // persistence step for ANY job type — it calls an LLM, parses the JSON it
 // returns, and that parsed object IS the "result". For most job types that's
-// honest (the job is asking for an opinion/analysis). For these it is not:
+// honest (the job is asking for an opinion/analysis). For these it was not:
 // GENERATE_PROPOSAL and SCHEDULE_MEETING name a real business artifact (a
-// proposal, a meeting) that this engine has never once written to proposals
-// or meetings. A dedicated persistence engine exists for meetings
-// (meeting-scheduler, real Google Calendar + `meetings` table writes) but is
-// not wired into this job pipeline; no equivalent exists yet for proposals
-// (document-engine only does file upload/delete). Building that persistence
-// is real business-logic work — Phase 3 (Autonomous Revenue Engine), not a
-// truth-layer fix — so until it exists, these two fail loudly and
-// immediately instead of reporting an LLM opinion as completed business
-// execution. See FKAIOS_CHECKPOINT_PHASE0.1_EXECUTION_TRUTH_FIXED.md.
+// proposal, a meeting) that this engine used to never write to proposals-
+// adjacent tables (client_projects) or meetings. See
+// FKAIOS_CHECKPOINT_PHASE0.1_EXECUTION_TRUTH_FIXED.md for that incident.
 //
-// GENERATE_INVOICE was originally in this set too — moved out (2026-07-27)
-// once real persistence was built; see writeInvoicePersistence() below.
-const NO_PERSISTENCE_JOB_TYPES = new Set(["GENERATE_PROPOSAL", "SCHEDULE_MEETING"]);
+// PRODUCTION-FIX PASS (2026-09-21): both now have a real capability path —
+// see handleGenerateProposal() and handleScheduleMeeting() below, which
+// delegate to the existing, already-built proposal-engine and
+// meeting-scheduler functions/tables rather than inventing a second system.
+// GENERATE_INVOICE was moved out of the old NO_PERSISTENCE_JOB_TYPES set on
+// 2026-07-27 the same way, once writeInvoicePersistence() was built.
+// NO_PERSISTENCE_JOB_TYPES itself is kept (now empty) as the guard point for
+// any future job type that names a real business artifact but has no
+// persistence path yet — the discipline this file enforces, not a dead
+// artifact of one incident.
+const NO_PERSISTENCE_JOB_TYPES = new Set<string>([]);
 
 function noPersistenceError(type: string): string {
   return `${type} has no real persistence path in ai-engine's job runner yet — completing it would only mean an LLM produced a document-shaped JSON blob, with nothing written to the real business table. Refusing to report this as completed. See FKAIOS_CHECKPOINT_PHASE0.1_EXECUTION_TRUTH_FIXED.md.`;
+}
+
+// PHASE 0.1 CONTINUATION (V1 mandate Task #22, 2026-09-22): the original
+// fabrication incident this file documents was about job TYPES with no
+// persistence path at all. A second, narrower fabrication shape was found
+// live via work_engine_task (Work Engine's generic dispatcher for arbitrary
+// Executive-Planner-produced tasks, which DOES have a real persistence path
+// — its result is written into orchestration_tasks.output by
+// returnCompletedWork() in work-engine.ts): the model's own JSON content
+// falsely claimed a SEPARATE, unverifiable action had happened (e.g.
+// "fleet_memory_write_status: SUCCESS", fabricated ISO timestamps from
+// 2025, "entry_integrity: VERIFIED") when no fleet_memory row was ever
+// inserted. The content itself gets honestly persisted; the model's claims
+// about what it did beyond producing that content do not. This block
+// closes that gap without touching the NO_PERSISTENCE_JOB_TYPES path above
+// — it applies to every job that reaches an LLM call, since the model has
+// no tool access here regardless of job type.
+const NO_FABRICATED_PERSISTENCE_BLOCK = `You have no ability to write to any database, file, or external system from this call — you can only produce the JSON content requested below. Do NOT claim that any entry, record, or artifact was "saved", "recorded", "written", "verified", "confirmed", or "persisted" — those are actions you cannot perform and did not perform. Do NOT invent timestamps, entry IDs, or verification statuses for actions outside this response. If the task asks you to record or persist something, produce the CONTENT to be recorded as your JSON result and nothing more; whether and how it gets stored is decided outside this call, not by your claims about it.`;
+
+// RETRY BEHAVIOR (production-fix pass, item 3): a job's failure is either
+// something a retry might plausibly fix (LLM flakiness, a transient network
+// error, momentarily-malformed output) or something structurally certain to
+// fail identically every time (missing required payload data, a business
+// precondition that isn't met, a required integration that isn't
+// configured). Throwing this instead of a plain Error routes runJobs()
+// straight to a terminal 'failed' status with a recorded, categorized
+// reason — never silently burning through the retry budget on a job that
+// cannot ever succeed as submitted.
+export class NonRetryableJobError extends Error {
+  constructor(message: string, public readonly disposition: string) {
+    super(message);
+    this.name = "NonRetryableJobError";
+  }
 }
 
 // A job whose LLM result is itself shaped like a failure (e.g. {"error": "..."}
@@ -114,7 +159,7 @@ function noPersistenceError(type: string): string {
 // as JSON and was written to ai_jobs with status='completed' anyway, because
 // runJobs() only checked "did JSON.parse succeed", never "does this JSON
 // report success". Applies to every job type, not just the three above.
-function resultReportsFailure(parsed: unknown): string | null {
+export function resultReportsFailure(parsed: unknown): string | null {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
   const obj = parsed as Record<string, unknown>;
   if (typeof obj.error === "string" && obj.error.trim().length > 0) return obj.error;
@@ -144,7 +189,7 @@ const ALLOWED_LEAD_STAGES = new Set(["new", "contacted", "qualified", "unqualifi
 async function writeLeadQualificationBack(job: AIJob, result: Record<string, unknown>, cid: string): Promise<void> {
   const leadId = job.payload?.lead_id;
   if (typeof leadId !== "string" || !leadId) {
-    throw new Error("QUALIFY_LEAD job has no payload.lead_id — nothing to write the qualification back to.");
+    throw new NonRetryableJobError("QUALIFY_LEAD job has no payload.lead_id — nothing to write the qualification back to.", "INVALID_PAYLOAD");
   }
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (typeof result.score === "number" && Number.isFinite(result.score)) {
@@ -167,8 +212,9 @@ async function writeLeadQualificationBack(job: AIJob, result: Record<string, unk
   }
 
   if (!data || data.length === 0) {
-    throw new Error(
-      `QUALIFY_LEAD referenced lead_id ${leadId} which does not exist in leads — nothing was updated.`
+    throw new NonRetryableJobError(
+      `QUALIFY_LEAD referenced lead_id ${leadId} which does not exist in leads — nothing was updated.`,
+      "INVALID_PAYLOAD",
     );
   }
   structuredLog("INFO", "Real hand action: QUALIFY_LEAD result written to leads table", { jobId: job.id, leadId, update }, cid);
@@ -207,9 +253,9 @@ async function writeLeadQualificationBack(job: AIJob, result: Record<string, unk
 // success rather than failing or duplicating.
 const GST_RATE_PCT = 18;
 
-interface NormalizedLineItem { description: string; quantity: number; unit_price_inr: number; }
+export interface NormalizedLineItem { description: string; quantity: number; unit_price_inr: number; }
 
-function normalizeInvoiceLineItems(result: Record<string, unknown>): NormalizedLineItem[] {
+export function normalizeInvoiceLineItems(result: Record<string, unknown>): NormalizedLineItem[] {
   const items: NormalizedLineItem[] = [];
 
   const direct = result.line_items;
@@ -262,16 +308,149 @@ function normalizeInvoiceLineItems(result: Record<string, unknown>): NormalizedL
   return items;
 }
 
-function computeInvoiceTotals(items: NormalizedLineItem[]): { subtotal: number; tax: number; total: number } {
+export function computeInvoiceTotals(items: NormalizedLineItem[]): { subtotal: number; tax: number; total: number } {
   const subtotal = items.reduce((sum, li) => sum + li.quantity * li.unit_price_inr, 0);
   const tax = subtotal * (GST_RATE_PCT / 100);
   return { subtotal, tax, total: subtotal + tax };
 }
 
+// GENERATE_INVOICE JSON FAILURE FIX (production-fix pass, item 2): the
+// documented live failure is "Unexpected non-whitespace character after JSON
+// at position 25" — the model returns valid JSON followed by trailing prose
+// (or vice versa) despite being told "respond with ONLY a valid JSON
+// object". Two layers, in order of preference:
+//
+// 1. STRUCTURED OUTPUT: INVOICE_TOOL_SCHEMA is passed as an Anthropic tool
+//    schema (see executeJob's GENERATE_INVOICE branch and llm-router.ts's
+//    tool_choice support) so the model is forced to answer through a typed
+//    tool call. Anthropic's tool-use response has no free-text wrapper to
+//    go wrong in the first place — this eliminates the failure mode at the
+//    source for the primary provider, rather than getting better at
+//    cleaning up its output after the fact.
+// 2. EXTRACTION FALLBACK: extractJSONFromText() below, for providers this
+//    router falls over to that don't get a tool schema (Gemini/OpenAI
+//    adapters don't implement tool_choice yet) or for any other case where
+//    a toolCall didn't come back. It finds the first balanced {...} object
+//    in the text rather than requiring the whole string to already be
+//    valid JSON.
+//
+// Either way, the result is then run through the SAME structural validation
+// (normalizeInvoiceLineItems producing >=1 item) before it is ever
+// considered for persistence — extracted JSON alone is not completion; see
+// writeInvoicePersistence() below, which is the actual completion gate.
+const INVOICE_TOOL_SCHEMA = {
+  name: "emit_invoice",
+  description: "Emit the invoice line items for this job. The ONLY way to answer — do not respond with prose or markdown.",
+  input_schema: {
+    type: "object",
+    properties: {
+      line_items: {
+        type: "array",
+        description: "Real, billable line items grounded in the job payload/lead/brand data. Never invented.",
+        items: {
+          type: "object",
+          properties: {
+            description: { type: "string" },
+            quantity: { type: "number" },
+            unit_price_inr: { type: "number" },
+          },
+          required: ["description", "quantity", "unit_price_inr"],
+        },
+      },
+    },
+    required: ["line_items"],
+  },
+} as const;
+
+/**
+ * Finds the first balanced top-level JSON object or array in `text` by
+ * brace/bracket counting (string- and escape-aware, so a `}` inside a quoted
+ * value never closes the scan early) and parses that substring. Falls back
+ * to parsing the whole trimmed string. Throws with a clear, distinguishing
+ * message if no balanced JSON structure can be found at all — this is a
+ * real, reportable failure, not a value to invent a default for.
+ */
+export function extractJSONFromText(text: string): unknown {
+  const trimmed = text.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch { /* fall through to brace-scanning extraction */ }
+
+  const openers = new Set(["{", "["]);
+  const closers: Record<string, string> = { "}": "{", "]": "[" };
+  let start = -1;
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (start === -1) {
+      if (openers.has(ch)) { start = i; stack.push(ch); }
+      continue;
+    }
+    if (inString) {
+      if (escaped) { escaped = false; }
+      else if (ch === "\\") { escaped = true; }
+      else if (ch === '"') { inString = false; }
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (openers.has(ch)) { stack.push(ch); continue; }
+    if (ch in closers) {
+      if (stack[stack.length - 1] !== closers[ch]) {
+        throw new Error(`LLM output contains mismatched JSON delimiters (found '${ch}' without a matching opener) — cannot safely extract a JSON object from: ${trimmed.slice(0, 200)}`);
+      }
+      stack.pop();
+      if (stack.length === 0) {
+        const candidate = trimmed.slice(start, i + 1);
+        return JSON.parse(candidate);
+      }
+    }
+  }
+
+  throw new Error(`LLM returned no balanced JSON object or array — cannot extract structured data from: ${trimmed.slice(0, 200)}`);
+}
+
+/** Every job type in this engine expects a JSON *object* result (never a bare array/primitive) — a parsed-but-wrong-shape value is a validation failure, not completion. */
+export function asJSONObject(value: unknown, context: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${context}: expected a JSON object, got ${Array.isArray(value) ? "an array" : typeof value}`);
+  }
+  return value as Record<string, unknown>;
+}
+
+/**
+ * The GENERATE_INVOICE-specific parse+validate step. Prefers a structured
+ * tool call (guaranteed shape from Anthropic's tool_choice); otherwise
+ * extracts JSON from free text. Either way, the result must still pass
+ * normalizeInvoiceLineItems (>=1 real, well-formed line item) — a
+ * successfully parsed object with no usable line items is a validation
+ * failure, not completion, exactly like a JSON parse failure.
+ */
+export function parseAndValidateInvoicePayload(toolCall: unknown, text: string): Record<string, unknown> {
+  let parsed: unknown;
+  if (toolCall && typeof toolCall === "object") {
+    parsed = toolCall;
+  } else {
+    const cleaned = text.replace(/```json|```/g, "").trim();
+    parsed = extractJSONFromText(cleaned);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`GENERATE_INVOICE: extracted JSON is not an object (got ${Array.isArray(parsed) ? "array" : typeof parsed}) — cannot validate against the invoice schema.`);
+  }
+  const record = parsed as Record<string, unknown>;
+  const items = normalizeInvoiceLineItems(record);
+  if (items.length === 0) {
+    throw new Error("GENERATE_INVOICE: parsed JSON has no valid line items (checked line_items, invoice.items, and items) — schema validation failed, refusing to treat this as a usable invoice payload.");
+  }
+  return record;
+}
+
 async function writeInvoicePersistence(job: AIJob, result: Record<string, unknown>, cid: string): Promise<Record<string, unknown>> {
   const leadId = job.payload?.lead_id;
   if (typeof leadId !== "string" || !leadId) {
-    throw new Error("GENERATE_INVOICE job has no payload.lead_id — nothing to generate the invoice for.");
+    throw new NonRetryableJobError("GENERATE_INVOICE job has no payload.lead_id — nothing to generate the invoice for.", "INVALID_PAYLOAD");
   }
 
   const { data: lead, error: leadError } = await supabase
@@ -280,8 +459,8 @@ async function writeInvoicePersistence(job: AIJob, result: Record<string, unknow
     .eq("id", leadId)
     .maybeSingle();
   if (leadError) throw new Error(`Failed to look up lead ${leadId}: ${leadError.message}`);
-  if (!lead) throw new Error(`GENERATE_INVOICE referenced lead_id ${leadId} which does not exist in leads.`);
-  if (!lead.company_id) throw new Error(`Lead ${leadId} has no company_id — cannot create a company_invoices row (company_id is required).`);
+  if (!lead) throw new NonRetryableJobError(`GENERATE_INVOICE referenced lead_id ${leadId} which does not exist in leads.`, "INVALID_PAYLOAD");
+  if (!lead.company_id) throw new NonRetryableJobError(`Lead ${leadId} has no company_id — cannot create a company_invoices row (company_id is required).`, "INVALID_PAYLOAD");
 
   const items = normalizeInvoiceLineItems(result);
   if (items.length === 0) {
@@ -293,7 +472,7 @@ async function writeInvoicePersistence(job: AIJob, result: Record<string, unknow
     || (typeof lead.company_name === "string" && lead.company_name.trim())
     || null;
   if (!clientName) {
-    throw new Error(`Lead ${leadId} has neither contact_name nor company_name — cannot set the required client_name field.`);
+    throw new NonRetryableJobError(`Lead ${leadId} has neither contact_name nor company_name — cannot set the required client_name field.`, "INVALID_PAYLOAD");
   }
 
   const { count: existingCount } = await supabase
@@ -398,6 +577,204 @@ async function recordOutcome(job: AIJob, outcomeType: "completed" | "failed", re
   }
 }
 
+// GENERATE_PROPOSAL — REAL CAPABILITY PATH (production-fix pass, item 4).
+// Keeps the guard's spirit (never report completion without a real,
+// persisted business artifact) but replaces the blanket up-front rejection
+// with an attempt at the REAL capability: proposal-engine already exists,
+// already drafts a grounded proposal (scope/deliverables/unknowns, price
+// deliberately left UNKNOWN pending Founder approval — see its own header)
+// and already persists it as a client_projects row plus an approvals gate.
+// Reused here via an internal call (with an explicit lead_id target — see
+// proposal-engine's own lead_id-targeting addition, same pass) rather than
+// building a second proposal system inside ai-engine.
+//
+// Lifecycle: EXECUTING (call proposal-engine for this exact lead) ->
+// VERIFYING (independently re-query client_projects, never trust the HTTP
+// response alone) -> COMPLETED, or FAILED/BLOCKED with a recorded reason.
+const PROPOSAL_MIN_SCORE = 40; // must match proposal-engine's own qualification bar
+
+async function handleGenerateProposal(job: AIJob, cid: string): Promise<Record<string, unknown>> {
+  const leadId = job.payload?.lead_id;
+  if (typeof leadId !== "string" || !leadId) {
+    throw new NonRetryableJobError("GENERATE_PROPOSAL job has no payload.lead_id — nothing to draft a proposal for.", "INVALID_PAYLOAD");
+  }
+
+  const { data: lead, error: leadError } = await supabase
+    .from("leads")
+    .select("id, lead_score, is_active")
+    .eq("id", leadId)
+    .maybeSingle();
+  if (leadError) throw new Error(`Failed to look up lead ${leadId}: ${leadError.message}`);
+  if (!lead) throw new NonRetryableJobError(`GENERATE_PROPOSAL referenced lead_id ${leadId} which does not exist in leads.`, "INVALID_PAYLOAD");
+
+  if ((lead.lead_score ?? 0) < PROPOSAL_MIN_SCORE || lead.is_active === false) {
+    throw new NonRetryableJobError(
+      `Lead ${leadId} does not meet proposal-engine's qualification bar (lead_score ${lead.lead_score ?? 0} < ${PROPOSAL_MIN_SCORE}, is_active ${lead.is_active}) — not eligible for a proposal yet. Retrying will not change this until the lead's own score/status changes.`,
+      "NOT_ELIGIBLE",
+    );
+  }
+
+  // Idempotency: if a client_projects row already exists for this lead
+  // (this job's own prior retry, OR proposal-engine's independent hourly
+  // cron picking up the same lead first), the work is already done —
+  // verify and complete rather than re-drafting or erroring.
+  const { data: existingProject } = await supabase
+    .from("client_projects")
+    .select("id, title, status")
+    .eq("lead_id", leadId)
+    .maybeSingle();
+  if (existingProject) {
+    structuredLog("INFO", "GENERATE_PROPOSAL: client_projects row already exists for this lead (idempotent, no duplicate drafted)", { jobId: job.id, leadId, projectId: existingProject.id }, cid);
+    return { proposal_drafted: true, client_project_id: existingProject.id, title: existingProject.title, status: existingProject.status, price_policy: "UNKNOWN — Founder gate. Never guessed." };
+  }
+
+  const heartbeatSecret = Deno.env.get("HEARTBEAT_SECRET") ?? "";
+  if (!heartbeatSecret) {
+    throw new Error("HEARTBEAT_SECRET is not configured in this environment — cannot authenticate to proposal-engine.");
+  }
+
+  const response = await fetch(`${supabaseUrl}/functions/v1/proposal-engine`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-heartbeat-secret": heartbeatSecret },
+    body: JSON.stringify({ lead_id: leadId }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`proposal-engine call failed (${response.status}): ${text.slice(0, 300)}`);
+  }
+  const proposalResult = await response.json();
+
+  // VERIFICATION: a successful capability call is NOT automatic completion.
+  // Independently re-query client_projects rather than trusting the HTTP
+  // response body — see the kernel lifecycle's EXECUTING -> VERIFYING gate.
+  const { data: verifiedProject, error: verifyError } = await supabase
+    .from("client_projects")
+    .select("id, title, status")
+    .eq("lead_id", leadId)
+    .maybeSingle();
+  if (verifyError) throw new Error(`Verification query failed after calling proposal-engine: ${verifyError.message}`);
+  if (!verifiedProject) {
+    throw new Error(`proposal-engine responded ${JSON.stringify(proposalResult).slice(0, 200)} but no client_projects row exists for lead ${leadId} afterward — persistence did not actually happen.`);
+  }
+
+  structuredLog("INFO", "Real hand action: GENERATE_PROPOSAL created a real client_projects row via proposal-engine", { jobId: job.id, leadId, projectId: verifiedProject.id }, cid);
+  return {
+    proposal_drafted: true,
+    client_project_id: verifiedProject.id,
+    title: verifiedProject.title,
+    status: verifiedProject.status,
+    price_policy: "UNKNOWN — Founder gate. Never guessed.",
+  };
+}
+
+// SCHEDULE_MEETING — REAL CAPABILITY PATH (production-fix pass, item 5).
+// meeting-scheduler already exists, already writes real `meetings` rows via
+// its schedule_meeting action, and already integrates with Google Calendar
+// (OAuth or a read-only API key) where configured — see getAvailableSlots()
+// there. Reused as-is via an internal call rather than building a second
+// scheduling system.
+//
+// Ownership: this job pipeline has no independent way to decide which
+// consultant/rep should hold the meeting — leads.assigned_to is the only
+// signal for that in this schema. A lead with no assigned_to is a genuine
+// data-ownership gap (not something an LLM should guess at), so it is
+// BLOCKED, honestly, rather than assigning an arbitrary consultant.
+// Similarly, if meeting-scheduler reports no real calendar integration is
+// configured, this stops at AWAITING_INTEGRATION rather than fabricating a
+// success — see meeting-scheduler's calendarConfigured fix, same pass.
+async function handleScheduleMeeting(job: AIJob, cid: string): Promise<Record<string, unknown>> {
+  const leadId = job.payload?.lead_id;
+  if (typeof leadId !== "string" || !leadId) {
+    throw new NonRetryableJobError("SCHEDULE_MEETING job has no payload.lead_id — nothing to schedule a meeting for.", "INVALID_PAYLOAD");
+  }
+
+  const { data: lead, error: leadError } = await supabase
+    .from("leads")
+    .select("id, assigned_to")
+    .eq("id", leadId)
+    .maybeSingle();
+  if (leadError) throw new Error(`Failed to look up lead ${leadId}: ${leadError.message}`);
+  if (!lead) throw new NonRetryableJobError(`SCHEDULE_MEETING referenced lead_id ${leadId} which does not exist in leads.`, "INVALID_PAYLOAD");
+
+  if (!lead.assigned_to) {
+    throw new NonRetryableJobError(
+      `Lead ${leadId} has no assigned_to (consultant) — there is no way to determine who should hold this meeting. This is a data-ownership gap that must be fixed on the lead record, not guessed by this job.`,
+      "BLOCKED",
+    );
+  }
+
+  const { data: consultant, error: consultantError } = await supabase
+    .from("consultants")
+    .select("id")
+    .eq("id", lead.assigned_to)
+    .maybeSingle();
+  if (consultantError) throw new Error(`Failed to look up consultant ${lead.assigned_to}: ${consultantError.message}`);
+  if (!consultant) {
+    throw new NonRetryableJobError(`Lead ${leadId}'s assigned_to (${lead.assigned_to}) does not match any row in consultants.`, "INVALID_PAYLOAD");
+  }
+
+  // Idempotency: a meeting may already exist for this lead.
+  const { data: existingMeeting } = await supabase
+    .from("meetings")
+    .select("id, status, scheduled_at")
+    .eq("lead_id", leadId)
+    .maybeSingle();
+  if (existingMeeting) {
+    structuredLog("INFO", "SCHEDULE_MEETING: a meeting already exists for this lead (idempotent, no duplicate scheduled)", { jobId: job.id, leadId, meetingId: existingMeeting.id }, cid);
+    return { meeting_scheduled: true, meeting_id: existingMeeting.id, status: existingMeeting.status, scheduled_at: existingMeeting.scheduled_at };
+  }
+
+  const heartbeatSecret = Deno.env.get("HEARTBEAT_SECRET") ?? "";
+  if (!heartbeatSecret) {
+    throw new Error("HEARTBEAT_SECRET is not configured in this environment — cannot authenticate to meeting-scheduler.");
+  }
+
+  const response = await fetch(`${supabaseUrl}/functions/v1/meeting-scheduler`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-heartbeat-secret": heartbeatSecret },
+    body: JSON.stringify({ action: "schedule_meeting", lead_id: leadId, rm_id: lead.assigned_to }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`meeting-scheduler call failed (${response.status}): ${text.slice(0, 300)}`);
+  }
+  const schedulerResult = await response.json();
+
+  if (schedulerResult?.reason === "calendar_not_configured") {
+    // Never fake success — no real availability check was possible.
+    throw new NonRetryableJobError(
+      `meeting-scheduler could not perform a real calendar availability check for consultant ${lead.assigned_to}: ${schedulerResult.message ?? "calendar not configured"}`,
+      "AWAITING_INTEGRATION",
+    );
+  }
+  if (schedulerResult?.success !== true) {
+    // e.g. "No available slots found for RM" — plausibly transient (a
+    // future window may open up), bounded by the normal retry cap.
+    throw new Error(`meeting-scheduler did not schedule a meeting: ${schedulerResult?.message ?? JSON.stringify(schedulerResult).slice(0, 200)}`);
+  }
+
+  // VERIFICATION: independently re-query meetings rather than trusting the
+  // HTTP response body.
+  const { data: verifiedMeeting, error: verifyError } = await supabase
+    .from("meetings")
+    .select("id, status, scheduled_at")
+    .eq("lead_id", leadId)
+    .maybeSingle();
+  if (verifyError) throw new Error(`Verification query failed after calling meeting-scheduler: ${verifyError.message}`);
+  if (!verifiedMeeting) {
+    throw new Error(`meeting-scheduler reported success but no meetings row exists for lead ${leadId} afterward — persistence did not actually happen.`);
+  }
+
+  structuredLog("INFO", "Real hand action: SCHEDULE_MEETING created a real meetings row via meeting-scheduler", { jobId: job.id, leadId, meetingId: verifiedMeeting.id }, cid);
+  return {
+    meeting_scheduled: true,
+    meeting_id: verifiedMeeting.id,
+    status: verifiedMeeting.status,
+    scheduled_at: verifiedMeeting.scheduled_at,
+    available_slots_offered: Array.isArray(schedulerResult.available_slots) ? schedulerResult.available_slots.length : null,
+  };
+}
+
 async function checkRateLimit(agentId: string, cid: string): Promise<void> {
   const { data: rateRecord } = await supabase
     .from("agent_memory").select("id, content, last_accessed_at")
@@ -449,8 +826,43 @@ function validateGrounding(response: string, context: string, cid: string): void
   }
 }
 
+// TASK #23 — real capability dispatch for generic work_engine_task jobs.
+// company-os.ts's CAPABILITY_REGISTRY has 12 entries but work_engine_task's
+// prompt never told the model any of them existed, so 0/13 historical
+// work_engine_task jobs ever returned a capability field and 0 companyOsDispatch
+// records exist anywhere (confirmed via direct query before this change).
+// Only the two capabilities below are exposed: both are pure reads with zero
+// external side effects and zero cost (knowledge.search queries the vault;
+// research.status is an explicitly-free Apify token check per that engine's
+// own source comment). Every other registered capability was excluded after
+// inspection — research.run spends real Apify credits (excluded by its own
+// source comment: "should ... never [be triggered] automatically"),
+// whatsapp.send_message would message a real phone number with no legitimate
+// way for a generic work_engine_task to know an authorized recipient,
+// knowledge.ingest_document/ingest_all perform real writes, and
+// documents.process/approvals.check/accounting.record are all
+// verified:false in the registry (executeCapability() already refuses these).
+const WORK_ENGINE_CAPABILITIES_BLOCK = `
+You may optionally invoke ONE approved capability instead of only describing the task, when the task genuinely requires it. The ONLY capabilities available to you right now are:
+
+- "knowledge.search" — search the company knowledge vault for relevant documents/context.
+  Payload shape: { "query": "string (required)", "match_count"?: number, "brand_id"?: "string or null" }
+
+- "research.status" — check whether the research engine's external data connection is alive. This is a free check; it does not run or spend anything.
+  Payload shape: {} (no fields required)
+
+If the task genuinely maps to one of these two capabilities, respond with ONLY this JSON shape:
+{ "capability": "<exact name from the list above>", "payload": { ...matching the payload shape above... } }
+
+Rules:
+- Do NOT invent a capability name. Only the two names listed above are real and callable.
+- Do NOT claim the action has already happened or already succeeded. You are only requesting that it be attempted; whether it succeeds is determined after this response, not by you.
+- If the task does not genuinely map to one of these two capabilities, do NOT force a match — instead return your normal task-content JSON response, while remaining honest that no matching automated capability is available for this task.
+`;
+
 async function executeJob(job: AIJob, cid: string): Promise<Record<string, unknown>> {
   structuredLog("INFO", `Executing job ${job.id} (type: ${job.type})`, { jobId: job.id, agentId: job.agent_id }, cid);
+  const capabilityBlock = job.type === "work_engine_task" ? WORK_ENGINE_CAPABILITIES_BLOCK : "";
   if (job.agent_id) {
     await checkRateLimit(job.agent_id, cid);
     const { data: agent } = await supabase.from("ai_agents").select("*").eq("id", job.agent_id).single();
@@ -473,14 +885,20 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
       const invoiceSchemaBlock = job.type === "GENERATE_INVOICE"
         ? `\nThis is a GENERATE_INVOICE job. Respond with ONLY this JSON structure:\n\n{\n  "line_items": [\n    {\n      "description": "string",\n      "quantity": number,\n      "unit_price_inr": number\n    }\n  ]\n}\n\nRules:\n- Use only real payload/lead/brand data.\n- Never invent products, services, or amounts.\n- If no real billable data exists, return:\n{\n  "line_items": []\n}`
         : "";
-      const systemPrompt = `${agent.prompt}${groundedContext}${principlesBlock}\n\nYou will receive a job payload as JSON.\nExecute the task and respond with ONLY a valid JSON object.\nNo prose.\nNo markdown fences.\n${invoiceSchemaBlock}`;
+      const systemPrompt = `${agent.prompt}${groundedContext}${principlesBlock}\n\nYou will receive a job payload as JSON.\nExecute the task and respond with ONLY a valid JSON object.\nNo prose.\nNo markdown fences.\n${NO_FABRICATED_PERSISTENCE_BLOCK}\n${invoiceSchemaBlock}${capabilityBlock}`;
       const userContent = JSON.stringify({ type: job.type, payload: job.payload });
       // NOTE: any failure here THROWS. runJobs() records retry/failed with the real
       // error. It does NOT invent a result. This is the fix.
-      const llmResult = await callLLM(systemPrompt, userContent, "claude-3-haiku-20240307", cid);
+      // GENERATE_INVOICE gets a forced structured-output tool schema (see
+      // INVOICE_TOOL_SCHEMA) so Anthropic answers via tool_choice instead of
+      // free text that can carry trailing prose — the documented live
+      // failure ("Unexpected non-whitespace character after JSON at
+      // position 25"). Other job types are unaffected.
+      const llmResult = await callLLM(systemPrompt, userContent, cid, job.type === "GENERATE_INVOICE" ? INVOICE_TOOL_SCHEMA : undefined);
       await trackTokenUsage(agent.id, llmResult.model, llmResult.inputTokens, llmResult.outputTokens, llmResult.provider, cid);
-      const cleaned = llmResult.text.replace(/```json|```/g, "").trim();
-      const parsed = JSON.parse(cleaned);
+      const parsed = job.type === "GENERATE_INVOICE"
+        ? parseAndValidateInvoicePayload(llmResult.toolCall, llmResult.text)
+        : asJSONObject(extractJSONFromText(llmResult.text.replace(/```json|```/g, "").trim()), `Job ${job.id} (${job.type})`);
       validateGrounding(llmResult.text, `${systemPrompt}\n${userContent}`, cid);
       await supabase.from("ai_agents").update({ total_tasks_completed: (agent.total_tasks_completed ?? 0) + 1, last_active_at: new Date().toISOString() }).eq("id", agent.id);
       await supabase.from("agent_activity_log").insert({ agent_id: agent.id, activity_type: "task", title: `Completed: ${job.type}`, description: typeof parsed === "object" ? JSON.stringify(parsed).slice(0, 200) : String(parsed).slice(0, 200), job_id: job.id, metadata: { automated: true, tokens: { input: llmResult.inputTokens, output: llmResult.outputTokens } } });
@@ -493,18 +911,22 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
   // There is NO simulation fallback any more. If the LLM cannot run, the job FAILS.
   const principlesBlock = await getFounderPrinciplesBlock("ai-engine");
   const llmResult = await callLLM(
-    `You are an AI engine. Job type: ${job.type}. Respond with ONLY a valid JSON object. No prose, no markdown fences. Never invent data.${principlesBlock}`,
+    `You are an AI engine. Job type: ${job.type}. Respond with ONLY a valid JSON object. No prose, no markdown fences. Never invent data.\n${NO_FABRICATED_PERSISTENCE_BLOCK}${capabilityBlock}${principlesBlock}`,
     JSON.stringify({ type: job.type, payload: job.payload }),
-    "claude-3-haiku-20240307",
     cid,
+    job.type === "GENERATE_INVOICE" ? INVOICE_TOOL_SCHEMA : undefined,
   );
   await trackTokenUsage(null, llmResult.model, llmResult.inputTokens, llmResult.outputTokens, llmResult.provider, cid);
-  const cleaned = llmResult.text.replace(/```json|```/g, "").trim();
   try {
-    return JSON.parse(cleaned);
-  } catch {
-    // Even an unparseable response is a REAL FAILURE, not a placeholder.
-    throw new Error(`Job ${job.id} (${job.type}): LLM returned unparseable JSON. Raw: ${cleaned.slice(0, 200)}`);
+    return job.type === "GENERATE_INVOICE"
+      ? parseAndValidateInvoicePayload(llmResult.toolCall, llmResult.text)
+      : asJSONObject(extractJSONFromText(llmResult.text.replace(/```json|```/g, "").trim()), `Job ${job.id} (${job.type})`);
+  } catch (err) {
+    // Even an unparseable/invalid response is a REAL FAILURE, not a
+    // placeholder. Re-thrown with the job's own identity for the retry/
+    // failed path in runJobs() to log and persist.
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(`Job ${job.id} (${job.type}): ${detail}`);
   }
 }
 
@@ -515,16 +937,109 @@ async function queueJob(type: string, payload: Record<string, unknown>, agentId:
   return { job: data };
 }
 
-async function callLLM(systemPrompt: string, userContent: string, _preferredModel: string, cid: string): Promise<LLMResult> {
+// PROVIDER AVAILABILITY (production-fix pass, item 6): llm-router.ts is
+// deliberately stateless — see its own header comment — so it retries a
+// provider known to be unavailable (OpenAI has zero credits in this
+// deployment) on every single call, forever, at guaranteed-failure cost.
+// This is the cross-invocation memory the router intentionally doesn't own;
+// ai-engine (the caller) owns reading and updating it instead, against the
+// provider_health_state table (see migration 20260921130000). TTLs are
+// env-overridable, never a hardcoded "OpenAI is down" anywhere in code —
+// disable a provider by category-appropriate cooldown, not by name.
+const DEFAULT_HEALTH_TTL_MINUTES: Partial<Record<FailureCategory, number>> = {
+  credit_exhaustion: 360, // durable — won't fix itself; recheck a few times a day
+  authentication_failure: 360, // almost certainly a bad/missing key
+  provider_outage: 5,
+  timeout: 5,
+  rate_limit: 2,
+  // invalid_response / invalid_request are about THIS request's content, not
+  // the provider's availability — no persistent suppression for either.
+};
+
+export function getHealthTtlMinutes(category: FailureCategory): number {
+  const envKey = `PROVIDER_HEALTH_TTL_${category.toUpperCase()}_MIN`;
+  const override = Deno.env.get(envKey);
+  const parsed = override ? Number(override) : NaN;
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  return DEFAULT_HEALTH_TTL_MINUTES[category] ?? 0;
+}
+
+async function getUnavailableProviders(cid: string): Promise<Set<string>> {
+  try {
+    const { data, error } = await supabase
+      .from("provider_health_state")
+      .select("provider, unavailable_until")
+      .not("unavailable_until", "is", null)
+      .gt("unavailable_until", new Date().toISOString());
+    if (error) throw new Error(error.message);
+    return new Set((data ?? []).map((row) => row.provider as string));
+  } catch (err) {
+    // Health-state read failure must never block a real LLM call — fail
+    // open (try every configured provider) rather than fail closed.
+    structuredLog("WARN", "Failed to read provider_health_state (failing open — no providers suppressed)", { error: err instanceof Error ? err.message : String(err) }, cid);
+    return new Set();
+  }
+}
+
+async function updateProviderHealthFromAttempts(attempts: AttemptRecord[], cid: string): Promise<void> {
+  const now = new Date();
+  for (const attempt of attempts) {
+    try {
+      if (attempt.outcome === "success") {
+        await supabase.from("provider_health_state").upsert({
+          provider: attempt.provider, status: "available", failure_category: null, reason: null,
+          unavailable_until: null, consecutive_failures: 0, last_success_at: now.toISOString(), updated_at: now.toISOString(),
+        }, { onConflict: "provider" });
+        continue;
+      }
+      const category = attempt.failureCategory;
+      const ttlMinutes = category ? getHealthTtlMinutes(category) : 0;
+      if (ttlMinutes <= 0) continue; // this failure category doesn't imply the provider itself is unavailable
+      const unavailableUntil = new Date(now.getTime() + ttlMinutes * 60_000).toISOString();
+      const { data: existing } = await supabase.from("provider_health_state").select("consecutive_failures").eq("provider", attempt.provider).maybeSingle();
+      await supabase.from("provider_health_state").upsert({
+        provider: attempt.provider,
+        status: ttlMinutes >= 60 ? "unavailable" : "degraded",
+        failure_category: category,
+        reason: `${category} at ${now.toISOString()}, model ${attempt.model}`,
+        unavailable_until: unavailableUntil,
+        consecutive_failures: ((existing?.consecutive_failures as number) ?? 0) + 1,
+        last_failure_at: now.toISOString(),
+        updated_at: now.toISOString(),
+      }, { onConflict: "provider" });
+    } catch (err) {
+      // Same fail-open principle: health-state bookkeeping is telemetry, not
+      // a gate — it must never throw and break the job it's observing.
+      structuredLog("WARN", "Failed to update provider_health_state (non-blocking)", { provider: attempt.provider, error: err instanceof Error ? err.message : String(err) }, cid);
+    }
+  }
+}
+
+async function callLLM(systemPrompt: string, userContent: string, cid: string, toolSchema?: unknown): Promise<LLMResult> {
+  const unavailable = await getUnavailableProviders(cid);
+  const allProviders = buildDefaultRouterConfig();
+  const candidateProviders = allProviders.providers.filter((p) => !unavailable.has(p.name));
+  // Fail OPEN if suppression would remove every candidate — an honest
+  // real-provider failure beats a router that can never call anyone. Keep
+  // Anthropic available: in practice this only ever trims a provider with
+  // zero remaining candidates (e.g. OpenAI alone configured and suppressed).
+  const config = { ...allProviders, providers: candidateProviders.length > 0 ? candidateProviders : allProviders.providers };
+  if (unavailable.size > 0) {
+    structuredLog("INFO", "Provider health gate suppressed candidates for this call", { suppressed: [...unavailable], remaining: config.providers.map((p) => p.name) }, cid);
+  }
+
   const result = await routedCallLLM(
     {
       systemPrompt,
       userContent,
+      toolSchema,
       functionName: "ai-engine",
       functionClass: "background_agent",
     },
-    buildDefaultRouterConfig(),
+    config,
   );
+
+  await updateProviderHealthFromAttempts(result.log.attempts, cid);
 
   if (result.status !== "success") {
     structuredLog("ERROR", "LLM call failed via router", { status: result.status, log: result.log }, cid);
@@ -538,6 +1053,7 @@ async function callLLM(systemPrompt: string, userContent: string, _preferredMode
   if (result.log.attempted_providers.length > 1) {
     structuredLog("INFO", "LLM provider fallback succeeded", {
       successful_provider: result.log.successful_provider,
+      successful_model: result.log.successful_model,
       attempted_providers: result.log.attempted_providers,
       failure_reason: result.log.failure_reason,
       functionName: "ai-engine",
@@ -545,10 +1061,16 @@ async function callLLM(systemPrompt: string, userContent: string, _preferredMode
   }
 
   const provider = (result.log.successful_provider ?? "anthropic") as TokenPricingProvider;
-  const model = provider === "anthropic" ? "claude-3-haiku-20240307" : "gpt-4o-mini";
+  // TELEMETRY FIX (production-fix pass, item 1): the model is whatever the
+  // router says actually answered — never re-derived from `provider` here.
+  // This is the exact bug that mislabeled every anthropic call as the
+  // deprecated "claude-3-haiku-20240307" while claude-haiku-4-5-20251001 was
+  // the model actually being billed and answering.
+  const model = result.model ?? result.log.successful_model ?? "unknown";
 
   return {
     text: result.content ?? "",
+    toolCall: result.toolCall,
     inputTokens: result.log.token_usage?.input ?? 0,
     outputTokens: result.log.token_usage?.output ?? 0,
     model,
@@ -567,7 +1089,7 @@ async function chatWithAgent(agentId: string, message: string, cid: string) {
   const systemPrompt = `${agent.prompt}${principlesBlock}\n\nRespond conversationally as this agent would to your human manager at Franchisee Kart. Be concise and concrete. Never invent data — if you do not know, say so.`;
   const userContent = historyText ? `${historyText}\n\nUser: ${message}` : message;
   // A chat failure is reported as a failure. It is NOT answered with a fabrication.
-  const llmResult = await callLLM(systemPrompt, userContent, "claude-3-haiku-20240307", cid);
+  const llmResult = await callLLM(systemPrompt, userContent, cid);
   await trackTokenUsage(agentId, llmResult.model, llmResult.inputTokens, llmResult.outputTokens, llmResult.provider, cid);
   const responseText = llmResult.text;
   validateGrounding(responseText, `${systemPrompt}\n${userContent}`, cid);
@@ -577,11 +1099,43 @@ async function chatWithAgent(agentId: string, message: string, cid: string) {
   return { conversation };
 }
 
+const MAX_RETRY_ATTEMPTS = 3;
+
+// STARVATION FIX (2026-09-21): a strict `ORDER BY created_at ASC` fetch lets
+// an old backlog of never-succeeding jobs (retry_count > 0, resurrected by
+// job-scheduler's claimEligibleRetryJobs after months dormant) permanently
+// outrank brand-new work, since resurrected retries keep their original,
+// older created_at forever. Observed live: 1,690 retry-status jobs dating to
+// July/August starved two same-day autonomy-test jobs across 5+ consecutive
+// 10-minute cron ticks. Fix: reserve part of each batch for jobs that have
+// never failed yet (retry_count = 0), so new work always gets a turn
+// regardless of how large the historical backlog is. This does not change
+// retry/exhaustion semantics (MAX_RETRY_ATTEMPTS below is untouched) — it
+// only changes fetch fairness.
+const FRESH_JOB_RESERVED_SLOTS = 5;
+const BACKLOG_JOB_SLOTS = 5;
+
+async function fetchJobBatch(cid: string): Promise<AIJob[]> {
+  const { data: freshJobs, error: freshError } = await supabase
+    .from("ai_jobs").select("*").eq("status", "pending").eq("retry_count", 0)
+    .order("created_at", { ascending: true }).limit(FRESH_JOB_RESERVED_SLOTS);
+  if (freshError) throw new Error(`Failed to fetch fresh jobs: ${freshError.message}`);
+  const { data: backlogJobs, error: backlogError } = await supabase
+    .from("ai_jobs").select("*").eq("status", "pending").gt("retry_count", 0)
+    .order("created_at", { ascending: true }).limit(BACKLOG_JOB_SLOTS);
+  if (backlogError) throw new Error(`Failed to fetch backlog jobs: ${backlogError.message}`);
+  const seen = new Set<string>();
+  const combined: AIJob[] = [];
+  for (const job of [...(freshJobs ?? []), ...(backlogJobs ?? [])]) {
+    if (!seen.has(job.id)) { seen.add(job.id); combined.push(job); }
+  }
+  structuredLog("INFO", "Fetched job batch", { fresh: freshJobs?.length ?? 0, backlog: backlogJobs?.length ?? 0 }, cid);
+  return combined;
+}
+
 async function runJobs(cid: string) {
   structuredLog("INFO", "Running pending jobs", {}, cid);
-  const { data: pendingJobs, error: fetchError } = await supabase.from("ai_jobs").select("*").eq("status", "pending").order("created_at", { ascending: true }).limit(10);
-  if (fetchError) { structuredLog("ERROR", "Failed to fetch jobs", { error: fetchError.message }, cid); throw new Error(`Failed to fetch jobs: ${fetchError.message}`); }
-  const jobs: AIJob[] = pendingJobs ?? [];
+  const jobs: AIJob[] = await fetchJobBatch(cid);
   const results: Array<{ job_id: string; status: string; result?: Record<string, unknown>; error?: string }> = [];
   for (const job of jobs) {
     // PHASE 0.1: these types cannot complete honestly via this generic runner
@@ -591,50 +1145,93 @@ async function runJobs(cid: string) {
     if (NO_PERSISTENCE_JOB_TYPES.has(job.type)) {
       const errorMessage = noPersistenceError(job.type);
       structuredLog("ERROR", `Job ${job.id} rejected: no persistence path for type ${job.type}`, { jobId: job.id, type: job.type }, cid);
-      await supabase.from("ai_jobs").update({ status: "failed", updated_at: new Date().toISOString(), result: { error: errorMessage } }).eq("id", job.id);
+      await supabase.from("ai_jobs").update({ status: "failed", updated_at: new Date().toISOString(), result: { error: errorMessage }, error: errorMessage }).eq("id", job.id);
       await recordOutcome(job, "failed", { error: errorMessage }, `${job.type} rejected: no persistence path exists yet.`, cid);
       results.push({ job_id: job.id, status: "failed", error: errorMessage });
       continue;
     }
-    const { error: runningError } = await supabase.from("ai_jobs").update({ status: "running", updated_at: new Date().toISOString() }).eq("id", job.id);
+
+    // DUPLICATE-RETRY PREVENTION (production-fix pass, item 3): claim the
+    // job atomically by conditioning the UPDATE on status still being
+    // 'pending'. If a concurrent invocation (an overlapping cron tick, or
+    // job-scheduler and the direct ai-engine-run-jobs-5min cron racing each
+    // other) already claimed it, this UPDATE affects zero rows and .select()
+    // returns nothing — skip rather than double-process the same job.
+    const { data: claimed, error: runningError } = await supabase
+      .from("ai_jobs")
+      .update({ status: "running", updated_at: new Date().toISOString() })
+      .eq("id", job.id)
+      .eq("status", "pending")
+      .select()
+      .maybeSingle();
     if (runningError) { results.push({ job_id: job.id, status: "error", error: runningError.message }); continue; }
+    if (!claimed) {
+      structuredLog("INFO", `Job ${job.id} already claimed by another invocation — skipping`, { jobId: job.id }, cid);
+      continue;
+    }
+
     try {
-      const result = await executeJob(job, cid);
-      // A result that reports its own failure is a failure, not completed
-      // work — route it through the same honest retry/failed path below
-      // instead of writing status='completed' over an error the model
-      // already told us about.
-      const failureReason = resultReportsFailure(result);
-      if (failureReason) throw new Error(`Job reported its own failure: ${failureReason}`);
-      // HANDS: for job types with a real, built persistence target, the write
-      // must succeed for this to be honestly "completed" — see
-      // writeLeadQualificationBack() above. A throw here routes into the same
-      // honest failure path below, exactly like any other real failure.
-      if (job.type === "QUALIFY_LEAD") {
-        await writeLeadQualificationBack(job, result, cid);
+      let result: Record<string, unknown>;
+      // GENERATE_PROPOSAL / SCHEDULE_MEETING (items 4/5): real capability
+      // calls to proposal-engine / meeting-scheduler, each with its own
+      // verification step — never ai-engine's own generic LLM-guesses-JSON
+      // path, which has no way to persist either artifact.
+      if (job.type === "GENERATE_PROPOSAL") {
+        result = await handleGenerateProposal(job, cid);
+      } else if (job.type === "SCHEDULE_MEETING") {
+        result = await handleScheduleMeeting(job, cid);
+      } else {
+        result = await executeJob(job, cid);
+        // A result that reports its own failure is a failure, not completed
+        // work — route it through the same honest retry/failed path below
+        // instead of writing status='completed' over an error the model
+        // already told us about.
+        const failureReason = resultReportsFailure(result);
+        if (failureReason) throw new Error(`Job reported its own failure: ${failureReason}`);
+        // HANDS: for job types with a real, built persistence target, the write
+        // must succeed for this to be honestly "completed" — see
+        // writeLeadQualificationBack() above. A throw here routes into the same
+        // honest failure path below, exactly like any other real failure.
+        if (job.type === "QUALIFY_LEAD") {
+          await writeLeadQualificationBack(job, result, cid);
+        }
+        if (job.type === "GENERATE_INVOICE") {
+          const invoice = await writeInvoicePersistence(job, result, cid);
+          await writeExecutionLogEvidence(
+            job, "generate_invoice",
+            "success",
+            `job ${job.id}, lead_id ${job.payload?.lead_id}`,
+            `company_invoices row ${invoice.id} (${invoice.invoice_number}), total_inr ${invoice.total_inr}`,
+            cid,
+          );
+        }
       }
-      if (job.type === "GENERATE_INVOICE") {
-        const invoice = await writeInvoicePersistence(job, result, cid);
-        await writeExecutionLogEvidence(
-          job, "generate_invoice",
-          "success",
-          `job ${job.id}, lead_id ${job.payload?.lead_id}`,
-          `company_invoices row ${invoice.id} (${invoice.invoice_number}), total_inr ${invoice.total_inr}`,
-          cid,
-        );
-      }
-      const { error: completeError } = await supabase.from("ai_jobs").update({ status: "completed", result, updated_at: new Date().toISOString() }).eq("id", job.id);
+      const { error: completeError } = await supabase.from("ai_jobs").update({ status: "completed", result, updated_at: new Date().toISOString(), error: null }).eq("id", job.id);
       if (completeError) throw new Error(completeError.message);
       await recordOutcome(job, "completed", result, `${job.type} completed.`, cid);
       results.push({ job_id: job.id, status: "completed", result });
     } catch (err) {
-      // HONEST FAILURE PATH. The job is marked retry/failed with the REAL error.
-      // Nothing is invented to keep the queue looking productive.
+      // HONEST FAILURE PATH. The job is marked retry/failed with the REAL
+      // error and a recorded, categorized reason. Nothing is invented to
+      // keep the queue looking productive.
+      const isNonRetryable = err instanceof NonRetryableJobError;
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
       const newRetryCount = (job.retry_count ?? 0) + 1;
-      const newStatus = newRetryCount < 3 ? "retry" : "failed";
-      structuredLog("ERROR", `Job ${job.id} failed`, { error: errorMessage, retryCount: newRetryCount, newStatus }, cid);
-      await supabase.from("ai_jobs").update({ status: newStatus, retry_count: newRetryCount, updated_at: new Date().toISOString(), result: { error: errorMessage } }).eq("id", job.id);
+      // Non-retryable errors stop retrying immediately, regardless of
+      // retry_count — a structural/business failure (missing payload data,
+      // a precondition that isn't met, a missing integration) will fail
+      // identically on every future attempt, so burning through the retry
+      // budget on it only delays an honest terminal status.
+      const newStatus = isNonRetryable || newRetryCount >= MAX_RETRY_ATTEMPTS ? "failed" : "retry";
+      const disposition = isNonRetryable ? (err as NonRetryableJobError).disposition : (newStatus === "failed" ? "RETRY_EXHAUSTED" : "RETRYING");
+      structuredLog(isNonRetryable ? "WARN" : "ERROR", `Job ${job.id} failed`, { error: errorMessage, retryCount: newRetryCount, newStatus, disposition, nonRetryable: isNonRetryable }, cid);
+      await supabase.from("ai_jobs").update({
+        status: newStatus,
+        retry_count: newRetryCount,
+        updated_at: new Date().toISOString(),
+        error: errorMessage,
+        result: { error: errorMessage, kernel_disposition: disposition, retryable: !isNonRetryable, retry_count: newRetryCount },
+      }).eq("id", job.id);
       if (job.type === "GENERATE_INVOICE") {
         await writeExecutionLogEvidence(
           job, "generate_invoice",
@@ -645,7 +1242,7 @@ async function runJobs(cid: string) {
         );
       }
       if (newStatus === "failed") {
-        await recordOutcome(job, "failed", { error: errorMessage }, `${job.type} failed after ${newRetryCount} attempt(s): ${errorMessage}`, cid);
+        await recordOutcome(job, "failed", { error: errorMessage, kernel_disposition: disposition }, `${job.type} failed after ${newRetryCount} attempt(s), disposition ${disposition}: ${errorMessage}`, cid);
       }
       results.push({ job_id: job.id, status: newStatus, error: errorMessage });
     }

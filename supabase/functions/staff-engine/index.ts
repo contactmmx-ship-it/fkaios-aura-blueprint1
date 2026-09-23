@@ -5,8 +5,22 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // SPRINT 4 (M1-S4): Chief Of Staff now routes its LLM call through the
 // canonical Founder Brain instead of its own local llmFetch/callClaudeJSON.
-import { reason as founderBrainReason } from '../_shared/founder-brain.ts';
+import { reason as founderBrainReason, getFounderPrinciples } from '../_shared/founder-brain.ts';
 
+// REGRESSION FIX (caught before this migration's first deploy): the pre-Sprint-4
+// live version built a founder-principles block into every Chief of Staff report
+// via a local getFounderPrinciplesBlock() helper. The Sprint 4 rewrite dropped it
+// entirely when switching to founderBrainReason() -- founder-brain.ts already
+// exports the identical applies_to-filtered query as getFounderPrinciples(), so
+// this restores the same grounding through the canonical Brain instead of a
+// second local query.
+async function getFounderPrinciplesBlock(agentName: string): Promise<string> {
+  try {
+    const principles = await getFounderPrinciples(agentName);
+    if (principles.length === 0) return '';
+    return `\n\n=== FOUNDER OPERATING PRINCIPLES (non-negotiable — apply these to every response below) ===\n${principles.map((p) => `- ${p.principle}`).join('\n')}\n=== END FOUNDER OPERATING PRINCIPLES ===`;
+  } catch { return ''; }
+}
 
 const corsHeaders = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey, X-Correlation-ID' };
 function cid(): string { return crypto.randomUUID().slice(0, 8); }
@@ -89,8 +103,9 @@ Deno.serve(async (req) => {
       ? `${dispatches.length} agent actions ran (${dispatches.filter((d) => d.status === 'completed').length} completed, ${dispatches.filter((d) => d.status === 'failed').length} failed)`
       : 'No agent actions logged in this period';
 
+    const principlesBlock = await getFounderPrinciplesBlock('staff-engine');
     const result = await callClaudeJSON<{ content: string; priorities: string[] }>(
-      `You are the Chief of Staff AI at Franchise Kart, writing a ${reportType} founder briefing${brand ? ` for the brand "${brand.name}"` : ' covering the whole company'}. Be direct, concise, and grounded only in the real data given — no invented numbers. If a section has no data, say so plainly rather than padding.\n\nRespond with ONLY valid JSON: {"content": string (the briefing, 4-6 sentences), "priorities": string[] (3-5 concrete next actions)}`,
+      `You are the Chief of Staff AI at Franchise Kart, writing a ${reportType} founder briefing${brand ? ` for the brand "${brand.name}"` : ' covering the whole company'}. Be direct, concise, and grounded only in the real data given — no invented numbers. If a section has no data, say so plainly rather than padding.\n\nRespond with ONLY valid JSON: {"content": string (the briefing, 4-6 sentences), "priorities": string[] (3-5 concrete next actions)}${principlesBlock}`,
       `New leads in period: ${leadsCtx}\nDecisions scored: ${decisionsCtx}\nBusiness ideas evaluated: ${ideasCtx}\nAgent automation activity: ${dispatchSummary}`
     );
 

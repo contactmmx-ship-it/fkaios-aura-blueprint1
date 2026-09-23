@@ -46,6 +46,40 @@ export interface PlanResult {
   error?: string;
 }
 
+// ROBUST JSON EXTRACTION (V1 mandate Task #20 finding): the original naive
+// `JSON.parse(decomposition.text)` below only succeeded when the model
+// returned bare JSON with no markdown fence — the same failure mode already
+// found and fixed once this session in objective-loop.ts's
+// evaluateObjective(). Live evidence from the V1 end-to-end test: the
+// planner's own reason() call succeeded (confirmed via
+// agent_performance_metrics), but planObjective() still returned
+// projectId=null every cycle, silently (no console.error, no execution_log
+// write) — an objective could replan forever without ever producing a
+// project. Same progressively-looser extraction as evaluateObjective's,
+// applied to an array shape instead of an object.
+function extractJsonArray(raw: string): unknown[] | null {
+  const trimmed = raw.trim();
+  const candidates = [
+    trimmed,
+    trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim(),
+  ];
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (Array.isArray(parsed)) return parsed;
+    } catch { /* try the next candidate */ }
+  }
+  const start = trimmed.indexOf("[");
+  const end = trimmed.lastIndexOf("]");
+  if (start >= 0 && end > start) {
+    try {
+      const parsed = JSON.parse(trimmed.slice(start, end + 1));
+      if (Array.isArray(parsed)) return parsed;
+    } catch { /* fall through to null below */ }
+  }
+  return null;
+}
+
 // ── Break an objective into a project + executable tasks ───────────────
 // This is the step Sprint 2c/3's cognitiveTick never had: it created an
 // objective (orchestrator_requests row) and stopped. Executive Planner
@@ -63,11 +97,9 @@ export async function planObjective(objective: Objective, correlationId?: string
     correlationId,
   );
 
-  let taskDrafts: Array<{ title: string; description: string }> = [];
-  try {
-    const parsed = JSON.parse(decomposition.text);
-    if (Array.isArray(parsed)) taskDrafts = parsed;
-  } catch {
+  const parsedArray = extractJsonArray(decomposition.text);
+  const taskDrafts: Array<{ title: string; description: string }> = parsedArray ?? [];
+  if (!parsedArray) {
     // Honest failure — no fabricated tasks if the model didn't return clean JSON.
     return { projectId: null, tasksCreated: 0, error: "planner could not parse a task breakdown" };
   }

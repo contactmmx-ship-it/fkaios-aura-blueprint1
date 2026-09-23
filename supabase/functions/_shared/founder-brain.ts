@@ -43,6 +43,7 @@
 // ============================================================================
 
 import { createClient, SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
+import { callLLM as routedCallLLM, buildDefaultRouterConfig, type ProviderName } from "./llm-router.ts";
 
 // ──────────────────────────────────────────────
 // Client
@@ -91,97 +92,63 @@ export interface FounderContext {
 
 // ──────────────────────────────────────────────
 // reason() — the ONE LLM call path.
-// Anthropic (claude-sonnet-4-6) -> Gemini (2.5-flash) -> OpenAI (gpt-4o-mini)
+//
+// CONSOLIDATION (Master Engineering Mandate Section 9, "one reasoning
+// path... provider routing underneath"): this used to be its own hardcoded
+// 3-provider fallback chain (Anthropic -> Gemini -> OpenAI), duplicating
+// _shared/llm-router.ts's failure classification, retry/timeout policy, and
+// structured attempt logging in a second, unmaintained implementation.
+// Provider routing/fallback now lives ONLY in llm-router.ts; this function
+// is the Brain's thin, stable calling convention on top of it —
+// functionClass: "founder_intelligence" gets the quality-tier model per
+// provider (see llm-router.ts's *_CLASS_DEFAULTS constants) with zero
+// configuration required, matching this function's own historical
+// hardcoded models (claude-sonnet-4-6 / gemini-2.5-flash / gpt-4o-mini)
+// exactly — a consolidation, not a silent downgrade.
+//
+// The only supported providers in FounderBrain's own LLMResult.provider
+// type are anthropic/gemini/openai (unchanged); llm-router.ts's default
+// config never configures deepseek/glm adapters, so successful_provider is
+// guaranteed to be one of the three in practice — mapped defensively below
+// rather than assumed.
 // ──────────────────────────────────────────────
+function toFounderBrainProvider(name: ProviderName): "anthropic" | "gemini" | "openai" {
+  return name === "gemini" || name === "openai" ? name : "anthropic";
+}
+
 async function reasonCore(
   systemPrompt: string,
   userContent: string,
   maxTokens = 1500,
   correlationId: string = cid(),
 ): Promise<LLMResult> {
-  const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-  const geminiKey = Deno.env.get("GEMINI_API_KEY") ?? "";
-  const openaiKey = Deno.env.get("OPENAI_API_KEY") ?? "";
+  const result = await routedCallLLM(
+    {
+      systemPrompt,
+      userContent,
+      maxTokens,
+      functionName: "founder-brain",
+      functionClass: "founder_intelligence",
+    },
+    buildDefaultRouterConfig(),
+  );
 
-  if (anthropicKey) {
-    try {
-      const model = "claude-sonnet-4-6";
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "x-api-key": anthropicKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-        body: JSON.stringify({ model, max_tokens: maxTokens, system: systemPrompt, messages: [{ role: "user", content: userContent }] }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return {
-          text: data?.content?.[0]?.text ?? "",
-          inputTokens: data?.usage?.input_tokens ?? 0,
-          outputTokens: data?.usage?.output_tokens ?? 0,
-          model,
-          provider: "anthropic",
-        };
-      }
-      log("ERROR", "Anthropic call failed, trying Gemini", { status: res.status }, correlationId);
-    } catch (err) {
-      log("ERROR", "Anthropic fetch threw, trying Gemini", { error: err instanceof Error ? err.message : String(err) }, correlationId);
-    }
+  if (result.status !== "success") {
+    log("ERROR", "reasonCore: all configured LLM providers failed", { status: result.status, failureReason: result.log.failure_reason }, correlationId);
+    throw new Error(`Founder Brain: no LLM provider succeeded (${result.log.failure_reason ?? "unknown reason"}). Verify ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY secrets.`);
   }
 
-  if (geminiKey) {
-    try {
-      const contents = [{ role: "user", parts: [{ text: userContent }] }];
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
-        {
-          method: "POST",
-          headers: { "x-goog-api-key": geminiKey, "content-type": "application/json" },
-          body: JSON.stringify({
-            ...(systemPrompt ? { systemInstruction: { parts: [{ text: systemPrompt }] } } : {}),
-            contents,
-            generationConfig: { maxOutputTokens: maxTokens + 256 },
-          }),
-        },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const text = (data.candidates?.[0]?.content?.parts ?? []).map((p: { text?: string }) => p.text ?? "").join("");
-        return { text, inputTokens: 0, outputTokens: 0, model: "gemini-2.5-flash", provider: "gemini" };
-      }
-      log("ERROR", "Gemini call failed, trying OpenAI", { status: res.status }, correlationId);
-    } catch (err) {
-      log("ERROR", "Gemini fetch threw, trying OpenAI", { error: err instanceof Error ? err.message : String(err) }, correlationId);
-    }
+  if (result.log.attempted_providers.length > 1) {
+    log("INFO", "reasonCore: provider fallback succeeded", { attempted: result.log.attempted_providers, successful: result.log.successful_provider, model: result.model }, correlationId);
   }
 
-  if (openaiKey) {
-    try {
-      const model = "gpt-4o-mini";
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${openaiKey}`, "content-type": "application/json" },
-        body: JSON.stringify({
-          model,
-          max_tokens: maxTokens,
-          messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userContent }],
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return {
-          text: data?.choices?.[0]?.message?.content ?? "",
-          inputTokens: data?.usage?.prompt_tokens ?? 0,
-          outputTokens: data?.usage?.completion_tokens ?? 0,
-          model,
-          provider: "openai",
-        };
-      }
-      log("ERROR", "OpenAI call failed — all providers exhausted", { status: res.status }, correlationId);
-    } catch (err) {
-      log("ERROR", "OpenAI fetch threw — all providers exhausted", { error: err instanceof Error ? err.message : String(err) }, correlationId);
-    }
-  }
-
-  throw new Error("Founder Brain: no LLM provider succeeded (checked Anthropic, Gemini, OpenAI). Verify ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY secrets.");
+  return {
+    text: result.content ?? "",
+    inputTokens: result.log.token_usage?.input ?? 0,
+    outputTokens: result.log.token_usage?.output ?? 0,
+    model: result.model ?? result.log.successful_model ?? "unknown",
+    provider: toFounderBrainProvider((result.log.successful_provider ?? "anthropic") as ProviderName),
+  };
 }
 
 // ──────────────────────────────────────────────
@@ -1281,14 +1248,56 @@ export async function simulateStrategies(userId: string, situation: string, coun
     correlationId,
   );
 
+  // ROBUST JSON EXTRACTION (objective-loop reconciliation): models don't
+  // reliably return bare JSON — fenced ```json blocks and JSON embedded in
+  // surrounding prose are both common. Tries progressively looser
+  // extraction (raw -> stripped fences -> first [...] substring) before
+  // giving up, rather than discarding every strategy on the first
+  // JSON.parse failure. Every candidate is then validated field-by-field
+  // and scores clamped to the documented 1-10 range — a strategy with a
+  // malformed or out-of-range score is dropped or corrected, never passed
+  // through to sorting/selection with a garbage value.
   let strategies: Strategy[] = [];
-  try {
-    const parsed = JSON.parse(gen.text);
-    if (Array.isArray(parsed)) strategies = parsed;
-  } catch {
-    // Honest fallback — no fabricated strategies if parsing fails.
-    return { selected: null, rejected: [] };
+  const raw = gen.text.trim();
+  const candidates = [
+    raw,
+    raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim(),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (Array.isArray(parsed)) {
+        strategies = parsed;
+        break;
+      }
+    } catch { /* try the next candidate */ }
   }
+
+  if (strategies.length === 0) {
+    const start = raw.indexOf("[");
+    const end = raw.lastIndexOf("]");
+    if (start >= 0 && end > start) {
+      try {
+        const parsed = JSON.parse(raw.slice(start, end + 1));
+        if (Array.isArray(parsed)) strategies = parsed;
+      } catch { /* honest fallback below */ }
+    }
+  }
+
+  strategies = strategies
+    .filter((s) =>
+      !!s &&
+      typeof s === "object" &&
+      typeof s.description === "string" &&
+      s.description.trim().length > 0 &&
+      typeof s.predictedOutcome === "string" &&
+      Number.isFinite(Number(s.score)))
+    .map((s) => ({
+      description: s.description.trim(),
+      predictedOutcome: s.predictedOutcome.trim(),
+      score: Math.max(1, Math.min(10, Number(s.score))),
+    }));
 
   if (strategies.length === 0) return { selected: null, rejected: [] };
   const sorted = [...strategies].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
@@ -1350,7 +1359,17 @@ export interface TickResult {
   learnedFromPast: number;
   predicted: string;
   goalEvaluation: string;
-  decision: "act" | "wait";
+  // DECISION WITHHELD SAFETY (Master Engineering Mandate, Section 11): "wait"
+  // means the Brain judged there is nothing worth doing — a confident
+  // conclusion. "withheld" means the Brain could not responsibly reach
+  // act/wait at all — missing/insufficient context, or the reasoning call
+  // itself failed. These were previously collapsed into a single silent
+  // "wait", which is a fabricated-confidence bug: a cycle that couldn't
+  // actually evaluate anything looked identical, from the outside, to one
+  // that deliberately concluded there was nothing to do. See
+  // decisionWithheldReason for why, whenever decision === "withheld".
+  decision: "act" | "wait" | "withheld";
+  decisionWithheldReason: string | null;
   strategySelected: Strategy | null;
   strategiesRejected: number;
   assessedRisk: RiskLevel | null;
@@ -1431,18 +1450,34 @@ export async function cognitiveTick(userId: string): Promise<TickResult> {
   }
 
   // 6. DECIDE — now informed by thought + prediction + goal evaluation.
-  let decision: "act" | "wait" = "wait";
+  // DECISION WITHHELD SAFETY: "withheld" is a real third answer, not a
+  // fallback label applied after the fact — the model is explicitly told to
+  // use it when the evidence doesn't support a confident act/wait call, so
+  // the Brain admits uncertainty instead of guessing. An empty `thought`
+  // (nothing was observed this cycle) and a failed reasoning call are both
+  // "withheld" with a distinct, honest reason — never silently "wait",
+  // which would misrepresent "couldn't evaluate" as "evaluated, nothing to
+  // do".
+  let decision: "act" | "wait" | "withheld" = "withheld";
+  let decisionWithheldReason: string | null = thought ? null : "no observation this cycle to reason from";
   if (thought) {
     try {
       const d = await reason(
-        "You decide, in ONE word, whether to ACT or WAIT. Answer ONLY 'act' or 'wait'. Act only if there's a concrete gap worth a real task AND it's relevant to the goal hierarchy below.",
+        "You decide, in ONE word, whether to ACT, WAIT, or WITHHOLD. Answer ONLY 'act', 'wait', or 'withhold'. Act only if there's a concrete gap worth a real task AND it's relevant to the goal hierarchy below. Wait only if you are confident there is genuinely nothing worth doing right now. Withhold if the observation, prediction, or goal relevance below is too thin, ambiguous, or contradictory to responsibly choose act or wait — never guess to avoid answering withhold.",
         `OBSERVATION:\n${thought}\n\nPREDICTED OUTCOME IF ACTED ON:\n${predicted}\n\nGOAL RELEVANCE:\n${goalEvaluation}`,
         10,
         correlationId,
       );
-      decision = d.text.trim().toLowerCase().startsWith("act") ? "act" : "wait";
+      const word = d.text.trim().toLowerCase();
+      if (word.startsWith("act")) { decision = "act"; decisionWithheldReason = null; }
+      else if (word.startsWith("wait")) { decision = "wait"; decisionWithheldReason = null; }
+      else if (word.startsWith("withhold")) { decision = "withheld"; decisionWithheldReason = "Brain judged the evidence insufficient to responsibly choose act or wait"; }
+      else { decision = "withheld"; decisionWithheldReason = `unparseable decide response: "${d.text.slice(0, 200)}"`; }
     } catch (err) {
-      log("ERROR", "cycle: decide failed", { error: err instanceof Error ? err.message : String(err) }, correlationId);
+      const msg = err instanceof Error ? err.message : String(err);
+      log("ERROR", "cycle: decide failed", { error: msg }, correlationId);
+      decision = "withheld";
+      decisionWithheldReason = `decide reasoning call failed: ${msg}`;
     }
   }
 
@@ -1551,12 +1586,12 @@ export async function cognitiveTick(userId: string): Promise<TickResult> {
   try {
     await founderMemory.episodic.append({
       function_name: "founder-brain-tick", action: "cognitive_cycle", status: "success",
-      output_summary: `observed=${observed} decision=${decision} dept=${assignedDepartment} assigned=${!!assigned} reviewed=${reviewedCount} improved=${!!improved}`.slice(0, 300),
+      output_summary: `observed=${observed} decision=${decision}${decision === "withheld" ? ` (${decisionWithheldReason})` : ""} dept=${assignedDepartment} assigned=${!!assigned} reviewed=${reviewedCount} improved=${!!improved}`.slice(0, 300),
     });
   } catch { /* non-blocking */ }
 
   return {
-    observed, thought, imagined, learnedFromPast: pastOutcomes.length, predicted, goalEvaluation, decision,
+    observed, thought, imagined, learnedFromPast: pastOutcomes.length, predicted, goalEvaluation, decision, decisionWithheldReason,
     strategySelected, strategiesRejected, assessedRisk: decision === "act" && strategySelected ? assessedRisk : null, assignedDepartment, assigned, reviewed: reviewedCount, improved, correlationId,
   };
 }
