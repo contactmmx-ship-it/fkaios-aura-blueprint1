@@ -623,10 +623,17 @@ Deno.test("Test 14b: with no env vars set at all, unlisted classes fall back to 
 Deno.test("Test 14d: with no env vars set at all, founder_intelligence still resolves its own hardcoded quality-tier default across all three providers -- this is the actual fix, not just the env-var plumbing", () => {
   withEnvSync({ ANTHROPIC_MODEL: undefined, ANTHROPIC_MODEL_FOUNDER_INTELLIGENCE: undefined, GEMINI_MODEL: undefined, GEMINI_MODEL_FOUNDER_INTELLIGENCE: undefined, OPENAI_MODEL: undefined, OPENAI_MODEL_FOUNDER_INTELLIGENCE: undefined }, () => {
     assert(anthropicAdapter.getModel("founder_intelligence") === "claude-sonnet-4-6", "founder_intelligence must get the quality-tier Anthropic model with zero configuration required, matching reason()'s own historical hardcoded model");
-    assert(geminiAdapter.getModel("founder_intelligence") === "gemini-2.5-flash", "founder_intelligence must get the quality-tier Gemini model with zero configuration required");
+    assert(geminiAdapter.getModel("founder_intelligence") === "gemini-3.5-flash-lite", "founder_intelligence has no Gemini class default and must fall back to the shared Gemini default");
     assert(openaiAdapter.getModel("founder_intelligence") === "gpt-4o-mini", "founder_intelligence must get the quality-tier OpenAI model with zero configuration required");
     // and it must NOT leak into other classes as a side effect
     assert(anthropicAdapter.getModel("background_agent") === "claude-haiku-4-5-20251001", "founder_intelligence's dedicated default must not affect other classes");
+  });
+});
+
+Deno.test("Test 14e: GEMINI_MODEL_FOUNDER_INTELLIGENCE still overrides the shared Gemini default for founder_intelligence only", () => {
+  withEnvSync({ GEMINI_MODEL: undefined, GEMINI_MODEL_FOUNDER_INTELLIGENCE: "gemini-founder-override" }, () => {
+    assert(geminiAdapter.getModel("founder_intelligence") === "gemini-founder-override", "the per-class env var must still win for founder_intelligence");
+    assert(geminiAdapter.getModel("background_agent") === "gemini-3.5-flash-lite", "the founder override must not leak into other classes");
   });
 });
 

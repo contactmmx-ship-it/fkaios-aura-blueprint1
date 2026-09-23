@@ -220,9 +220,13 @@ function getOpenAIApiKey(): string {
 const ANTHROPIC_CLASS_DEFAULTS: Partial<Record<FunctionClass, string>> = {
   founder_intelligence: "claude-sonnet-4-6", // matches founder-brain.ts reasonCore()'s own historical hardcoded model
 };
-const GEMINI_CLASS_DEFAULTS: Partial<Record<FunctionClass, string>> = {
-  founder_intelligence: "gemini-2.5-flash",
-};
+// founder_intelligence deliberately has NO Gemini class default: it resolves
+// GEMINI_MODEL_FOUNDER_INTELLIGENCE -> GEMINI_MODEL -> the shared default in
+// getGeminiModel() below. Its former quality-tier default, gemini-2.5-flash,
+// hit its quota on 2026-09-23 while Anthropic and OpenAI were both out of
+// credit, which left the Founder Brain with no working provider at all; the
+// shared default is the model ai-engine was succeeding with at the time.
+const GEMINI_CLASS_DEFAULTS: Partial<Record<FunctionClass, string>> = {};
 const OPENAI_CLASS_DEFAULTS: Partial<Record<FunctionClass, string>> = {
   founder_intelligence: "gpt-4o-mini",
 };
