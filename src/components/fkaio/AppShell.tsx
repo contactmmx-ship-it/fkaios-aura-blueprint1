@@ -219,7 +219,7 @@ export default function AppShell() {
   }
 
   const renderPage = () => {
-    if (activePage === 'objective-command') return <ObjectiveCommand />;
+    if (activePage === 'objective-command') return <ObjectiveCommand onNavigate={go} />;
     if (activePage === 'founder-cockpit') return <FounderCockpit />;
     if (activePage === 'founder-brain-brief') return <FounderBrainBrief />;
     if (activePage === 'decision-center') return <DecisionCenter />;

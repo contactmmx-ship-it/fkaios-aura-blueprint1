@@ -22,7 +22,7 @@ export interface ObjectiveProgress {
   tasksFailed: number;
   jobsRetrying: number;
   jobsRunning: number;
-  tasks: Array<{ title: string; status: string; verdict: TaskVerdict }>;
+  tasks: Array<{ title: string; status: string; verdict: TaskVerdict; reason: string }>;
 }
 
 export function summarizeObjectiveProgress(
@@ -30,11 +30,12 @@ export function summarizeObjectiveProgress(
   tasks: TaskEvidenceRecord[],
   jobs: ProgressJob[],
 ): ObjectiveProgress {
-  const assessed = tasks.map((t) => ({
-    title: String(t.title ?? ""),
-    status: String(t.status ?? ""),
-    verdict: assessTaskEvidence(t).verdict,
-  }));
+  // The verdict reason describes the evidence (e.g. "capability
+  // knowledge.search succeeded", a dispatch error), never the task's answer.
+  const assessed = tasks.map((t) => {
+    const { verdict, reason } = assessTaskEvidence(t);
+    return { title: String(t.title ?? ""), status: String(t.status ?? ""), verdict, reason: reason.slice(0, 300) };
+  });
   const liveJobs = jobs.filter((j) => j.status === "pending" || j.status === "running" || j.status === "retry");
   return {
     planningPasses,

@@ -7,8 +7,20 @@
 // records a block as awaiting_approval with action_taken='objective_loop';
 // a high-risk objective waiting for sign-off before any work is
 // awaiting_approval without it. That is the distinction used here.
+//
+// Nothing here reads task output: the only task data is title, status and
+// the evidence verdict/reason computed server-side (objective-progress.ts),
+// so a rejected or unverified answer can never be shown as a result.
 
 export type ObjectiveState = 'PROCESSING' | 'BLOCKED' | 'AWAITING_APPROVAL' | 'COMPLETED' | 'FAILED';
+export type TaskVerdict = 'verified' | 'no_data_source' | 'failed' | 'incomplete';
+
+export interface ObjectiveTaskData {
+  title: string;
+  status: string;
+  verdict: TaskVerdict;
+  reason?: string;
+}
 
 export interface ObjectiveProgressData {
   planningPasses: number;
@@ -19,6 +31,7 @@ export interface ObjectiveProgressData {
   tasksFailed: number;
   jobsRetrying: number;
   jobsRunning: number;
+  tasks?: ObjectiveTaskData[];
 }
 
 export interface ObjectiveStatusRow {
@@ -27,17 +40,31 @@ export interface ObjectiveStatusRow {
   status: string;
   action_taken: string | null;
   result_summary: string | null;
+  created_at?: string | null;
   progress?: ObjectiveProgressData | null;
 }
+
+// Real lifecycle stages. Each is derived from recorded state, never a timer:
+// Accepted = row exists, no planning pass yet; Planning = a pass exists but
+// has produced no tasks; Executing = a task is still active; Verifying = all
+// tasks settled, the objective loop has not ruled yet.
+export const STAGES = ['Accepted', 'Planning', 'Executing', 'Verifying'] as const;
+export type Stage = typeof STAGES[number] | 'Completed' | 'Blocked' | 'Failed' | 'Awaiting approval';
 
 export interface ObjectiveView {
   state: ObjectiveState;
   terminal: boolean;
+  stage: Stage;
   objective: string;
   result: string | null;
   reason: string | null;
   nextAction: string | null;
+  retry: string | null;
+  completed: string[];
+  notCompleted: string[];
   progress: string[];
+  submittedAt: string | null;
+  opensDecisionCenter: boolean;
 }
 
 const LOOP_ACTION = 'objective_loop';
@@ -62,9 +89,33 @@ function parseSummary(summary: string | null): { result: string | null; reason: 
   return { result, reason, nextAction };
 }
 
+function processingStage(p: ObjectiveProgressData | null | undefined): Stage {
+  if (!p || p.planningPasses === 0) return 'Accepted';
+  if (p.tasksTotal === 0) return 'Planning';
+  if (p.tasksActive > 0) return 'Executing';
+  return 'Verifying';
+}
+
+const VERDICT_TEXT: Record<Exclude<TaskVerdict, 'verified'>, string> = {
+  no_data_source: 'not completed: needs real-world data and no verified research source was available',
+  failed: 'failed',
+  incomplete: 'still in progress',
+};
+
+function taskLists(p: ObjectiveProgressData | null | undefined): { completed: string[]; notCompleted: string[] } {
+  const tasks = p?.tasks ?? [];
+  return {
+    completed: tasks.filter((t) => t.verdict === 'verified').map((t) => (t.reason ? `${t.title} (${t.reason})` : t.title)),
+    notCompleted: tasks.filter((t) => t.verdict !== 'verified').map((t) => {
+      const base = `${t.title}: ${VERDICT_TEXT[t.verdict as Exclude<TaskVerdict, 'verified'>] ?? t.verdict}`;
+      return t.verdict === 'failed' && t.reason ? `${base} (${t.reason})` : base;
+    }),
+  };
+}
+
 export function progressLines(p: ObjectiveProgressData | null | undefined, processing: boolean): string[] {
   if (!p) return [];
-  if (p.tasksTotal === 0) return [p.planningPasses === 0 ? 'Planning: waiting for the objective loop to break this into tasks' : 'Planning: no tasks recorded yet'];
+  if (p.tasksTotal === 0) return [p.planningPasses === 0 ? 'Waiting for the objective loop to plan this objective' : 'Planning: no tasks recorded yet'];
   const lines = [`${p.tasksVerified}/${p.tasksTotal} tasks completed with verified evidence`];
   if (p.tasksActive > 0) lines.push(`${p.tasksActive} task${p.tasksActive === 1 ? '' : 's'} still in progress`);
   if (p.jobsRetrying > 0) lines.push(`${p.jobsRetrying} task${p.jobsRetrying === 1 ? '' : 's'} retrying after a failed attempt`);
@@ -78,17 +129,34 @@ export function progressLines(p: ObjectiveProgressData | null | undefined, proce
 export function deriveObjectiveView(row: ObjectiveStatusRow): ObjectiveView {
   const parsed = parseSummary(row.result_summary);
   const processing = row.status === 'processing';
-  const base = { objective: row.raw_request, progress: progressLines(row.progress, processing) };
+  const base = {
+    objective: row.raw_request,
+    progress: progressLines(row.progress, processing),
+    submittedAt: row.created_at ?? null,
+    ...taskLists(row.progress),
+    retry: null as string | null,
+    opensDecisionCenter: false,
+  };
   if (row.status === 'completed') {
-    return { ...base, state: 'COMPLETED', terminal: true, result: row.result_summary || 'Objective achieved and verified by the objective loop.', reason: null, nextAction: null };
+    return { ...base, state: 'COMPLETED', stage: 'Completed', terminal: true, result: row.result_summary || 'Objective achieved and verified by the objective loop.', reason: null, nextAction: null };
   }
   if (row.status === 'failed') {
-    return { ...base, state: 'FAILED', terminal: true, result: 'FKAIOS could not complete this objective.', reason: parsed.reason ?? parsed.result ?? 'No reason was recorded.', nextAction: parsed.nextAction };
+    return {
+      ...base,
+      state: 'FAILED',
+      stage: 'Failed',
+      terminal: true,
+      result: 'FKAIOS could not complete this objective.',
+      reason: parsed.reason ?? parsed.result ?? 'No reason was recorded.',
+      nextAction: parsed.nextAction,
+      retry: 'No automatic retry: FKAIOS does not re-run a failed objective. Resolve the reason above, then submit the objective again.',
+    };
   }
   if (row.status === 'awaiting_approval' && row.action_taken === LOOP_ACTION) {
     return {
       ...base,
       state: 'BLOCKED',
+      stage: 'Blocked',
       terminal: true,
       result: parsed.result ?? 'FKAIOS stopped working on this objective and needs a decision before it can continue.',
       reason: parsed.reason,
@@ -96,7 +164,21 @@ export function deriveObjectiveView(row: ObjectiveStatusRow): ObjectiveView {
     };
   }
   if (row.status === 'awaiting_approval') {
-    return { ...base, state: 'AWAITING_APPROVAL', terminal: true, result: 'Assessed as high risk. No work starts until you approve it.', reason: null, nextAction: 'Approve or reject it in Decision Center.' };
+    return {
+      ...base,
+      state: 'AWAITING_APPROVAL',
+      stage: 'Awaiting approval',
+      terminal: true,
+      result: 'Waiting for your approval. The Founder Brain assessed this objective as high risk, so no work starts until you approve it.',
+      reason: null,
+      nextAction: 'Review it in Decision Center. Approving an objective from the console is not wired yet, so it is listed there read-only.',
+      opensDecisionCenter: true,
+    };
   }
-  return { ...base, state: 'PROCESSING', terminal: false, result: null, reason: null, nextAction: null };
+  return { ...base, state: 'PROCESSING', stage: processingStage(row.progress), terminal: false, result: null, reason: null, nextAction: null };
+}
+
+// The Command Center re-reads status only while something can still change.
+export function shouldPoll(rows: ObjectiveStatusRow[] | null): boolean {
+  return (rows ?? []).some((row) => !deriveObjectiveView(row).terminal);
 }

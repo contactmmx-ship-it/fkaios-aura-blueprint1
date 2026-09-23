@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Target, Loader2, Send, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Ban } from 'lucide-react';
-import { deriveObjectiveView, type ObjectiveState, type ObjectiveStatusRow } from '@/lib/objective-view';
+import { deriveObjectiveView, shouldPoll, STAGES, type ObjectiveState, type ObjectiveStatusRow } from '@/lib/objective-view';
 
 // Objective Command — the Founder's front door into the EXISTING objective
 // pipeline. Submits to the `founder-objective` edge function, which runs
@@ -47,47 +47,86 @@ function StateIcon({ state }: { state: ObjectiveState }) {
   return <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />;
 }
 
-export function ObjectiveCard({ row }: { row: ObjectiveStatusRow }) {
-  const view = deriveObjectiveView(row);
+function Stepper({ stage, terminal }: { stage: string; terminal: boolean }) {
+  const steps: string[] = [...STAGES, terminal ? stage : 'Result'];
+  const current = terminal ? steps.length - 1 : steps.indexOf(stage);
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2" data-objective-id={row.id} data-state={view.state}>
+    <ol className="flex flex-wrap items-center gap-1 text-[10px]" aria-label="Objective progress">
+      {steps.map((step, i) => (
+        <li key={step} className={`px-2 py-0.5 rounded-full border ${i === current ? 'border-cyan-600 text-cyan-200' : i < current ? 'border-slate-700 text-slate-400' : 'border-slate-800 text-slate-600'}`} aria-current={i === current ? 'step' : undefined}>
+          {step}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function formatTime(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleString();
+}
+
+export function ObjectiveCard({ row, checkedAt, onOpenDecisionCenter }: { row: ObjectiveStatusRow; checkedAt?: string | null; onOpenDecisionCenter?: () => void }) {
+  const view = deriveObjectiveView(row);
+  const label = view.state.replace('_', ' ');
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3" data-objective-id={row.id} data-state={view.state}>
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-sm text-white"><StateIcon state={view.state} /> Status: {view.state.replace('_', ' ')}</div>
-        <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full border ${STATE_TONE[view.state]}`}>{view.state.replace('_', ' ')}</span>
+        <div className="flex items-center gap-2 text-sm text-white"><StateIcon state={view.state} /> Status: {label}</div>
+        <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full border ${STATE_TONE[view.state]}`}>{label}</span>
       </div>
+      <Stepper stage={view.stage} terminal={view.terminal} />
       <dl className="space-y-1.5 text-xs">
         <div><dt className="text-slate-500">Objective</dt><dd className="text-slate-200">{view.objective}</dd></div>
         {view.result && <div><dt className="text-slate-500">Result</dt><dd className="text-slate-200">{view.result}</dd></div>}
         {view.reason && <div><dt className="text-slate-500">Reason</dt><dd className="text-slate-300">{view.reason}</dd></div>}
+        {view.completed.length > 0 && (
+          <div><dt className="text-slate-500">Completed with evidence</dt>
+            <dd><ul className="list-disc list-inside text-emerald-300/90">{view.completed.map((line) => <li key={line}>{line}</li>)}</ul></dd></div>
+        )}
+        {view.terminal && view.notCompleted.length > 0 && (
+          <div><dt className="text-slate-500">Not completed</dt>
+            <dd><ul className="list-disc list-inside text-amber-300/90">{view.notCompleted.map((line) => <li key={line}>{line}</li>)}</ul></dd></div>
+        )}
         {view.nextAction && <div><dt className="text-slate-500">Next action</dt><dd className="text-slate-300">{view.nextAction}</dd></div>}
+        {view.retry && <div><dt className="text-slate-500">Retry</dt><dd className="text-slate-300">{view.retry}</dd></div>}
         {view.progress.length > 0 && (
           <div><dt className="text-slate-500">{view.terminal ? 'Work recorded' : 'Progress'}</dt>
             <dd><ul className="list-disc list-inside text-slate-400">{view.progress.map((line) => <li key={line}>{line}</li>)}</ul></dd></div>
         )}
       </dl>
-      <p className="text-[10px] text-slate-600 font-mono break-all">{row.id}</p>
+      {view.opensDecisionCenter && onOpenDecisionCenter && (
+        <button onClick={onOpenDecisionCenter} className="text-xs text-amber-300 hover:text-amber-200 underline underline-offset-2">Open Decision Center</button>
+      )}
+      <p className="text-[10px] text-slate-600">
+        {formatTime(view.submittedAt) && <>Submitted {formatTime(view.submittedAt)} · </>}
+        {checkedAt && <>Status as of {formatTime(checkedAt)} · </>}
+        <span className="font-mono break-all">{row.id}</span>
+      </p>
     </div>
   );
 }
 
-export default function ObjectiveCommand() {
+export default function ObjectiveCommand({ onNavigate }: { onNavigate?: (page: string) => void } = {}) {
   const [objective, setObjective] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [objectives, setObjectives] = useState<ObjectiveStatusRow[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [checkedAt, setCheckedAt] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     const { data, error: fnError } = await supabase.functions.invoke('founder-objective', { body: { action: 'status' } });
     if (fnError) setStatusError(await readFunctionError(fnError));
     else if (!data?.ok) setStatusError(data?.error || 'Could not read objective status.');
-    else { setStatusError(null); setObjectives(data.objectives as ObjectiveStatusRow[]); }
+    else { setStatusError(null); setObjectives(data.objectives as ObjectiveStatusRow[]); setCheckedAt(new Date().toISOString()); }
     setLoading(false);
   }, []);
 
-  const anyProcessing = (objectives ?? []).some((row) => !deriveObjectiveView(row).terminal);
+  const anyProcessing = shouldPoll(objectives);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (!anyProcessing) return;
@@ -161,7 +200,7 @@ export default function ObjectiveCommand() {
       </div>
       {statusError && <div className="bg-red-950/40 border border-red-900 rounded-xl px-4 py-3 text-xs text-red-300">Could not read objective status: {statusError}</div>}
       {objectives && objectives.length === 0 && <p className="text-xs text-slate-500">No objectives yet.</p>}
-      {(objectives ?? []).map((row) => <ObjectiveCard key={row.id} row={row} />)}
+      {(objectives ?? []).map((row) => <ObjectiveCard key={row.id} row={row} checkedAt={checkedAt} onOpenDecisionCenter={onNavigate ? () => onNavigate('decision-center') : undefined} />)}
       {anyProcessing && <p className="text-[11px] text-slate-500">Updates automatically. The objective loop runs every 15 minutes: it plans the work, creates tasks and jobs, and verifies the result against evidence.</p>}
     </div>
   );
