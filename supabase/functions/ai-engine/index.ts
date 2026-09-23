@@ -41,6 +41,12 @@ import {
   type AttemptRecord,
   type FailureCategory,
 } from "../_shared/llm-router.ts";
+import {
+  checkWorkerGrounding,
+  buildNoDataSourceResult,
+  NO_DATA_SOURCE,
+  NO_DATA_SOURCE_DISPOSITION,
+} from "../_shared/fact-grounding.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -858,6 +864,7 @@ Rules:
 - Do NOT invent a capability name. Only the two names listed above are real and callable.
 - Do NOT claim the action has already happened or already succeeded. You are only requesting that it be attempted; whether it succeeds is determined after this response, not by you.
 - If the task does not genuinely map to one of these two capabilities, do NOT force a match — instead return your normal task-content JSON response, while remaining honest that no matching automated capability is available for this task.
+- If the task needs real-world facts (companies, contacts, market figures, prices) that neither capability can supply, return ONLY { "status": "no_data_source", "reason": "<what data is missing>" }. Such tasks are checked after your response: any answer to them without a capability is rejected, not stored.
 `;
 
 async function executeJob(job: AIJob, cid: string): Promise<Record<string, unknown>> {
@@ -1188,6 +1195,14 @@ async function runJobs(cid: string) {
         // already told us about.
         const failureReason = resultReportsFailure(result);
         if (failureReason) throw new Error(`Job reported its own failure: ${failureReason}`);
+        // FACT GROUNDING: a work_engine_task that needs real-world facts and
+        // was answered without a capability dispatch cannot be verified (the
+        // worker has no research access), so it is never stored as completed.
+        // Terminal, not retryable: another attempt would be just as ungrounded.
+        if (job.type === "work_engine_task") {
+          const grounding = checkWorkerGrounding({ title: job.payload?.title, description: job.payload?.description }, result);
+          if (!grounding.ok) throw new NonRetryableJobError(`${NO_DATA_SOURCE}: ${grounding.reason}`, NO_DATA_SOURCE_DISPOSITION);
+        }
         // HANDS: for job types with a real, built persistence target, the write
         // must succeed for this to be honestly "completed" — see
         // writeLeadQualificationBack() above. A throw here routes into the same
@@ -1225,13 +1240,26 @@ async function runJobs(cid: string) {
       const newStatus = isNonRetryable || newRetryCount >= MAX_RETRY_ATTEMPTS ? "failed" : "retry";
       const disposition = isNonRetryable ? (err as NonRetryableJobError).disposition : (newStatus === "failed" ? "RETRY_EXHAUSTED" : "RETRYING");
       structuredLog(isNonRetryable ? "WARN" : "ERROR", `Job ${job.id} failed`, { error: errorMessage, retryCount: newRetryCount, newStatus, disposition, nonRetryable: isNonRetryable }, cid);
+      const noDataSource = isNonRetryable && disposition === NO_DATA_SOURCE_DISPOSITION;
+      const noDataSourceResult = noDataSource
+        ? buildNoDataSourceResult(errorMessage.replace(`${NO_DATA_SOURCE}: `, ""), job.id)
+        : null;
       await supabase.from("ai_jobs").update({
         status: newStatus,
         retry_count: newRetryCount,
         updated_at: new Date().toISOString(),
         error: errorMessage,
-        result: { error: errorMessage, kernel_disposition: disposition, retryable: !isNonRetryable, retry_count: newRetryCount },
+        result: { ...(noDataSourceResult ?? {}), error: errorMessage, kernel_disposition: disposition, retryable: !isNonRetryable, retry_count: newRetryCount },
       }).eq("id", job.id);
+      // The task gets only the explanation (never the rejected answer) and
+      // leaves the active set via the existing 'rework' status, so the
+      // objective loop evaluates it instead of waiting on it forever.
+      if (noDataSourceResult && typeof job.payload?.task_id === "string") {
+        const { error: taskError } = await supabase.from("orchestration_tasks")
+          .update({ status: "rework", output: JSON.stringify(noDataSourceResult) })
+          .eq("id", job.payload.task_id);
+        if (taskError) structuredLog("WARN", "Failed to mark task no_data_source (non-blocking)", { taskId: job.payload.task_id, error: taskError.message }, cid);
+      }
       if (job.type === "GENERATE_INVOICE") {
         await writeExecutionLogEvidence(
           job, "generate_invoice",

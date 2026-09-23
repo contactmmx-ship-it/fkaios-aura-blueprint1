@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { reason } from "./founder-brain.ts";
 import { planObjective } from "./executive-planner.ts";
 import { allocateProjectWork, returnCompletedWork } from "./work-engine.ts";
+import { assessObjectiveTasks } from "./fact-grounding.ts";
 
 type ObjectiveLoopResult = {
   objectiveId: string;
@@ -149,7 +150,26 @@ async function evaluateObjective(
   correlationId?: string,
 ): Promise<ObjectiveEvaluation> {
   const deterministicEvidence = extractDeterministicEvidence(tasks);
-  const failedDispatches = deterministicEvidence.filter((e) => !e.verified);
+
+  // TASK-SET GATE: judge the objective by its CURRENT task set (the latest
+  // planning pass; projects arrive newest-first), task by task, not by
+  // whether some evidence record exists somewhere. A task that needs
+  // real-world facts but has no capability evidence blocks the objective
+  // outright: replanning cannot supply a data source, a human has to.
+  const latestProjectId = projects[0]?.id;
+  const currentTasks = latestProjectId === undefined
+    ? tasks
+    : tasks.filter((task) => task.project_id === latestProjectId);
+  const taskGate = assessObjectiveTasks(currentTasks);
+  if (projects.length > 0 && taskGate.blocked) {
+    return {
+      achieved: false,
+      blocked: true,
+      failed: false,
+      reason: taskGate.reason,
+      next_action: "Provide a real data source or approve a research capability for the listed task(s), then resume the objective.",
+    };
+  }
 
   const prompt = `
 You are the Objective Evaluator for FKAIOS.
@@ -235,46 +255,20 @@ Schema:
     next_action: String(parsed.next_action ?? ""),
   };
 
-  // VERIFICATION GATE (not merely a prompt instruction — Task #22 already
-  // showed a prompt-only instruction is not reliably followed): an LLM
-  // achieved=true is NEVER sufficient by itself. Three cases:
-  //   1. No deterministic evidence at all for this objective's tasks -> an
-  //      empty evidence set is NOT proof of success. Reported explicitly as
-  //      verificationUnavailable rather than silently trusting the LLM.
-  //   2. Evidence exists and shows a real failure -> overridden (this is
-  //      exactly the original Task #24 safeguard, unchanged in behavior).
-  //   3. Evidence exists and none of it is a failure -> since `verified` is
-  //      computed directly from company-os.ts's closed status enum
-  //      (verified = status==="success", no other value possible), zero
-  //      failures among non-empty evidence means every item is a genuine,
-  //      independently-confirmed success, not merely "no failure noticed".
-  //      achieved stands.
-  // blocked/failed/replan/continuation branches in runObjectiveLoop() are
-  // untouched — they only ever see the returned achieved/blocked/failed
-  // booleans, exactly as before.
-  if (evaluation.achieved) {
-    if (deterministicEvidence.length === 0) {
-      return {
-        achieved: false,
-        blocked: false,
-        failed: false,
-        verificationUnavailable: true,
-        reason: `verification_unavailable: evaluator returned achieved=true, but no deterministic execution evidence exists for this objective's tasks to independently confirm it against. Evaluator's own reasoning: ${evaluation.reason || "(none given)"}`,
-        next_action: "No deterministic verifier exists yet for this objective's task type — escalate for human review or extend evidence coverage before re-evaluating.",
-      };
-    }
-    if (failedDispatches.length > 0) {
-      return {
-        achieved: false,
-        blocked: false,
-        failed: false,
-        reason: `Overridden by deterministic evidence: evaluator returned achieved=true, but ${failedDispatches.length} real capability dispatch(es) failed (${
-          failedDispatches.map((e) => `${e.capability}:${e.dispatchStatus}`).join(", ")
-        }). Real downstream execution has not succeeded.`,
-        next_action: "Diagnose and retry the failed capability dispatch(es) before re-evaluating.",
-      };
-    }
-    // deterministicEvidence.length > 0 && failedDispatches.length === 0.
+  // VERIFICATION GATE: an evaluator's achieved=true is honored only when
+  // every task in the objective's current task set has verified evidence
+  // (terminal success plus output, and a successful capability dispatch for
+  // any task that needs real-world facts). Evidence on some tasks never
+  // stands in for the rest.
+  if (evaluation.achieved && !taskGate.allVerified) {
+    return {
+      achieved: false,
+      blocked: false,
+      failed: false,
+      verificationUnavailable: true,
+      reason: `Not achieved: ${taskGate.reason}. Evaluator's own reasoning: ${evaluation.reason || "(none given)"}`,
+      next_action: "Complete and verify every task in the objective before re-evaluating.",
+    };
   }
 
   return evaluation;
