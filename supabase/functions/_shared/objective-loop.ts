@@ -85,12 +85,67 @@ function extractJsonObject(raw: string): Record<string, unknown> | null {
   return null;
 }
 
+// TASK #24 — DETERMINISTIC VERIFICATION: work_engine_task tasks whose
+// output already contains a companyOsDispatch record (written by
+// returnCompletedWork() in work-engine.ts once Task #23 wired real
+// capability dispatch through) carry a REAL, measured downstream-execution
+// status — not an LLM's opinion. A capability dispatch that returned
+// status!=="success" is a genuine, observed failure (a real HTTP 401, an
+// unverified/unknown capability, etc.), confirmed live during Task #23's
+// own verification (knowledge.search's companyOsDispatch.status:"error").
+// Extracted here purely by reading the existing orchestration_tasks.output
+// field — no schema change, no new table — so evaluateObjective() can be
+// gated by measured fact instead of trusting the LLM's own achieved
+// judgment to notice a failed dispatch on its own.
+interface DeterministicEvidence {
+  taskId: string;
+  capability: string;
+  dispatchStatus: string;
+  verified: boolean;
+}
+
+function extractDeterministicEvidence(
+  tasks: Record<string, unknown>[],
+): DeterministicEvidence[] {
+  const evidence: DeterministicEvidence[] = [];
+  for (const task of tasks) {
+    const raw = task.output;
+    if (typeof raw !== "string" || !raw) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    if (!parsed || typeof parsed !== "object") continue;
+    const dispatch = (parsed as Record<string, unknown>).companyOsDispatch;
+    if (
+      dispatch && typeof dispatch === "object" &&
+      typeof (dispatch as Record<string, unknown>).status === "string"
+    ) {
+      const status = (dispatch as Record<string, unknown>).status as string;
+      evidence.push({
+        taskId: String(task.id ?? "unknown"),
+        capability: String(
+          (dispatch as Record<string, unknown>).capability ?? "unknown",
+        ),
+        dispatchStatus: status,
+        verified: status === "success",
+      });
+    }
+  }
+  return evidence;
+}
+
 async function evaluateObjective(
   objective: Record<string, unknown>,
   projects: Record<string, unknown>[],
   tasks: Record<string, unknown>[],
   correlationId?: string,
 ): Promise<ObjectiveEvaluation> {
+  const deterministicEvidence = extractDeterministicEvidence(tasks);
+  const failedDispatches = deterministicEvidence.filter((e) => !e.verified);
+
   const prompt = `
 You are the Objective Evaluator for FKAIOS.
 
@@ -106,6 +161,15 @@ ${JSON.stringify(projects, null, 2)}
 Current task execution records:
 ${JSON.stringify(tasks, null, 2)}
 
+DETERMINISTIC EXECUTION EVIDENCE (measured fact — real downstream capability
+dispatch results, extracted directly from task output, not anyone's
+interpretation):
+${
+    deterministicEvidence.length > 0
+      ? JSON.stringify(deterministicEvidence, null, 2)
+      : "None available for this objective's tasks."
+  }
+
 Evaluate using only the evidence supplied above.
 
 Rules:
@@ -116,7 +180,8 @@ Rules:
 5. If the objective cannot reasonably be completed because of a terminal failure, return failed=true.
 6. Never invent business facts.
 7. If evidence is insufficient, prefer achieved=false and blocked=false.
-8. Return ONLY valid JSON.
+8. If the deterministic execution evidence above shows ANY failed capability dispatch, you MUST NOT return achieved=true — real downstream execution has not succeeded, whatever a task's own narrative claims.
+9. Return ONLY valid JSON.
 
 Schema:
 {
@@ -157,13 +222,32 @@ Schema:
     };
   }
 
-  return {
+  const evaluation: ObjectiveEvaluation = {
     achieved: parsed.achieved === true,
     blocked: parsed.blocked === true,
     failed: parsed.failed === true,
     reason: String(parsed.reason ?? ""),
     next_action: String(parsed.next_action ?? ""),
   };
+
+  // HARD GATE (not merely a prompt instruction — Task #22 already showed a
+  // prompt-only instruction is not reliably followed): the LLM cannot turn
+  // real, measured dispatch failures into an "achieved" verdict. This is
+  // the actual REAL EVIDENCE -> LLM interpretation -> objective evaluation
+  // hierarchy Task #24 requires, enforced in code.
+  if (evaluation.achieved && failedDispatches.length > 0) {
+    return {
+      achieved: false,
+      blocked: false,
+      failed: false,
+      reason: `Overridden by deterministic evidence: evaluator returned achieved=true, but ${failedDispatches.length} real capability dispatch(es) failed (${
+        failedDispatches.map((e) => `${e.capability}:${e.dispatchStatus}`).join(", ")
+      }). Real downstream execution has not succeeded.`,
+      next_action: "Diagnose and retry the failed capability dispatch(es) before re-evaluating.",
+    };
+  }
+
+  return evaluation;
 }
 
 async function loadObjectiveState(
