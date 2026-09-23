@@ -826,8 +826,43 @@ function validateGrounding(response: string, context: string, cid: string): void
   }
 }
 
+// TASK #23 — real capability dispatch for generic work_engine_task jobs.
+// company-os.ts's CAPABILITY_REGISTRY has 12 entries but work_engine_task's
+// prompt never told the model any of them existed, so 0/13 historical
+// work_engine_task jobs ever returned a capability field and 0 companyOsDispatch
+// records exist anywhere (confirmed via direct query before this change).
+// Only the two capabilities below are exposed: both are pure reads with zero
+// external side effects and zero cost (knowledge.search queries the vault;
+// research.status is an explicitly-free Apify token check per that engine's
+// own source comment). Every other registered capability was excluded after
+// inspection — research.run spends real Apify credits (excluded by its own
+// source comment: "should ... never [be triggered] automatically"),
+// whatsapp.send_message would message a real phone number with no legitimate
+// way for a generic work_engine_task to know an authorized recipient,
+// knowledge.ingest_document/ingest_all perform real writes, and
+// documents.process/approvals.check/accounting.record are all
+// verified:false in the registry (executeCapability() already refuses these).
+const WORK_ENGINE_CAPABILITIES_BLOCK = `
+You may optionally invoke ONE approved capability instead of only describing the task, when the task genuinely requires it. The ONLY capabilities available to you right now are:
+
+- "knowledge.search" — search the company knowledge vault for relevant documents/context.
+  Payload shape: { "query": "string (required)", "match_count"?: number, "brand_id"?: "string or null" }
+
+- "research.status" — check whether the research engine's external data connection is alive. This is a free check; it does not run or spend anything.
+  Payload shape: {} (no fields required)
+
+If the task genuinely maps to one of these two capabilities, respond with ONLY this JSON shape:
+{ "capability": "<exact name from the list above>", "payload": { ...matching the payload shape above... } }
+
+Rules:
+- Do NOT invent a capability name. Only the two names listed above are real and callable.
+- Do NOT claim the action has already happened or already succeeded. You are only requesting that it be attempted; whether it succeeds is determined after this response, not by you.
+- If the task does not genuinely map to one of these two capabilities, do NOT force a match — instead return your normal task-content JSON response, while remaining honest that no matching automated capability is available for this task.
+`;
+
 async function executeJob(job: AIJob, cid: string): Promise<Record<string, unknown>> {
   structuredLog("INFO", `Executing job ${job.id} (type: ${job.type})`, { jobId: job.id, agentId: job.agent_id }, cid);
+  const capabilityBlock = job.type === "work_engine_task" ? WORK_ENGINE_CAPABILITIES_BLOCK : "";
   if (job.agent_id) {
     await checkRateLimit(job.agent_id, cid);
     const { data: agent } = await supabase.from("ai_agents").select("*").eq("id", job.agent_id).single();
@@ -850,7 +885,7 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
       const invoiceSchemaBlock = job.type === "GENERATE_INVOICE"
         ? `\nThis is a GENERATE_INVOICE job. Respond with ONLY this JSON structure:\n\n{\n  "line_items": [\n    {\n      "description": "string",\n      "quantity": number,\n      "unit_price_inr": number\n    }\n  ]\n}\n\nRules:\n- Use only real payload/lead/brand data.\n- Never invent products, services, or amounts.\n- If no real billable data exists, return:\n{\n  "line_items": []\n}`
         : "";
-      const systemPrompt = `${agent.prompt}${groundedContext}${principlesBlock}\n\nYou will receive a job payload as JSON.\nExecute the task and respond with ONLY a valid JSON object.\nNo prose.\nNo markdown fences.\n${NO_FABRICATED_PERSISTENCE_BLOCK}\n${invoiceSchemaBlock}`;
+      const systemPrompt = `${agent.prompt}${groundedContext}${principlesBlock}\n\nYou will receive a job payload as JSON.\nExecute the task and respond with ONLY a valid JSON object.\nNo prose.\nNo markdown fences.\n${NO_FABRICATED_PERSISTENCE_BLOCK}\n${invoiceSchemaBlock}${capabilityBlock}`;
       const userContent = JSON.stringify({ type: job.type, payload: job.payload });
       // NOTE: any failure here THROWS. runJobs() records retry/failed with the real
       // error. It does NOT invent a result. This is the fix.
@@ -876,7 +911,7 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
   // There is NO simulation fallback any more. If the LLM cannot run, the job FAILS.
   const principlesBlock = await getFounderPrinciplesBlock("ai-engine");
   const llmResult = await callLLM(
-    `You are an AI engine. Job type: ${job.type}. Respond with ONLY a valid JSON object. No prose, no markdown fences. Never invent data.\n${NO_FABRICATED_PERSISTENCE_BLOCK}${principlesBlock}`,
+    `You are an AI engine. Job type: ${job.type}. Respond with ONLY a valid JSON object. No prose, no markdown fences. Never invent data.\n${NO_FABRICATED_PERSISTENCE_BLOCK}${capabilityBlock}${principlesBlock}`,
     JSON.stringify({ type: job.type, payload: job.payload }),
     cid,
     job.type === "GENERATE_INVOICE" ? INVOICE_TOOL_SCHEMA : undefined,
