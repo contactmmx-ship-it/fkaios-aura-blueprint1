@@ -1,46 +1,30 @@
 'use client';
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Target, Loader2, Send, RefreshCw, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
+import { Target, Loader2, Send, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Ban } from 'lucide-react';
+import { deriveObjectiveView, type ObjectiveState, type ObjectiveStatusRow } from '@/lib/objective-view';
 
 // Objective Command — the Founder's front door into the EXISTING objective
 // pipeline. Submits to the `founder-objective` edge function, which runs
 // the Founder Brain's own assessRisk -> routeToDepartment -> createTask
 // steps and writes a real orchestrator_requests row. The founder-brain-tick
 // cron's objective loop then plans, allocates, executes and verifies it.
-// This page only submits and reads back that one row's real status — it
-// does not plan, execute or fake progress itself.
+// This page submits, then reads back real status through the same
+// function's `status` action (objective row + progress derived from its
+// tasks and jobs). It does not plan, execute or fake progress itself, and
+// it never shows task output, so a rejected answer cannot appear here.
 
-interface SubmitResult {
-  objectiveId: string;
-  status: string;
-  riskLevel: string;
-  departmentCode: string;
-}
+const STATE_TONE: Record<ObjectiveState, string> = {
+  PROCESSING: 'text-cyan-300 border-cyan-800 bg-cyan-950/40',
+  BLOCKED: 'text-amber-300 border-amber-800 bg-amber-950/40',
+  AWAITING_APPROVAL: 'text-amber-300 border-amber-800 bg-amber-950/40',
+  COMPLETED: 'text-emerald-300 border-emerald-800 bg-emerald-950/40',
+  FAILED: 'text-rose-300 border-rose-800 bg-rose-950/40',
+};
 
-interface ObjectiveRow {
-  id: string;
-  status: string;
-  risk_level: string | null;
-  department_code: string | null;
-  result_summary: string | null;
-  created_at: string;
-}
-
-function statusTone(status: string): string {
-  if (status === 'completed') return 'text-emerald-300 border-emerald-800 bg-emerald-950/40';
-  if (status === 'awaiting_approval') return 'text-amber-300 border-amber-800 bg-amber-950/40';
-  if (status === 'failed') return 'text-rose-300 border-rose-800 bg-rose-950/40';
-  return 'text-cyan-300 border-cyan-800 bg-cyan-950/40';
-}
-
-function statusLabel(status: string): string {
-  if (status === 'processing') return 'Accepted — in the objective pipeline';
-  if (status === 'awaiting_approval') return 'Awaiting your approval';
-  if (status === 'completed') return 'Completed (verified by the objective loop)';
-  if (status === 'failed') return 'Failed';
-  return status;
-}
+// Same cadence as GovernanceDashboard's load/setInterval pattern. Polling
+// only runs while an objective is still processing.
+const STATUS_POLL_MS = 30000;
 
 async function readFunctionError(err: unknown): Promise<string> {
   // supabase-js FunctionsHttpError carries the Response in `context`.
@@ -55,50 +39,79 @@ async function readFunctionError(err: unknown): Promise<string> {
   return err instanceof Error ? err.message : 'Request failed';
 }
 
+function StateIcon({ state }: { state: ObjectiveState }) {
+  if (state === 'COMPLETED') return <CheckCircle2 className="w-4 h-4 text-emerald-400" />;
+  if (state === 'FAILED') return <XCircle className="w-4 h-4 text-rose-400" />;
+  if (state === 'BLOCKED') return <Ban className="w-4 h-4 text-amber-400" />;
+  if (state === 'AWAITING_APPROVAL') return <AlertTriangle className="w-4 h-4 text-amber-400" />;
+  return <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />;
+}
+
+export function ObjectiveCard({ row }: { row: ObjectiveStatusRow }) {
+  const view = deriveObjectiveView(row);
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2" data-objective-id={row.id} data-state={view.state}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-sm text-white"><StateIcon state={view.state} /> Status: {view.state.replace('_', ' ')}</div>
+        <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full border ${STATE_TONE[view.state]}`}>{view.state.replace('_', ' ')}</span>
+      </div>
+      <dl className="space-y-1.5 text-xs">
+        <div><dt className="text-slate-500">Objective</dt><dd className="text-slate-200">{view.objective}</dd></div>
+        {view.result && <div><dt className="text-slate-500">Result</dt><dd className="text-slate-200">{view.result}</dd></div>}
+        {view.reason && <div><dt className="text-slate-500">Reason</dt><dd className="text-slate-300">{view.reason}</dd></div>}
+        {view.nextAction && <div><dt className="text-slate-500">Next action</dt><dd className="text-slate-300">{view.nextAction}</dd></div>}
+        {view.progress.length > 0 && (
+          <div><dt className="text-slate-500">{view.terminal ? 'Work recorded' : 'Progress'}</dt>
+            <dd><ul className="list-disc list-inside text-slate-400">{view.progress.map((line) => <li key={line}>{line}</li>)}</ul></dd></div>
+        )}
+      </dl>
+      <p className="text-[10px] text-slate-600 font-mono break-all">{row.id}</p>
+    </div>
+  );
+}
+
 export default function ObjectiveCommand() {
   const [objective, setObjective] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<SubmitResult | null>(null);
-  const [row, setRow] = useState<ObjectiveRow | null>(null);
-  const [checking, setChecking] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [objectives, setObjectives] = useState<ObjectiveStatusRow[] | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const { data, error: fnError } = await supabase.functions.invoke('founder-objective', { body: { action: 'status' } });
+    if (fnError) setStatusError(await readFunctionError(fnError));
+    else if (!data?.ok) setStatusError(data?.error || 'Could not read objective status.');
+    else { setStatusError(null); setObjectives(data.objectives as ObjectiveStatusRow[]); }
+    setLoading(false);
+  }, []);
+
+  const anyProcessing = (objectives ?? []).some((row) => !deriveObjectiveView(row).terminal);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!anyProcessing) return;
+    const t = setInterval(load, STATUS_POLL_MS);
+    return () => clearInterval(t);
+  }, [anyProcessing, load]);
 
   const submit = async () => {
     const text = objective.trim();
     if (text.length < 10) { setError('Describe the objective in at least 10 characters.'); return; }
     setSubmitting(true);
     setError(null);
-    setResult(null);
-    setRow(null);
     try {
       const { data, error: fnError } = await supabase.functions.invoke('founder-objective', { body: { objective: text } });
       if (fnError) { setError(await readFunctionError(fnError)); return; }
       if (!data?.ok || !data.objectiveId) { setError(data?.error || 'FKAIOS did not confirm the objective was recorded.'); return; }
-      setResult({ objectiveId: data.objectiveId, status: data.status, riskLevel: data.riskLevel, departmentCode: data.departmentCode });
       setObjective('');
+      await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Request failed');
     } finally {
       setSubmitting(false);
     }
   };
-
-  const checkStatus = async () => {
-    if (!result) return;
-    setChecking(true);
-    setError(null);
-    const { data, error: readError } = await supabase
-      .from('orchestrator_requests')
-      .select('id, status, risk_level, department_code, result_summary, created_at')
-      .eq('id', result.objectiveId)
-      .maybeSingle();
-    if (readError) setError(readError.message);
-    else if (!data) setError('Could not read this objective back from the database.');
-    else setRow(data as ObjectiveRow);
-    setChecking(false);
-  };
-
-  const currentStatus = row?.status ?? result?.status ?? '';
 
   return (
     <div className="max-w-3xl space-y-4">
@@ -140,32 +153,16 @@ export default function ObjectiveCommand() {
         </div>
       )}
 
-      {result && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm text-white">
-              {currentStatus === 'awaiting_approval' ? <AlertTriangle className="w-4 h-4 text-amber-400" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
-              Objective recorded in FKAIOS
-            </div>
-            <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full border ${statusTone(currentStatus)}`}>{statusLabel(currentStatus)}</span>
-          </div>
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-            <dt className="text-slate-500">Objective ID</dt><dd className="text-slate-300 font-mono break-all">{result.objectiveId}</dd>
-            <dt className="text-slate-500">Risk (assessed by Founder Brain)</dt><dd className="text-slate-300">{row?.risk_level ?? result.riskLevel}</dd>
-            <dt className="text-slate-500">Department</dt><dd className="text-slate-300">{row?.department_code ?? result.departmentCode}</dd>
-            {row?.result_summary && (<><dt className="text-slate-500">Latest result</dt><dd className="text-slate-300">{row.result_summary}</dd></>)}
-          </dl>
-          {currentStatus === 'awaiting_approval' && (
-            <p className="text-[11px] text-amber-400/80">Filed in Decision Center for your approval before any work starts.</p>
-          )}
-          {currentStatus === 'processing' && (
-            <p className="text-[11px] text-slate-500">The objective loop runs every 15 minutes: it plans the work, creates tasks and jobs, and verifies the result against evidence.</p>
-          )}
-          <button onClick={checkStatus} disabled={checking} className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50">
-            {checking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Check current status
-          </button>
-        </div>
-      )}
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-slate-300">Your recent objectives</h3>
+        <button onClick={load} disabled={loading} className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50">
+          {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Refresh
+        </button>
+      </div>
+      {statusError && <div className="bg-red-950/40 border border-red-900 rounded-xl px-4 py-3 text-xs text-red-300">Could not read objective status: {statusError}</div>}
+      {objectives && objectives.length === 0 && <p className="text-xs text-slate-500">No objectives yet.</p>}
+      {(objectives ?? []).map((row) => <ObjectiveCard key={row.id} row={row} />)}
+      {anyProcessing && <p className="text-[11px] text-slate-500">Updates automatically. The objective loop runs every 15 minutes: it plans the work, creates tasks and jobs, and verifies the result against evidence.</p>}
     </div>
   );
 }

@@ -123,6 +123,17 @@ Deno.test("B4: the live Bharat Paints task set can never verify (fabricated outp
   assert(distributor?.verdict === NO_DATA_SOURCE, "the fabricated distributor output must be classified no_data_source");
 });
 
+Deno.test("B5: live shape — fabricated output truncated to 5000 chars (invalid JSON) still blocks as no_data_source", () => {
+  const truncated = JSON.stringify(FABRICATED_RESULT).slice(0, 120);
+  const gate = assessObjectiveTasks([
+    { id: "97318820", ...MARKET_TASK, status: "done", output: JSON.stringify({ llmResult: { capability: "knowledge.search" }, companyOsDispatch: { capability: "knowledge.search", status: "error", error: "HTTP 401" } }) },
+    { id: "fbb164e5", ...DISTRIBUTOR_TASK, status: "done", output: truncated },
+    { id: "77f5d311", ...EVALUATE_TASK, status: "rework", output: JSON.stringify(buildNoDataSourceResult("no research capability")) },
+  ]);
+  assert(!gate.allVerified && gate.blocked, "truncated fabricated output must block, not merely fail");
+  assert(gate.tasks.find((t) => t.id === "fbb164e5")?.verdict === NO_DATA_SOURCE, "truncated distributor output must be no_data_source");
+});
+
 Deno.test("C1: 3 tasks all succeeded with successful evidence -> achievable", () => {
   const gate = assessObjectiveTasks([doneInternal("a", "Task A"), doneDispatch("b", "success"), doneInternal("c", "Task C")]);
   assert(gate.allVerified && !gate.blocked, "all verified tasks must allow achievement");

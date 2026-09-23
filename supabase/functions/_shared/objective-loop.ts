@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { reason } from "./founder-brain.ts";
 import { planObjective } from "./executive-planner.ts";
 import { allocateProjectWork, returnCompletedWork } from "./work-engine.ts";
-import { assessObjectiveTasks } from "./fact-grounding.ts";
+import { assessObjectiveTasks, formatBlockedSummary } from "./fact-grounding.ts";
 
 type ObjectiveLoopResult = {
   objectiveId: string;
@@ -143,6 +143,17 @@ function extractDeterministicEvidence(
   return evidence;
 }
 
+function currentTaskGate(
+  projects: Record<string, unknown>[],
+  tasks: Record<string, unknown>[],
+) {
+  const latestProjectId = projects[0]?.id;
+  const currentTasks = latestProjectId === undefined
+    ? tasks
+    : tasks.filter((task) => task.project_id === latestProjectId);
+  return assessObjectiveTasks(currentTasks);
+}
+
 async function evaluateObjective(
   objective: Record<string, unknown>,
   projects: Record<string, unknown>[],
@@ -156,17 +167,13 @@ async function evaluateObjective(
   // whether some evidence record exists somewhere. A task that needs
   // real-world facts but has no capability evidence blocks the objective
   // outright: replanning cannot supply a data source, a human has to.
-  const latestProjectId = projects[0]?.id;
-  const currentTasks = latestProjectId === undefined
-    ? tasks
-    : tasks.filter((task) => task.project_id === latestProjectId);
-  const taskGate = assessObjectiveTasks(currentTasks);
+  const taskGate = currentTaskGate(projects, tasks);
   if (projects.length > 0 && taskGate.blocked) {
     return {
       achieved: false,
       blocked: true,
       failed: false,
-      reason: taskGate.reason,
+      reason: formatBlockedSummary(taskGate),
       next_action: "Provide a real data source or approve a research capability for the listed task(s), then resume the objective.",
     };
   }
@@ -396,6 +403,24 @@ export async function runObjectiveLoop(
           String(task.status ?? ""),
         )
       );
+
+      /*
+       * A task already known to need data no capability can supply blocks
+       * the objective now; waiting for the other tasks (possibly behind a
+       * long job backlog) cannot change that outcome.
+       */
+      const gate = currentTaskGate(state.projects, state.tasks);
+      if (state.projects.length > 0 && gate.blocked) {
+        const summary = formatBlockedSummary(gate);
+        await markObjective(supabase, String(objective.id), "awaiting_approval", summary);
+        results.push({
+          objectiveId: String(objective.id),
+          action: "blocked",
+          projectId: state.projects[0]?.id ? String(state.projects[0].id) : null,
+          summary,
+        });
+        continue;
+      }
 
       /*
        * If work is still executing, do not create duplicate projects.

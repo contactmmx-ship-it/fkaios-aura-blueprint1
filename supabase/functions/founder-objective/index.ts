@@ -20,6 +20,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { assessRisk, createTask, routeToDepartment } from "../_shared/founder-brain.ts";
+import { summarizeObjectiveProgress } from "../_shared/objective-progress.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -29,6 +30,45 @@ const corsHeaders = {
 
 const MIN_OBJECTIVE_CHARS = 10;
 const MAX_OBJECTIVE_CHARS = 2000;
+const STATUS_LIST_LIMIT = 5;
+
+// Read-only status for the Command Center: the objective rows plus progress
+// derived from their real tasks and jobs. Uses the service role so the
+// founder sees progress regardless of per-table RLS, after the same auth
+// check as submission. Never returns task output (see objective-progress.ts).
+async function readObjectiveStatus(objectiveId: string | null) {
+  const admin = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "", {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  let query = admin.from("orchestrator_requests")
+    .select("id, raw_request, status, action_taken, result_summary, risk_level, department_code, created_at")
+    .eq("requested_by", "founder-brain")
+    .order("created_at", { ascending: false })
+    .limit(STATUS_LIST_LIMIT);
+  if (objectiveId) query = query.eq("id", objectiveId);
+  const { data: objectives, error } = await query;
+  if (error) throw new Error(`status read failed: ${error.message}`);
+
+  return await Promise.all((objectives ?? []).map(async (objective) => {
+    const { data: projects } = await admin.from("orchestration_projects")
+      .select("id").like("request", `[objective:${objective.id}]%`).order("created_at", { ascending: false });
+    const latestProjectId = projects?.[0]?.id;
+    let tasks: Record<string, unknown>[] = [];
+    let jobs: Record<string, unknown>[] = [];
+    if (latestProjectId) {
+      const { data: taskRows } = await admin.from("orchestration_tasks")
+        .select("id, title, description, status, output").eq("project_id", latestProjectId);
+      tasks = taskRows ?? [];
+      const taskIds = tasks.map((t) => String(t.id));
+      if (taskIds.length > 0) {
+        const { data: jobRows } = await admin.from("ai_jobs")
+          .select("status, retry_count, payload").eq("type", "work_engine_task").in("payload->>task_id", taskIds);
+        jobs = jobRows ?? [];
+      }
+    }
+    return { ...objective, progress: summarizeObjectiveProgress(projects?.length ?? 0, tasks, jobs) };
+  }));
+}
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -57,8 +97,13 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, error: "This account is not allowed to submit objectives" }, 403);
     }
 
-    let body: { objective?: unknown };
+    let body: { objective?: unknown; action?: unknown; objectiveId?: unknown };
     try { body = await req.json(); } catch { return json({ ok: false, error: "Body must be JSON" }, 400); }
+
+    if (body.action === "status") {
+      const objectiveId = typeof body.objectiveId === "string" ? body.objectiveId : null;
+      return json({ ok: true, objectives: await readObjectiveStatus(objectiveId) });
+    }
     const objective = typeof body.objective === "string" ? body.objective.trim() : "";
     if (objective.length < MIN_OBJECTIVE_CHARS) return json({ ok: false, error: `Objective must be at least ${MIN_OBJECTIVE_CHARS} characters` }, 400);
     if (objective.length > MAX_OBJECTIVE_CHARS) return json({ ok: false, error: `Objective must be at most ${MAX_OBJECTIVE_CHARS} characters` }, 400);

@@ -93,16 +93,19 @@ export function assessTaskEvidence(task: TaskEvidenceRecord): { verdict: TaskVer
     return { verdict: "no_data_source", reason: String(output.reason ?? "no data source available") };
   }
   if (!SUCCESS_TASK_STATUSES.has(status)) return { verdict: "failed", reason: `task ended in status '${status}'` };
-  if (!output) return { verdict: "failed", reason: "task has no recorded output to verify" };
-  const dispatch = output.companyOsDispatch;
+  const dispatch = output?.companyOsDispatch;
   if (dispatch && typeof dispatch === "object") {
     const d = dispatch as Record<string, unknown>;
     if (d.status === "success") return { verdict: "verified", reason: `capability ${String(d.capability ?? "unknown")} succeeded` };
     return { verdict: "failed", reason: `capability ${String(d.capability ?? "unknown")} dispatch ${String(d.status ?? "unknown")}${d.error ? `: ${String(d.error).slice(0, 200)}` : ""}` };
   }
+  // Checked before the missing-output case: returnCompletedWork() truncates
+  // output to 5000 chars, so a long fabricated answer is stored as invalid
+  // JSON. With no readable capability evidence it is still ungrounded.
   if (requiresExternalFacts(task)) {
     return { verdict: "no_data_source", reason: "recorded output needs real-world facts but has no capability evidence behind it" };
   }
+  if (!output) return { verdict: "failed", reason: "task has no recorded output to verify" };
   return { verdict: "verified", reason: "internal task completed with recorded output" };
 }
 
@@ -141,4 +144,22 @@ export function assessObjectiveTasks(tasks: TaskEvidenceRecord[]): ObjectiveTask
     reason: allVerified ? `all ${assessed.length} task(s) have verified evidence` : `${notVerified.length} of ${assessed.length} task(s) lack verified evidence: ${describe(notVerified)}`,
     tasks: assessed,
   };
+}
+
+// The founder-facing text stored in orchestrator_requests.result_summary when
+// the gate blocks an objective. It names the blocked tasks and why, and never
+// quotes any task output, so a rejected answer cannot reach the founder.
+export const BLOCKED_SUMMARY_PREFIX = "BLOCKED:";
+export const BLOCKED_NEXT_ACTION = "Connect or enable a verified research capability, then re-run the objective.";
+
+export function formatBlockedSummary(gate: ObjectiveTaskGate): string {
+  const noData = gate.tasks.filter((t) => t.verdict === NO_DATA_SOURCE);
+  const others = gate.tasks.filter((t) => t.verdict === "failed");
+  const lines = [
+    `${BLOCKED_SUMMARY_PREFIX} FKAIOS could not complete this objective because the required external research could not be verified with the currently available capabilities.`,
+    `REASON: ${noData.map((t) => `"${t.title}" needs real-world data but no verified research source was available, so its output was rejected as ungrounded`).join("; ")}.` +
+      (others.length > 0 ? ` Also failed: ${others.map((t) => `"${t.title}" (${t.reason})`).join("; ")}.` : ""),
+    `NEXT ACTION: ${BLOCKED_NEXT_ACTION}`,
+  ];
+  return lines.join("\n");
 }
