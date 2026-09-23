@@ -56,11 +56,70 @@ const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
 });
 
 // ──────────────────────────────────────────────
-// process_pending: fetch up to 10 pending jobs
-// and invoke ai-engine's run_jobs action
+// process_pending: fetch up to 10 pending jobs, PLUS any 'retry' jobs whose
+// backoff window has elapsed, and invoke ai-engine's run_jobs action.
+//
+// RETRY DRAIN FIX (production-fix pass, item 3): job-scheduler-drain is the
+// only cron that runs every 10 minutes against this function, but this
+// function only ever looked at status='pending' — a job ai-engine marked
+// 'retry' had no automated path back to 'pending' at all (job-scheduler's
+// own retry_failed() action does that reset, but nothing was scheduled to
+// call it). Retries were not "retrying forever" — the opposite bug: they
+// were stuck forever, un-retried, past the point ai-engine's own
+// retry_count<3 cap even matters. This closes that gap by folding eligible
+// retry jobs into the same drain tick, with exponential backoff
+// (2^retry_count minutes) so a fast-failing job doesn't get re-attempted on
+// every single 10-minute tick — and by claiming each retry job atomically
+// (conditioned on status still being 'retry') so two overlapping drain
+// ticks can never both flip the same job back to 'pending' and have
+// ai-engine process it twice.
 // ──────────────────────────────────────────────
+const MAX_RETRY_ATTEMPTS = 3;
+
+async function claimEligibleRetryJobs(cid: string): Promise<number> {
+  const { data: retryJobs, error: fetchError } = await supabase
+    .from("ai_jobs")
+    .select("id, retry_count, updated_at")
+    .eq("status", "retry")
+    .lt("retry_count", MAX_RETRY_ATTEMPTS)
+    .order("updated_at", { ascending: true })
+    .limit(20);
+
+  if (fetchError) {
+    structuredLog("ERROR", "Failed to fetch retry-eligible jobs", { error: fetchError.message }, cid);
+    return 0;
+  }
+  if (!retryJobs || retryJobs.length === 0) return 0;
+
+  const now = Date.now();
+  let claimedCount = 0;
+  for (const job of retryJobs) {
+    const backoffMs = Math.pow(2, job.retry_count ?? 0) * 60_000; // 1min, 2min, 4min...
+    const elapsedMs = now - new Date(job.updated_at as string).getTime();
+    if (elapsedMs < backoffMs) continue; // still cooling down
+
+    // Atomic claim: only flips this job if it is STILL 'retry' right now —
+    // closes the race against another concurrent drain tick doing the same.
+    const { data: claimed, error: claimError } = await supabase
+      .from("ai_jobs")
+      .update({ status: "pending", updated_at: new Date().toISOString() })
+      .eq("id", job.id)
+      .eq("status", "retry")
+      .select("id")
+      .maybeSingle();
+    if (claimError) {
+      structuredLog("WARN", `Failed to claim retry job ${job.id}`, { error: claimError.message }, cid);
+      continue;
+    }
+    if (claimed) claimedCount++;
+  }
+  return claimedCount;
+}
+
 async function processPending(cid: string) {
   structuredLog("INFO", "Processing pending jobs", {}, cid);
+
+  const resumedRetries = await claimEligibleRetryJobs(cid);
 
   const { data: pendingJobs, error: fetchError } = await supabase
     .from("ai_jobs")
@@ -75,8 +134,8 @@ async function processPending(cid: string) {
   }
 
   if (!pendingJobs || pendingJobs.length === 0) {
-    structuredLog("INFO", "No pending jobs to process", {}, cid);
-    return { processed: 0, message: "No pending jobs to process" };
+    structuredLog("INFO", "No pending jobs to process", { resumedRetries }, cid);
+    return { processed: 0, resumed_retries: resumedRetries, message: "No pending jobs to process" };
   }
 
   const aiEngineUrl = `${supabaseUrl}/functions/v1/ai-engine/run_jobs`;
@@ -98,10 +157,11 @@ async function processPending(cid: string) {
 
   const aiResult = await response.json();
 
-  structuredLog("INFO", `Processed ${pendingJobs.length} pending jobs`, {}, cid);
+  structuredLog("INFO", `Processed ${pendingJobs.length} pending jobs (${resumedRetries} resumed from retry)`, {}, cid);
 
   return {
     dispatched: pendingJobs.length,
+    resumed_retries: resumedRetries,
     ai_engine_result: aiResult,
   };
 }
@@ -117,7 +177,7 @@ async function retryFailed(cid: string) {
     .from("ai_jobs")
     .select("*")
     .in("status", ["failed", "retry"])
-    .lt("retry_count", 3)
+    .lt("retry_count", MAX_RETRY_ATTEMPTS)
     .order("created_at", { ascending: true })
     .limit(20);
 

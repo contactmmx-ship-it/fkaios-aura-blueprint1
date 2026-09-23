@@ -10,7 +10,45 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // SPRINT 4 (M1-S4): Founder Voice now routes its LLM call through the
 // canonical Founder Brain instead of its own local callClaude.
-import { reason as founderBrainReason } from '../_shared/founder-brain.ts';
+import { reason as founderBrainReason, getFounderPrinciples } from '../_shared/founder-brain.ts';
+
+// REGRESSION FIX (caught before this migration's first deploy): the Sprint 4
+// rewrite dropped two live capabilities entirely when it replaced the old
+// self-contained llmFetch chain: (1) the founder-principles block below, same
+// pattern already restored in staff-engine/decision-engine, and (2) the whole
+// 'speak' action -- real ElevenLabs text-to-speech plus voice_call_log
+// telemetry, restored verbatim below. Neither is duplicate reasoning logic;
+// both are real business capability this migration must not silently delete.
+async function getFounderPrinciplesBlock(agentName: string): Promise<string> {
+  try {
+    const principles = await getFounderPrinciples(agentName);
+    if (principles.length === 0) return '';
+    return `\n\n=== FOUNDER OPERATING PRINCIPLES (non-negotiable — apply these to every response below) ===\n${principles.map((p) => `- ${p.principle}`).join('\n')}\n=== END FOUNDER OPERATING PRINCIPLES ===`;
+  } catch { return ''; }
+}
+
+const ELEVEN_VOICE_BY_TONE: Record<string, string> = {
+  professional: 'pNInz6obpgDQGcFmaJgB',
+  aggressive: 'onwK4e9ZLuTAKqWW03F9',
+  friendly: 'EXAVITQu4vr4xnSDxMaL',
+};
+async function elevenLabsSpeak(text: string, tone: string): Promise<{ audioBase64: string; contentType: string }> {
+  const key = Deno.env.get('ELEVENLABS_API_KEY');
+  if (!key) throw new Error('ELEVENLABS_API_KEY is not configured as a Supabase secret — real voice is unavailable until it is added.');
+  const voiceId = ELEVEN_VOICE_BY_TONE[tone] || ELEVEN_VOICE_BY_TONE.professional;
+  const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+    method: 'POST', headers: { 'xi-api-key': key, 'content-type': 'application/json', accept: 'audio/mpeg' },
+    body: JSON.stringify({ text: text.slice(0, 2000), model_id: 'eleven_multilingual_v2', voice_settings: { stability: 0.5, similarity_boost: 0.75 } }),
+  });
+  if (!res.ok) throw new Error(`ElevenLabs API error ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const buf = await res.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  return { audioBase64: btoa(binary), contentType: 'audio/mpeg' };
+}
+
 const corsHeaders = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey, X-Correlation-ID' };
 function cid(): string { return crypto.randomUUID().slice(0, 8); }
 function log(level: string, message: string, data?: Record<string, unknown>, id?: string) { console.log(JSON.stringify({ timestamp: new Date().toISOString(), level, correlationId: id || '', message, ...(data ? { data } : {}) })); }
@@ -54,8 +92,23 @@ Deno.serve(async (req) => {
     if (!user) return errRes('Unauthorized', 401, id);
     if (req.method !== 'POST') return errRes('Method not allowed', 405, id);
 
-    const body = await req.json() as { action?: string; leadId?: string; tone?: string; history?: { role: string; content: string }[]; message?: string };
+    const body = await req.json() as { action?: string; leadId?: string; tone?: string; history?: { role: string; content: string }[]; message?: string; text?: string };
     const tone = body.tone || 'professional';
+
+    if (body.action === 'speak') {
+      if (!body.text?.trim()) return errRes('text is required', 400, id);
+      try {
+        const audio = await elevenLabsSpeak(body.text, tone);
+        log('info', 'ElevenLabs speech generated', { chars: body.text.length }, id);
+        await supabase.from('voice_call_log').insert({ lead_id: body.leadId ?? null, tone, text_length: body.text.length, status: 'success' });
+        return okRes({ audioBase64: audio.audioBase64, contentType: audio.contentType }, id);
+      } catch (ttsErr) {
+        const msg = ttsErr instanceof Error ? ttsErr.message : String(ttsErr);
+        log('warn', 'ElevenLabs TTS failed', { error: msg }, id);
+        await supabase.from('voice_call_log').insert({ lead_id: body.leadId ?? null, tone, text_length: body.text?.length ?? 0, status: 'failed' });
+        return errRes(msg, 502, id);
+      }
+    }
 
     let leadCtx = 'No specific lead selected — speak in general terms about Franchise Kart\'s brand portfolio.';
     if (body.leadId) {
@@ -87,7 +140,8 @@ Deno.serve(async (req) => {
       aggressive: 'Direct and urgency-driven, but never dishonest — urgency must come from real facts (e.g. real territory/lead status), never invented.',
     };
 
-    const system = `You are a franchise sales consultant AI for Franchise Kart, an Indian franchise consulting and brand holding company.\n\nReal brand portfolio: ${brandsCtx}\n${leadCtx}\n\nTone: ${toneInstruction[tone] || toneInstruction.professional}\n\nCRITICAL RULE: Never invent statistics, revenue figures, satisfaction percentages, success rates, or franchisee counts that aren't given to you above. If you don't have a real number for something the prospect asks (ROI, revenue, success rate), say plainly that you'll follow up with verified figures rather than estimating or making one up. Keep replies to 3-5 sentences, end with a relevant question to move the conversation forward.`;
+    const principlesBlock = await getFounderPrinciplesBlock('sales-engine');
+    const system = `You are a franchise sales consultant AI for Franchise Kart, an Indian franchise consulting and brand holding company.\n\nReal brand portfolio: ${brandsCtx}\n${leadCtx}\n\nTone: ${toneInstruction[tone] || toneInstruction.professional}\n\nCRITICAL RULE: Never invent statistics, revenue figures, satisfaction percentages, success rates, or franchisee counts that aren't given to you above. If you don't have a real number for something the prospect asks (ROI, revenue, success rate), say plainly that you'll follow up with verified figures rather than estimating or making one up. Keep replies to 3-5 sentences, end with a relevant question to move the conversation forward.${principlesBlock}`;
 
     if (body.action === 'greet') {
       try {

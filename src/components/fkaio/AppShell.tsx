@@ -5,7 +5,7 @@ import {
   Bell, Settings, Menu, X, ChevronRight, Radio, Tag, UserCog,
   UserCircle, Database, GitBranch, TrendingUp, BookOpen, DollarSign,
   ShieldCheck, Sparkles, MessageSquare, Factory, Vault, Scale, Rocket,
-  UserCheck, GraduationCap, Zap, Compass, Phone, Hammer, Network, Search, Building2, IndianRupee, Gavel
+  UserCheck, GraduationCap, Zap, Compass, Phone, Hammer, Network, Search, Building2, IndianRupee, Gavel, Target
 } from 'lucide-react';
 import BrainChat from '@/components/fkaios/BrainChat';
 import AgentFactory from '@/components/fkaios/AgentFactory';
@@ -36,6 +36,7 @@ import FounderBrainBrief from '@/components/fkaios/FounderBrainBrief';
 import DecisionCenter from '@/components/fkaios/DecisionCenter';
 import ExecutiveCouncil from '@/components/fkaios/ExecutiveCouncil';
 import FounderCockpit from '@/components/fkaios/cockpit/FounderCockpit';
+import ObjectiveCommand from '@/components/fkaios/ObjectiveCommand';
 import { supabase } from '@/lib/supabase';
 
 // ---- Navigation definition matching original FKAIO + Brain pages ----
@@ -61,6 +62,7 @@ const NAV_DOORS: NavDoor[] = [
   {
     door: 'TODAY', icon: Scale, accent: 'text-cyan-400',
     items: [
+      { id: 'objective-command', label: 'Give an Objective', icon: Target },
       { id: 'founder-cockpit', label: 'Founder Cockpit', icon: Cpu },
       { id: 'founder-brain-brief', label: 'Founder Brain Brief', icon: Brain },
       { id: 'governance', label: 'Command Center (Governance)', icon: Scale },
@@ -217,6 +219,7 @@ export default function AppShell() {
   }
 
   const renderPage = () => {
+    if (activePage === 'objective-command') return <ObjectiveCommand onNavigate={go} />;
     if (activePage === 'founder-cockpit') return <FounderCockpit />;
     if (activePage === 'founder-brain-brief') return <FounderBrainBrief />;
     if (activePage === 'decision-center') return <DecisionCenter />;

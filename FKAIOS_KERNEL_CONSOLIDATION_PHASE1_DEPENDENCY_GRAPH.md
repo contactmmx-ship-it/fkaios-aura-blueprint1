@@ -1,0 +1,458 @@
+# FKAIOS Kernel Consolidation — Phase 1: Dependency / Call Graph
+
+Companion to `FKAIOS_ARCHITECTURE_INVENTORY_2026-09-21.md`. That document
+inventoried the five competing systems; this one answers, with file:line
+evidence, the twelve questions needed to establish ONE canonical lifecycle,
+per the agreed target model:
+
+```
+orchestrator_requests  = OBJECTIVE
+orchestration_projects = PROJECT
+orchestration_tasks    = TASK
+ai_jobs                = EXECUTION QUEUE
+ai_agents               = AI WORKERS
+company-os              = ACTION/CAPABILITY LAYER
+verification            = BUSINESS OUTCOME PROOF
+approvals               = HUMAN GOVERNANCE GATE
+memory/events           = PERSISTENT HISTORY
+```
+
+## The central fact this graph establishes
+
+**Two structurally different paths write into `ai_jobs` today, and only one
+of them is currently live.**
+
+### Path A — the "founder objective" chain (code-complete, NOT live)
+
+```
+founder-brain.ts: cognitiveTick() → createTask()
+    (_shared/founder-brain.ts:1499 → :1054)
+  → INSERT orchestrator_requests                              [OBJECTIVE]
+        (_shared/founder-brain.ts:1054, table orchestrator_requests)
+
+founder-brain-tick/index.ts:79
+  → planObjective(objective)  (_shared/executive-planner.ts:55)
+    → INSERT orchestration_projects   (executive-planner.ts:77)  [PROJECT]
+    → INSERT orchestration_tasks      (executive-planner.ts:92)  [TASK]
+
+work-engine.ts: allocateProjectWork() (work-engine.ts:133)
+  → allocateTask() (work-engine.ts:96)
+    → selectBestEmployee()  (work-engine.ts:101, real worker-selection logic)
+    → INSERT ai_jobs {type:"work_engine_task", payload:{task_id}}
+        (work-engine.ts:104-113)                                [EXECUTION QUEUE]
+```
+
+**This chain is real, coherent, and already respects the target model
+almost exactly as specified** — including its own documented anti-
+duplication discipline (`work-engine.ts:161-179`: `reassignStuckWork()`
+was deliberately trimmed to NOT duplicate `reap_orphaned_ai_jobs()`'s
+staleness detection, only adding what that reaper doesn't do — picking a
+better-fit employee on failure).
+
+**It is dormant in production**: `founder-brain-tick` — the only entry
+point that calls `planObjective()` — has **no active cron job** (confirmed:
+`select * from cron.job` lists 24 active jobs; `founder-brain-tick` is not
+among them, and its own scheduling migration
+`20260717000000_schedule_founder_brain_tick_cron.sql` is explicitly marked
+"NOT APPLIED"). `orchestrator-brain/index.ts:62` independently inserts its
+own `orchestrator_requests` rows (from live user chat requests) but never
+calls `planObjective()` — that objective type never becomes a project/task
+at all today, it's answered or filed to `approvals` directly.
+
+### Path B — direct-to-`ai_jobs` triggers (live, and the dominant real path)
+
+Five `SECURITY DEFINER` trigger functions on `public.leads`
+(confirmed live via `pg_trigger`/`pg_proc`, **none tracked in any repo
+migration** — pure schema drift):
+
+| Trigger | Fires on | Job type created |
+|---|---|---|
+| `trg_auto_qualify_new_lead` | `AFTER INSERT` | `QUALIFY_LEAD` |
+| `trg_auto_followup_stage_change` | `AFTER UPDATE` | `FOLLOWUP` |
+| `trg_auto_schedule_meeting` | `AFTER UPDATE` | `SCHEDULE_MEETING` |
+| `trg_auto_generate_proposal` | `AFTER UPDATE` | `GENERATE_PROPOSAL` |
+| `trg_auto_invoice_onboarding` | `AFTER UPDATE` | `GENERATE_INVOICE` |
+
+Each is a plain `INSERT INTO ai_jobs (...) SELECT ... FROM ai_agents WHERE
+task = '<TYPE>' AND is_active = true LIMIT 1` with **no existence check of
+any kind** — no check for an already-pending/running job for the same lead,
+no check for an already-satisfied business outcome. The four `UPDATE`
+triggers have no `WHEN` clause restricting which column changed, so **any**
+update to a `leads` row (a score recalculation, a note edit, an unrelated
+field change) re-fires all four and can enqueue duplicate jobs for a lead
+that already has one in flight or already has a real proposal/meeting/
+invoice on file. `ai-engine`'s own idempotency checks (`existingProject`/
+`existingMeeting`/`source_job_id` lookups) currently absorb the damage at
+the *business-artifact* level, but duplicate `ai_jobs` rows themselves are
+not prevented — a real, measurable cost (wasted LLM calls, DB churn, noise)
+and the same root cause independently confirmed as the
+`proposal-engine-hourly` / `sales-draft-proposals-hourly` cron duplicate
+found and fixed today (identical hourly `net.http_post` to the same URL;
+`sales-draft-proposals-hourly`, cron jobid 35, disabled — see below).
+
+**This is the path that actually produces the bulk of live traffic**
+(13,633 failed + 4,886 completed + ~1,700 in retry/pending as of this
+writing), entirely bypassing the objective/project/task layer — a lead
+update *is* the "task", self-evidently, with no founder-level planning
+needed for a single well-understood CRM action.
+
+## Answers to the twelve questions
+
+1. **Which system creates objectives?** `founder-brain.ts:createTask()`
+   (from `cognitiveTick()`) and, independently, `orchestrator-brain/index.ts:62`
+   (from live chat requests). Both write `orchestrator_requests`. Neither is
+   aware of the other.
+2. **Which system creates projects?** `executive-planner.ts:planObjective()`
+   (`orchestration_projects`, line 77) — reachable only from
+   `founder-brain-tick`, which is not on any cron. `orchestrator-engine`
+   *also* writes `orchestration_projects` from its own independent
+   `start` action (a CEO→specialist→QA→CPO content pipeline, unrelated to
+   `orchestrator_requests` objectives) — a second, structurally different
+   writer of the same table.
+3. **Which system creates tasks?** `executive-planner.ts:planObjective()`
+   (`orchestration_tasks`, line 92), plus `orchestrator-engine`'s own
+   `advance` action for its separate content pipeline.
+4. **Which system creates `ai_jobs`?** (a) `work-engine.ts:allocateTask()`
+   for the founder-objective chain (dormant); (b) the five `leads` triggers
+   above (live, dominant); (c) `agent-scheduler` routing due
+   `agent_schedules` rows into `ai_jobs` inserts (live, per its 2026-07-08
+   fix); (d) `auto-pilot` queuing follow-up/approval/marketing jobs directly
+   (live, deterministic, no LLM).
+5. **Which scheduler consumes `ai_jobs`?** `job-scheduler-drain` (cron,
+   */10 min, active) → `job-scheduler` → forwards pending + eligible-retry
+   jobs to `ai-engine`. The direct `ai-engine-run-jobs-5min` cron is
+   **inactive** — `job-scheduler` is the sole live consumer path today.
+6. **Which engine actually executes the job?** `ai-engine`'s `runJobs()` →
+   `executeJob()` (generic LLM path) or the two dedicated handlers,
+   `handleGenerateProposal()`/`handleScheduleMeeting()`, which delegate to
+   `proposal-engine`/`meeting-scheduler` rather than guessing JSON.
+7. **Which system handles retries?** `ai-engine` classifies
+   `NonRetryableJobError` vs. plain `Error` and sets `retry`/`failed`
+   (`MAX_RETRY_ATTEMPTS = 3`); `job-scheduler`'s `claimEligibleRetryJobs()`
+   promotes `retry` → `pending` on an exponential backoff once eligible.
+8. **Which system handles reassignment?** `work-engine.ts:reassignStuckWork()`
+   — but only for `type = 'work_engine_task'` rows, i.e. only Path A. Path B
+   (the live traffic) has no reassignment mechanism; a `GENERATE_PROPOSAL`
+   job that exhausts its retries just stays `failed`, and it stays
+   assigned to whatever `ai_agents` row the trigger's `LIMIT 1` picked.
+9. **Which system handles completion?** `ai-engine`'s `runJobs()` sets
+   `status='completed'` and calls `recordOutcome()` (writes `ai_outcomes`).
+10. **Which system verifies outcomes?** Verification is **inlined** into
+    the two capability handlers themselves (`handleGenerateProposal`/
+    `handleScheduleMeeting` independently re-query `client_projects`/
+    `meetings` after calling the capability function, never trusting the
+    HTTP response body) — there is no separate, general-purpose
+    verification engine. The generic `executeJob()` path has no
+    verification step beyond JSON-shape validation; it trusts the LLM's own
+    claim of task completion for any job type without a dedicated
+    persistence writer.
+11. **Which system handles approvals?** The `approvals` table, written by
+    `orchestrator-brain` (high-risk classifications), `invoice-engine`
+    (draft/approve/reject), and `executive-intelligence` (capital-allocation
+    proposals); read by `ApprovalsPage` (real, DB-backed, but **not mounted
+    into any routed page** — see the architecture inventory) and
+    `finance-engine`.
+12. **Which system wakes/resumes unfinished work?**
+    `reap_orphaned_ai_jobs()` (plain SQL function, cron
+    `ai-jobs-orphan-reaper`, */10 min, active, **not tracked in any repo
+    migration**) requeues any `ai_jobs` row stuck in `running` past 15
+    minutes (→ `pending`, `retry_count+1`) or fails it outright past
+    `retry_count >= 2`. This is generic across all job types (Path A and B
+    alike). `escalateBlocked()` (`executive-planner.ts:140`) is the
+    equivalent for stuck *projects/tasks*, but it's only reachable from the
+    same dormant `founder-brain-tick` entry point as Path A.
+
+## Fix already made during this investigation (not a design decision — a bug)
+
+`proposal-engine-hourly` (cron jobid 36) and `sales-draft-proposals-hourly`
+(jobid 35) fired an **identical** `net.http_post` to the same
+`proposal-engine` URL at the same minute every hour, differing only in
+timeout. Confirmed by comparing `cron.job.command` for both. Disabled
+jobid 35 (`cron.alter_job(job_id:=35, active:=false)`) — reversible, and
+`proposal-engine`'s own hourly coverage is unchanged since jobid 36 remains
+active on the same schedule.
+
+## 8. Genuine external blocker: `founder-brain-tick` was never deployed at all
+
+Attempting the real end-to-end canonical-queue test (a single, monitored,
+non-recurring invocation — explicitly NOT enabling the dormant cron, per
+the function's own "founder-approval-gated" comment) surfaced a bigger gap
+than "unscheduled": `founder-brain-tick` **does not exist in the live
+Supabase project at all**. Invoking it returned HTTP 404 from `net._http_response`,
+and it is absent from the full `list_edge_functions` output (90 other
+functions listed, this one is not among them — confirmed, not a paging
+artifact). It exists only as source in this repo; it has never been
+deployed.
+
+**What deploying it would require**: `founder-brain-tick/index.ts` imports
+`_shared/founder-brain.ts` (1,562 lines — the cognitive kernel itself),
+which is imported by `_shared/executive-planner.ts` (1,190 lines) and
+`_shared/work-engine.ts` (287 lines), both of which also import
+`_shared/company-os.ts` (218 lines, the real capability-dispatch layer
+with WhatsApp/LinkedIn/etc. actions behind a `verified: true/false`
+allowlist). All four `_shared` files import only `npm:@supabase/supabase-js`
+beyond each other — no dependency on `_shared/llm-router.ts` (consistent
+with Section on router usage in the companion inventory: founder-brain.ts
+has its own separate, hardcoded 3-provider fallback chain). This is a
+knowable, bounded deploy — the blocker is not technical.
+
+**Why this is a genuine stop, not a technical gap I should quietly work
+around**: a first-ever deploy-and-invoke of this chain is not a small
+fix. `cognitiveTick()` makes 10+ real, currently-uncapped LLM calls per
+invocation (no cost limit found anywhere in `founder-brain.ts`); a
+successful tick creates a real `orchestrator_requests` objective, can
+create real `orchestration_projects`/`orchestration_tasks`, allocates a
+real `ai_jobs` row via `work-engine.ts`, and (on a *future* invocation,
+once completed `work_engine_task` jobs exist for `returnCompletedWork()`
+to find) can dispatch a real business action through `company-os.ts`
+(WhatsApp, LinkedIn, etc.). `founder-brain-tick/index.ts`'s own header
+comment states this outright: *"enabling a new recurring LLM-calling cron
+job is a founder-approval-gated action, not something to silently
+activate."* That sentence describes exactly the action a "real end-to-end
+autonomous job through the canonical queue" would require here — not
+scheduling, but the very first live activation of an entirely dormant
+cognitive engine, for real, on production data. This is the "required
+Founder decision" carve-out in this session's own operating rules, not a
+place to substitute my own judgment for the codebase's explicit gate.
+
+**What I did instead, so this isn't a dead end**: confirmed the exact,
+bounded set of files a deploy would need (above), confirmed the specific
+risk profile (uncapped spend, real writes, a currently-empty
+`work_engine_task` backlog meaning the *first* invocation specifically
+carries no risk of an unexpected `company-os` dispatch, since
+`returnCompletedWork()` would have nothing completed to act on yet), and
+left the function undeployed. **What's needed to unblock this**: explicit
+authorization (from the Founder, or whoever owns that decision for this
+project) to either (a) deploy + invoke once, manually, with results
+reported before anything is scheduled, or (b) go straight to enabling the
+existing-but-unapplied cron migration. Until then, task #16 (a real,
+live, end-to-end objective→project→task→job→execution→verification→
+completion run) cannot be honestly claimed as done — Path B (the `leads`
+triggers) already provides that evidence for the *simple-task* case (see
+the GENERATE_PROPOSAL/SCHEDULE_MEETING live verification in this
+session's commits `75f4492`/`2091df3`), but not for a founder-level,
+multi-step *objective*.
+
+## What Phase 1 concludes
+
+The target canonical lifecycle already exists in code as Path A and is
+**architecturally sound** — it just has no live entry point. The
+consolidation decision is therefore not "which of five systems wins" so
+much as:
+
+- **Keep Path B (`leads` triggers → `ai_jobs`) as the legitimate fast path**
+  for simple, well-understood, single-step CRM automations. Forcing every
+  lead-stage change through a founder-level objective/project/task
+  decomposition would be premature abstraction for work that is already
+  fully specified by the trigger firing — the trigger's `UPDATE` *is* the
+  task. Phase 3 fixes its real defect (duplicate job creation), not its
+  existence.
+- **Path A is the correct canonical path for genuinely multi-step,
+  founder-level objectives** (the ones the new 57-section directive is
+  actually asking a "kernel" to handle) — software builds, campaigns,
+  cross-department initiatives. Activating it means answering, before
+  flipping `founder-brain-tick` onto a live cron: what stops it from
+  flooding `ai_jobs` with `work_engine_task` rows the same way the `leads`
+  triggers do, and what escalation/approval gate exists before a founder-
+  level objective starts spending real LLM budget. That safety work is
+  Phase 1/2's remaining scope (task #14), not yet done.
+
+## 9. `reason()` consolidation (D2/P4) — a second, larger repo/deploy drift found
+
+Migrating `founder-brain.ts`'s `reason()` off its own hardcoded 3-provider
+fallback and onto `_shared/llm-router.ts` (commits `3330314`, `e66ed0e`)
+required first checking every live consumer for a quality regression —
+`llm-router.ts`'s per-provider model defaults are cheaper than
+`reason()`'s historical hardcoded ones, so blind consolidation would have
+silently downgraded quality. Fixed by giving `founder_intelligence` its
+own hardcoded per-provider default (matching `reason()`'s exact prior
+models), not by relying on an env var this module has no way to guarantee
+is set.
+
+Checking those consumers surfaced something bigger than the regression
+risk itself: **`sales-engine`, `staff-engine`, `decision-engine`,
+`brain-engine`, and `my-brain-engine` are all deployed live with their own
+separate, still-active, hardcoded LLM fallback chains** — none of them
+actually import `founder-brain.ts` in production, confirmed by reading
+each one's live source via `get_edge_function` and finding no
+`founder-brain` import statement, only each function's own embedded
+`llmFetch()`/`callClaude()`. This directly contradicts comments already
+present in this repo's own local source — e.g. `decision-engine/index.ts`:
+*"SPRINT 4 (M1-S4): Decision Engine now routes its LLM call through the
+canonical Founder Brain instead of its own local llmFetch/callClaudeJSON"*
+— a migration that was written, committed, and described as done, but
+**never deployed**, for at least five functions. This is the same
+repo-vs-live-deployment drift pattern documented earlier for
+`factory-intake`/`executive-brain` (Section 7 of the architecture
+inventory), just running in the opposite direction and at larger scale:
+there, the live deployment was ahead of the repo; here, the repo is ahead
+of the live deployment.
+
+**Correction to this file's own commit message**: `e66ed0e`'s commit
+message states cognitiveTick() is "the only real caller in production
+right now." That is not quite right. `executive-intelligence` — which
+genuinely does run live, daily, via the `executive-intelligence-daily`
+cron — imports and calls `assessRisk()`, `simulateStrategies()`, and
+`imagine()` from `founder-brain.ts` (confirmed: all three are actually
+invoked in its live source, not just imported), and all three call
+`reason()` internally. So `reason()`'s consolidation onto llm-router.ts
+does reach real production traffic today, through this one path. Verified
+this is still safe: the model resolved for `founder_intelligence` is
+identical before and after (`claude-sonnet-4-6`), so there is no quality
+change; the only behavioral difference is that llm-router.ts imposes an
+explicit 60-second per-attempt timeout with structured fallback, where the
+old hardcoded chain had no explicit timeout at all — a reliability
+improvement in the same direction as this session's other execution-truth
+work, not a new risk.
+
+**What this means for D2 going forward**: the actual "one reasoning path"
+consolidation is larger than the two commits above. `sales-engine`,
+`staff-engine`, `decision-engine`, `brain-engine`, and `my-brain-engine`
+each already have the consolidated, `founder-brain.ts`-importing version
+sitting in this repo, ready to deploy — the code exists, is not
+integrated (per the evidence-standard distinction in Section 6 of the
+architecture inventory), and deploying it is real, valuable follow-up
+work.
+
+## Section 10: `my-brain-engine` deployed onto the canonical reasoning path
+
+**What was done**: `my-brain-engine` was redeployed live (Supabase project
+`nrlsqshkjuuwiovthrnb`) to replace its previously self-contained, hardcoded
+Anthropic→Gemini fallback chain with the repo's already-written
+`founderBrainReason()` import (`../_shared/founder-brain.ts`'s `reason()`),
+consolidating its LLM calls onto the same `llm-router.ts` routing/failover
+logic every other migrated function now shares. This is the first of the
+five drifted functions named above to actually go live.
+
+**A real deploy bug was caught and fixed in this same pass**: the first
+deploy attempt (version 13) reconstructed `_shared/founder-brain.ts` from
+manually-split chunks and silently dropped the last chunk — 54 lines (the
+`captureDecision()`/`getDecisionHistory()` functions, Decision Intelligence
+Phase 2B) were missing from the deployed bundle. This did not break
+`my-brain-engine` itself (it only imports `reason()`, never `cognitiveTick()`
+or `captureDecision()`), but it was a genuine incomplete deploy of a shared
+module — caught by diffing the deployed source against the local repo file
+byte-for-byte rather than trusting the deploy tool's success response.
+Fixed by redeploying (version 14) with the complete file content, then
+re-verifying.
+
+**Verification performed on version 14**:
+1. **Byte-exact diff**: all three bundled files (`my-brain-engine/index.ts`,
+   `_shared/founder-brain.ts`, `_shared/llm-router.ts`) fetched back from
+   the live deployment and diffed against the local repo copies — identical,
+   zero differences.
+2. **Static correctness**: `deno check` passes clean on `founder-brain.ts`
+   and `llm-router.ts` as deployed; `my-brain-engine/index.ts` type-checks
+   against a local `npm:` substitute for its `esm.sh` import (this sandbox
+   cannot reach `esm.sh` directly to check the exact deployed specifier,
+   but the deployed file content is already confirmed byte-identical to
+   the repo, so this only re-confirms the logic type-checks).
+3. **Regression suite**: `llm-router.test.ts`'s full 29 tests pass
+   (`deno test --allow-env`), covering the failover, per-class model
+   resolution, and cost-governance logic `my-brain-engine` now depends on
+   transitively.
+4. **NOT performed, and why**: a live authenticated invocation of
+   `my-brain-engine` itself (e.g. `create_project`). This function accepts
+   either a real user JWT or the `x-heartbeat-secret` service bypass —
+   neither is something this session can produce: a user JWT requires a
+   real authenticated session, and `HEARTBEAT_SECRET` is an Edge Function
+   secret (not in the Postgres vault, not queryable via SQL) that the
+   standing directive explicitly says not to touch. Fabricating either
+   would violate "never fabricate," not fix the gap. As indirect evidence,
+   `agent_performance_metrics` already shows real production rows for
+   `agent_id: 'founder-brain'` resolving to `model: claude-sonnet-4-6`,
+   `provider: anthropic` — the exact `founder_intelligence` class default
+   — via `executive-intelligence`'s existing live calls into the same
+   `reason()`/router path `my-brain-engine` now also uses. This confirms
+   the underlying path works correctly in production; it does not confirm
+   `my-brain-engine`'s own HTTP handler specifically. A real end-to-end
+   test of `my-brain-engine` remains open, blocked on credentials this
+   session does not have and should not obtain on its own.
+
+**Remaining**: `sales-engine`, `staff-engine`, `decision-engine`, and
+`brain-engine` still run their own separate, undeployed-consolidation
+hardcoded LLM chains live. Each needs the same deploy-then-byte-diff
+discipline established here — and this session's own near-miss (the
+silently-truncated first attempt) is a concrete argument for verifying
+every one of those the same way, not skipping the diff because "it
+probably worked." Deploying all five in one pass was deliberately not
+attempted: five separate production redeployments, each needing its own
+before/after verification, is a larger undertaking than fits safely in one
+sitting, and deserves its own dedicated pass rather than being rushed.
+
+## Section 11: `staff-engine`, `decision-engine`, `sales-engine` deployed — two more dropped-capability regressions caught before going live
+
+**What was done**: continuing the consolidation, `staff-engine` (v49),
+`decision-engine` (v48), and `sales-engine` (v36) were redeployed onto
+`founder-brain.ts`'s `reason()` / `llm-router.ts`, the same pattern as
+`my-brain-engine`. `brain-engine` was deliberately left alone this pass —
+see below.
+
+**Two more real regressions in the repo's own pre-written "Sprint 4"
+migration were caught by diffing the local (about-to-deploy) source
+against each function's actual live source, not by trusting the
+migration's own commit message**:
+
+1. **All three** (`staff-engine`, `decision-engine`, `sales-engine`) had
+   their live `getFounderPrinciplesBlock()` — a local query against
+   `founder_principles`, filtered by `applies_to`, injected into the
+   system prompt — silently dropped when the Sprint 4 rewrite switched to
+   `founderBrainReason()`. Fixed by calling `founder-brain.ts`'s own
+   `getFounderPrinciples(agentContext)`, which already does the identical
+   `applies_to`-filtered query (added in Phase 2B, Section 9's
+   `evaluateAgainstGoals()`/`think()` work) — restoring the grounding
+   through the canonical Brain instead of re-adding a second local query.
+2. **`sales-engine` additionally** had dropped its entire `speak` action
+   — real ElevenLabs text-to-speech (`elevenLabsSpeak()`,
+   `ELEVEN_VOICE_BY_TONE`) plus `voice_call_log` telemetry on both the
+   success and failure paths. This is a real business capability, not
+   duplicate reasoning logic that the "one reasoning path" consolidation
+   was ever meant to touch — restored verbatim from the live source.
+
+Same evidence standard as Section 10: this is exactly the "CODE EXISTS ≠
+OPERATIONAL" trap the mandate names — the pre-written migration's own
+commit message claimed a clean swap of the LLM call, but the live diff
+showed it silently deleted two real, in-use features. Deploying it
+unexamined would have been a customer-visible regression (Chief-of-Staff
+reports and decision scores losing founder-principle grounding; the sales
+voice feature returning `Unknown action: speak` to every caller).
+
+**Verification performed** (same discipline as Section 10, all three
+functions): byte-exact diff of the deployed source against the local
+fixed files (all three: identical, zero differences), `deno check` passing
+clean on each fixed `index.ts` (via the same local `npm:` substitute for
+the `esm.sh` import used in Section 10 — this sandbox cannot reach
+`esm.sh` directly, but the deployed content is already confirmed
+byte-identical to the checked file), and the 29-test `llm-router.test.ts`
+suite passing unchanged (`founder-brain.ts`/`llm-router.ts` were not
+modified this pass). No live authenticated invocation test was performed,
+for the same reason as `my-brain-engine`: `decision-engine`/`sales-engine`
+require a real user JWT with no service bypass, and `staff-engine`'s
+heartbeat-secret bypass still requires a secret this session does not have
+and should not obtain.
+
+**`brain-engine` intentionally NOT migrated this pass**: its live source
+passes Anthropic's native `web_search_20250305` server tool
+(`tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }]`,
+no `tool_choice` — the model decides per-message whether to search) so
+Brain Chat can answer with current information. `founder-brain.ts`'s
+public `reason()` has no parameter to pass a tool schema through at all.
+Even if it did, `llm-router.ts`'s existing tool-schema plumbing
+(`isAnthropicToolSchema()`, used by whatever caller needed a forced
+single-tool structured-output call) requires an `input_schema` field that
+`web_search_20250305` doesn't have, and always sets a forcing
+`tool_choice` — reusing it as-is would either silently drop web search
+entirely (if the type guard rejects the schema, which it does) or force
+every single chat message to trigger a search (if the forcing logic were
+bypassed some other way), neither of which is the live behavior today.
+This is a real architectural gap — "make this tool optionally available"
+is a different `LLMRequest` shape than "force this exact tool" — that
+needs its own scoped router extension, not a rushed fix bundled into this
+pass. `brain-engine` keeps running its own working hardcoded chain
+(including web search) until that extension exists and is verified.
+
+**Remaining**: only `brain-engine` is left un-consolidated, blocked on the
+router's tool-availability gap described above, not on any deploy-process
+risk. Fixing that gap (an optional, non-forcing tool schema mode in
+`llm-router.ts`) is the concrete next step for D2's "one reasoning path"
+goal.

@@ -9,9 +9,22 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // SPRINT 4 (M1-S4): Decision Engine now routes its LLM call through the
 // canonical Founder Brain instead of its own local llmFetch/callClaudeJSON.
-import { reason as founderBrainReason } from '../_shared/founder-brain.ts';
+import { reason as founderBrainReason, getFounderPrinciples } from '../_shared/founder-brain.ts';
 
-
+// REGRESSION FIX (caught before this migration's first deploy): the pre-Sprint-4
+// live version built a founder-principles block into every scored decision via
+// a local getFounderPrinciplesBlock() helper. The Sprint 4 rewrite dropped it
+// entirely when switching to founderBrainReason() -- founder-brain.ts already
+// exports the identical applies_to-filtered query as getFounderPrinciples(), so
+// this restores the same grounding through the canonical Brain instead of a
+// second local query.
+async function getFounderPrinciplesBlock(agentName: string): Promise<string> {
+  try {
+    const principles = await getFounderPrinciples(agentName);
+    if (principles.length === 0) return '';
+    return `\n\n=== FOUNDER OPERATING PRINCIPLES (non-negotiable — apply these to every response below) ===\n${principles.map((p) => `- ${p.principle}`).join('\n')}\n=== END FOUNDER OPERATING PRINCIPLES ===`;
+  } catch { return ''; }
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -50,7 +63,7 @@ async function callClaudeJSON<T>(system: string, userMessage: string, maxTokens 
   try { return JSON.parse(cleaned) as T; } catch { throw new Error(`Founder Brain returned non-JSON output: ${cleaned.slice(0, 300)}`); }
 }
 
-const SYSTEM_PROMPT = `You are the Decision Engine inside Franchise Kart's FK AIOS — a multi-dimensional business decision scorer for a franchise consulting and brand holding company.
+const BASE_SYSTEM_PROMPT = `You are the Decision Engine inside Franchise Kart's FK AIOS — a multi-dimensional business decision scorer for a franchise consulting and brand holding company.
 
 Given a decision title and description, score it across exactly these 6 dimensions: Financial Impact, Strategic Fit, Execution Risk, Time to Value, Market Timing, Resource Availability.
 
@@ -81,8 +94,11 @@ Deno.serve(async (req) => {
 
     log('info', 'Scoring decision', { title }, id);
 
+    const principlesBlock = await getFounderPrinciplesBlock('decision-engine');
+    const systemPrompt = BASE_SYSTEM_PROMPT + principlesBlock;
+
     const result = await callClaudeJSON<{ dimensions: { name: string; score: number; weight: number; assessment: string; recommendation: string }[]; overall_score: number; summary: string }>(
-      SYSTEM_PROMPT,
+      systemPrompt,
       `Decision title: ${title}\n\nDescription: ${description || '(no further detail provided)'}`
     );
 
@@ -97,7 +113,7 @@ Deno.serve(async (req) => {
     const { data: dims, error: dimErr } = await supabase.from('brain_decision_dimensions').insert(dimensionRows).select('*');
     if (dimErr) throw dimErr;
 
-    log('info', 'Decision scored', { decisionId: decision.id, overallScore: result.overall_score }, id);
+    log('info', 'Decision scored', { decisionId: decision.id, overallScore: result.overall_score, principlesApplied: principlesBlock.length > 0 }, id);
     return okRes({ decision: { ...decision, summary: result.summary, dimensions: dims } }, id);
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Internal server error';
