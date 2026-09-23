@@ -23,6 +23,11 @@ type ObjectiveEvaluation = {
   failed: boolean;
   reason: string;
   next_action: string;
+  // Task #24 positive-verification gate: set only when achieved=true was
+  // downgraded because no deterministic evidence existed to confirm it —
+  // distinguishes "we checked and it's not done" from "we had nothing to
+  // check against". Optional so no existing consumer of this type breaks.
+  verificationUnavailable?: boolean;
 };
 
 const MAX_REPLAN_ATTEMPTS = 5;
@@ -230,21 +235,46 @@ Schema:
     next_action: String(parsed.next_action ?? ""),
   };
 
-  // HARD GATE (not merely a prompt instruction — Task #22 already showed a
-  // prompt-only instruction is not reliably followed): the LLM cannot turn
-  // real, measured dispatch failures into an "achieved" verdict. This is
-  // the actual REAL EVIDENCE -> LLM interpretation -> objective evaluation
-  // hierarchy Task #24 requires, enforced in code.
-  if (evaluation.achieved && failedDispatches.length > 0) {
-    return {
-      achieved: false,
-      blocked: false,
-      failed: false,
-      reason: `Overridden by deterministic evidence: evaluator returned achieved=true, but ${failedDispatches.length} real capability dispatch(es) failed (${
-        failedDispatches.map((e) => `${e.capability}:${e.dispatchStatus}`).join(", ")
-      }). Real downstream execution has not succeeded.`,
-      next_action: "Diagnose and retry the failed capability dispatch(es) before re-evaluating.",
-    };
+  // VERIFICATION GATE (not merely a prompt instruction — Task #22 already
+  // showed a prompt-only instruction is not reliably followed): an LLM
+  // achieved=true is NEVER sufficient by itself. Three cases:
+  //   1. No deterministic evidence at all for this objective's tasks -> an
+  //      empty evidence set is NOT proof of success. Reported explicitly as
+  //      verificationUnavailable rather than silently trusting the LLM.
+  //   2. Evidence exists and shows a real failure -> overridden (this is
+  //      exactly the original Task #24 safeguard, unchanged in behavior).
+  //   3. Evidence exists and none of it is a failure -> since `verified` is
+  //      computed directly from company-os.ts's closed status enum
+  //      (verified = status==="success", no other value possible), zero
+  //      failures among non-empty evidence means every item is a genuine,
+  //      independently-confirmed success, not merely "no failure noticed".
+  //      achieved stands.
+  // blocked/failed/replan/continuation branches in runObjectiveLoop() are
+  // untouched — they only ever see the returned achieved/blocked/failed
+  // booleans, exactly as before.
+  if (evaluation.achieved) {
+    if (deterministicEvidence.length === 0) {
+      return {
+        achieved: false,
+        blocked: false,
+        failed: false,
+        verificationUnavailable: true,
+        reason: `verification_unavailable: evaluator returned achieved=true, but no deterministic execution evidence exists for this objective's tasks to independently confirm it against. Evaluator's own reasoning: ${evaluation.reason || "(none given)"}`,
+        next_action: "No deterministic verifier exists yet for this objective's task type — escalate for human review or extend evidence coverage before re-evaluating.",
+      };
+    }
+    if (failedDispatches.length > 0) {
+      return {
+        achieved: false,
+        blocked: false,
+        failed: false,
+        reason: `Overridden by deterministic evidence: evaluator returned achieved=true, but ${failedDispatches.length} real capability dispatch(es) failed (${
+          failedDispatches.map((e) => `${e.capability}:${e.dispatchStatus}`).join(", ")
+        }). Real downstream execution has not succeeded.`,
+        next_action: "Diagnose and retry the failed capability dispatch(es) before re-evaluating.",
+      };
+    }
+    // deterministicEvidence.length > 0 && failedDispatches.length === 0.
   }
 
   return evaluation;
