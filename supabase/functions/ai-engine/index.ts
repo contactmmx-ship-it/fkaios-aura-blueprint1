@@ -120,6 +120,23 @@ function noPersistenceError(type: string): string {
   return `${type} has no real persistence path in ai-engine's job runner yet — completing it would only mean an LLM produced a document-shaped JSON blob, with nothing written to the real business table. Refusing to report this as completed. See FKAIOS_CHECKPOINT_PHASE0.1_EXECUTION_TRUTH_FIXED.md.`;
 }
 
+// PHASE 0.1 CONTINUATION (V1 mandate Task #22, 2026-09-22): the original
+// fabrication incident this file documents was about job TYPES with no
+// persistence path at all. A second, narrower fabrication shape was found
+// live via work_engine_task (Work Engine's generic dispatcher for arbitrary
+// Executive-Planner-produced tasks, which DOES have a real persistence path
+// — its result is written into orchestration_tasks.output by
+// returnCompletedWork() in work-engine.ts): the model's own JSON content
+// falsely claimed a SEPARATE, unverifiable action had happened (e.g.
+// "fleet_memory_write_status: SUCCESS", fabricated ISO timestamps from
+// 2025, "entry_integrity: VERIFIED") when no fleet_memory row was ever
+// inserted. The content itself gets honestly persisted; the model's claims
+// about what it did beyond producing that content do not. This block
+// closes that gap without touching the NO_PERSISTENCE_JOB_TYPES path above
+// — it applies to every job that reaches an LLM call, since the model has
+// no tool access here regardless of job type.
+const NO_FABRICATED_PERSISTENCE_BLOCK = `You have no ability to write to any database, file, or external system from this call — you can only produce the JSON content requested below. Do NOT claim that any entry, record, or artifact was "saved", "recorded", "written", "verified", "confirmed", or "persisted" — those are actions you cannot perform and did not perform. Do NOT invent timestamps, entry IDs, or verification statuses for actions outside this response. If the task asks you to record or persist something, produce the CONTENT to be recorded as your JSON result and nothing more; whether and how it gets stored is decided outside this call, not by your claims about it.`;
+
 // RETRY BEHAVIOR (production-fix pass, item 3): a job's failure is either
 // something a retry might plausibly fix (LLM flakiness, a transient network
 // error, momentarily-malformed output) or something structurally certain to
@@ -833,7 +850,7 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
       const invoiceSchemaBlock = job.type === "GENERATE_INVOICE"
         ? `\nThis is a GENERATE_INVOICE job. Respond with ONLY this JSON structure:\n\n{\n  "line_items": [\n    {\n      "description": "string",\n      "quantity": number,\n      "unit_price_inr": number\n    }\n  ]\n}\n\nRules:\n- Use only real payload/lead/brand data.\n- Never invent products, services, or amounts.\n- If no real billable data exists, return:\n{\n  "line_items": []\n}`
         : "";
-      const systemPrompt = `${agent.prompt}${groundedContext}${principlesBlock}\n\nYou will receive a job payload as JSON.\nExecute the task and respond with ONLY a valid JSON object.\nNo prose.\nNo markdown fences.\n${invoiceSchemaBlock}`;
+      const systemPrompt = `${agent.prompt}${groundedContext}${principlesBlock}\n\nYou will receive a job payload as JSON.\nExecute the task and respond with ONLY a valid JSON object.\nNo prose.\nNo markdown fences.\n${NO_FABRICATED_PERSISTENCE_BLOCK}\n${invoiceSchemaBlock}`;
       const userContent = JSON.stringify({ type: job.type, payload: job.payload });
       // NOTE: any failure here THROWS. runJobs() records retry/failed with the real
       // error. It does NOT invent a result. This is the fix.
@@ -859,7 +876,7 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
   // There is NO simulation fallback any more. If the LLM cannot run, the job FAILS.
   const principlesBlock = await getFounderPrinciplesBlock("ai-engine");
   const llmResult = await callLLM(
-    `You are an AI engine. Job type: ${job.type}. Respond with ONLY a valid JSON object. No prose, no markdown fences. Never invent data.${principlesBlock}`,
+    `You are an AI engine. Job type: ${job.type}. Respond with ONLY a valid JSON object. No prose, no markdown fences. Never invent data.\n${NO_FABRICATED_PERSISTENCE_BLOCK}${principlesBlock}`,
     JSON.stringify({ type: job.type, payload: job.payload }),
     cid,
     job.type === "GENERATE_INVOICE" ? INVOICE_TOOL_SCHEMA : undefined,
