@@ -96,8 +96,11 @@ export function assessTaskEvidence(task: TaskEvidenceRecord): { verdict: TaskVer
   const dispatch = output?.companyOsDispatch;
   if (dispatch && typeof dispatch === "object") {
     const d = dispatch as Record<string, unknown>;
-    if (d.status === "success") return { verdict: "verified", reason: `capability ${String(d.capability ?? "unknown")} succeeded` };
-    return { verdict: "failed", reason: `capability ${String(d.capability ?? "unknown")} dispatch ${String(d.status ?? "unknown")}${d.error ? `: ${String(d.error).slice(0, 200)}` : ""}` };
+    if (d.status !== "success") {
+      return { verdict: "failed", reason: `capability ${String(d.capability ?? "unknown")} dispatch ${String(d.status ?? "unknown")}${d.error ? `: ${String(d.error).slice(0, 200)}` : ""}` };
+    }
+    if (d.capability === KNOWLEDGE_SEARCH) return assessKnowledgeSearch(task, d);
+    return { verdict: "verified", reason: `capability ${String(d.capability ?? "unknown")} succeeded` };
   }
   // Checked before the missing-output case: returnCompletedWork() truncates
   // output to 5000 chars, so a long fabricated answer is stored as invalid
@@ -107,6 +110,97 @@ export function assessTaskEvidence(task: TaskEvidenceRecord): { verdict: TaskVer
   }
   if (!output) return { verdict: "failed", reason: "task has no recorded output to verify" };
   return { verdict: "verified", reason: "internal task completed with recorded output" };
+}
+
+// ── knowledge.search evidence ────────────────────────────────────────────
+// vault-engine's match_knowledge_chunks has no similarity cutoff: it returns
+// the nearest chunks whatever they are. With one document in the vault, a
+// search for "Indian paint distributors" "succeeds" with that document.
+// So a successful dispatch alone is not evidence for a factual task: it
+// needs at least one sourced match (document_id) at or above this cosine
+// similarity (gte-small, normalized). Below it the vault simply holds no
+// source for the question.
+export const KNOWLEDGE_SEARCH = "knowledge.search";
+export const KNOWLEDGE_MATCH_MIN_SIMILARITY = 0.8;
+
+export interface KnowledgeMatchEvidence {
+  chunk_id: string | null;
+  document_id: string;
+  similarity: number;
+  excerpt: string;
+}
+
+// Reads matches from either the compact stored form (evidence.matches) or a
+// raw vault-engine response (data.matches); drops any match without a
+// document_id, since it cannot be traced to a source.
+export function knowledgeMatches(dispatch: Record<string, unknown>): KnowledgeMatchEvidence[] {
+  const evidence = dispatch.evidence as Record<string, unknown> | undefined;
+  const data = dispatch.data as Record<string, unknown> | undefined;
+  const raw = Array.isArray(evidence?.matches) ? evidence!.matches as unknown[] : Array.isArray(data?.matches) ? data!.matches as unknown[] : [];
+  const out: KnowledgeMatchEvidence[] = [];
+  for (const m of raw) {
+    if (!m || typeof m !== "object") continue;
+    const r = m as Record<string, unknown>;
+    const documentId = typeof r.document_id === "string" ? r.document_id : "";
+    const similarity = Number(r.similarity);
+    if (!documentId || !Number.isFinite(similarity)) continue;
+    out.push({
+      chunk_id: typeof r.chunk_id === "string" ? r.chunk_id : typeof r.id === "string" ? r.id : null,
+      document_id: documentId,
+      similarity: Math.round(similarity * 1000) / 1000,
+      excerpt: String(r.excerpt ?? r.chunk_text ?? "").slice(0, 240),
+    });
+  }
+  return out;
+}
+
+function assessKnowledgeSearch(task: TaskEvidenceRecord, dispatch: Record<string, unknown>): { verdict: TaskVerdict; reason: string } {
+  const matches = knowledgeMatches(dispatch);
+  const best = matches.reduce((max, m) => Math.max(max, m.similarity), 0);
+  if (!requiresExternalFacts(task)) {
+    return { verdict: "verified", reason: `capability knowledge.search succeeded: ${matches.length} sourced match(es)` };
+  }
+  const relevant = matches.filter((m) => m.similarity >= KNOWLEDGE_MATCH_MIN_SIMILARITY);
+  if (relevant.length === 0) {
+    return {
+      verdict: NO_DATA_SOURCE,
+      reason: matches.length === 0
+        ? "knowledge.search returned no sourced documents for this question"
+        : `knowledge.search found no relevant document (best similarity ${best.toFixed(3)}, below ${KNOWLEDGE_MATCH_MIN_SIMILARITY}); the knowledge vault holds no verified source for this`,
+    };
+  }
+  const docs = [...new Set(relevant.map((m) => m.document_id))];
+  return { verdict: "verified", reason: `knowledge.search: ${relevant.length} relevant match(es) from document(s) ${docs.join(", ")}, best similarity ${best.toFixed(3)}` };
+}
+
+// What returnCompletedWork() stores for a dispatch. The task output column
+// is cut at 5000 characters, which turned full vault responses into invalid
+// JSON and lost the evidence. This keeps the verifiable metadata (source ids,
+// similarity, a short excerpt) and drops the bulk.
+export function compactDispatchForStorage(dispatch: unknown): Record<string, unknown> {
+  if (!dispatch || typeof dispatch !== "object") return { status: "unknown" };
+  const d = dispatch as Record<string, unknown>;
+  const base: Record<string, unknown> = { capability: d.capability, status: d.status, attempts: d.attempts };
+  if (d.error) base.error = String(d.error).slice(0, 500);
+  if (d.capability === KNOWLEDGE_SEARCH && d.status === "success") {
+    const data = d.data as Record<string, unknown> | undefined;
+    base.evidence = { query: typeof data?.query === "string" ? data.query.slice(0, 300) : null, matches: knowledgeMatches(d).slice(0, 5) };
+    return base;
+  }
+  if (d.data !== undefined) base.data_excerpt = JSON.stringify(d.data).slice(0, 1500);
+  return base;
+}
+
+// The objective's current task set is its latest planning pass (projects
+// arrive newest-first). A re-run adds a new pass, so earlier blocked tasks
+// stay in history without deciding the new attempt.
+export function assessCurrentTaskSet(
+  projects: Array<{ id?: unknown }>,
+  tasks: Array<TaskEvidenceRecord & { project_id?: unknown }>,
+): ObjectiveTaskGate {
+  const latestProjectId = projects[0]?.id;
+  const current = latestProjectId === undefined ? tasks : tasks.filter((t) => t.project_id === latestProjectId);
+  return assessObjectiveTasks(current);
 }
 
 export interface ObjectiveTaskGate {

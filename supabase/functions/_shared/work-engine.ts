@@ -55,6 +55,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { founderMemory } from "./founder-brain.ts";
 import { getWorkforce, type EmployeeSummary } from "./executive-planner.ts";
 import { executeCapability } from "./company-os.ts";
+import { compactDispatchForStorage } from "./fact-grounding.ts";
 
 function getClient() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
@@ -253,7 +254,7 @@ export async function returnCompletedWork(): Promise<{ returned: number; dispatc
     if (resultObj?.capability) {
       const dispatch = await executeCapability(resultObj.capability, resultObj.payload ?? {});
       dispatched++;
-      finalOutput = { llmResult: job.result, companyOsDispatch: dispatch };
+      finalOutput = { llmResult: job.result, companyOsDispatch: compactDispatchForStorage(dispatch) };
     }
 
     await client.from("orchestration_tasks").update({ status: "done", output: JSON.stringify(finalOutput).slice(0, 5000) }).eq("id", task.id);

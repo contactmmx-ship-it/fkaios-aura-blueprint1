@@ -77,6 +77,11 @@ export interface CapabilityDefinition {
   action?: string; // body.action value for action-dispatch functions; omitted for path-routed or single-purpose ones
   description: string;
   verified: boolean; // true only if THIS action name was read directly in the target function's source this sprint
+  // Header the target function checks against the project's
+  // HEARTBEAT_SECRET. vault-engine (verify_jwt=false) authenticates ONLY
+  // via x-vault-secret and ignores the Authorization bearer, so without
+  // this every knowledge.* dispatch was rejected with 401 Unauthorized.
+  secretHeader?: string;
 }
 
 export const CAPABILITY_REGISTRY: Record<string, CapabilityDefinition> = {
@@ -84,9 +89,9 @@ export const CAPABILITY_REGISTRY: Record<string, CapabilityDefinition> = {
   "whatsapp.mark_replied": { edgeFunction: "whatsapp-engine", action: "mark_replied", description: "Mark a WhatsApp thread as replied", verified: true },
   "research.run": { edgeFunction: "research-engine", action: "run", description: "Run a research task", verified: true },
   "research.status": { edgeFunction: "research-engine", action: "status", description: "Check research task status", verified: true },
-  "knowledge.search": { edgeFunction: "vault-engine", action: "search", description: "Search the knowledge vault", verified: true },
-  "knowledge.ingest_document": { edgeFunction: "vault-engine", action: "ingest_document", description: "Ingest one document into the knowledge vault", verified: true },
-  "knowledge.ingest_all": { edgeFunction: "vault-engine", action: "ingest_all", description: "Bulk-ingest documents into the knowledge vault", verified: true },
+  "knowledge.search": { edgeFunction: "vault-engine", action: "search", description: "Search the knowledge vault", verified: true, secretHeader: "x-vault-secret" },
+  "knowledge.ingest_document": { edgeFunction: "vault-engine", action: "ingest_document", description: "Ingest one document into the knowledge vault", verified: true, secretHeader: "x-vault-secret" },
+  "knowledge.ingest_all": { edgeFunction: "vault-engine", action: "ingest_all", description: "Bulk-ingest documents into the knowledge vault", verified: true, secretHeader: "x-vault-secret" },
   "reporting.daily_briefing": { edgeFunction: "reporting-engine", description: "GET daily briefing (path-routed, not action-dispatch)", verified: true },
   "reporting.weekly_briefing": { edgeFunction: "reporting-engine", description: "GET weekly briefing (path-routed, not action-dispatch)", verified: true },
   // document-engine confirmed to use action-dispatch (switch statement,
@@ -108,6 +113,16 @@ export interface ExecutionResult {
   data?: unknown;
   error?: string;
   attempts: number;
+}
+
+// Headers for one dispatch: the service-role bearer every target accepts
+// through the gateway, plus the shared secret for targets that check it
+// themselves. A missing secret is sent as nothing, so the target rejects the
+// call and the failure is recorded, never bypassed.
+export function buildDispatchHeaders(def: CapabilityDefinition, serviceKey: string, sharedSecret: string): Record<string, string> {
+  const headers: Record<string, string> = { Authorization: `Bearer ${serviceKey}`, "content-type": "application/json" };
+  if (def.secretHeader && sharedSecret) headers[def.secretHeader] = sharedSecret;
+  return headers;
 }
 
 // ── The one interface callers use instead of knowing which of 85 edge
@@ -132,13 +147,14 @@ export async function executeCapability(
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const headers = buildDispatchHeaders(def, serviceKey, Deno.env.get("HEARTBEAT_SECRET") ?? "");
   let lastError = "";
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const res = await fetch(`${supabaseUrl}/functions/v1/${def.edgeFunction}`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${serviceKey}`, "content-type": "application/json" },
+        headers,
         body: JSON.stringify(def.action ? { action: def.action, ...payload } : payload),
       });
       const data = await res.json().catch(() => null);
