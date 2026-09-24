@@ -43,6 +43,7 @@ export interface Objective {
 export interface PlanResult {
   projectId: string | null;
   tasksCreated: number;
+  milestonesCreated: number;
   error?: string;
 }
 
@@ -86,52 +87,113 @@ function extractJsonArray(raw: string): unknown[] | null {
 // picks up from there and produces real, trackable orchestration_projects
 // + orchestration_tasks rows — "convert strategic thinking into executable
 // company work."
+interface MilestoneDraft {
+  title: string;
+  description: string;
+  acceptance_criteria: string | null;
+  tasks: Array<{ title: string; description: string }>;
+}
+
+// Accepts the new milestone-nested shape ([{milestone/title, description,
+// acceptance_criteria, tasks:[{title,description}]}]) the prompt below now
+// asks for. Also accepts the OLD flat shape ([{title,description}]) — a
+// real fallback, not a guess: some planner replies will still come back
+// flat (a simpler objective, or the model ignoring the nested ask), and
+// those become exactly what they did before this change, a single implicit
+// milestone wrapping all tasks, rather than a parse failure. Requirement
+// #10 (master spec): "Planning creates milestones" — fkaios_create_
+// milestones already existed but nothing called it from here.
+function normalizeToMilestones(parsed: unknown[], objectiveSummary: string): MilestoneDraft[] {
+  const looksNested = parsed.length > 0 && typeof parsed[0] === "object" && parsed[0] !== null && "tasks" in (parsed[0] as Record<string, unknown>);
+  if (looksNested) {
+    return (parsed as Array<Record<string, unknown>>)
+      .filter((m) => Array.isArray(m.tasks) && (m.tasks as unknown[]).length > 0)
+      .map((m) => ({
+        title: String(m.title ?? m.milestone ?? "Milestone").slice(0, 200),
+        description: String(m.description ?? "").slice(0, 2000),
+        acceptance_criteria: m.acceptance_criteria ? String(m.acceptance_criteria).slice(0, 2000) : null,
+        tasks: (m.tasks as Array<Record<string, unknown>>).slice(0, 4).map((t) => ({
+          title: String(t.title ?? "Task").slice(0, 200),
+          description: String(t.description ?? "").slice(0, 2000),
+        })),
+      }));
+  }
+  // Flat fallback: one implicit milestone, unchanged behavior from before.
+  const tasks = (parsed as Array<Record<string, unknown>>).slice(0, 4).map((t) => ({
+    title: String(t.title ?? "Task").slice(0, 200),
+    description: String(t.description ?? "").slice(0, 2000),
+  }));
+  if (tasks.length === 0) return [];
+  return [{ title: objectiveSummary.slice(0, 200), description: "", acceptance_criteria: null, tasks }];
+}
+
 export async function planObjective(objective: Objective, correlationId?: string): Promise<PlanResult> {
   const client = getClient();
   const goals = await getGoals("founder");
 
   const decomposition = await reason(
-    "You are the Executive Planner. Break this business objective into 2-4 concrete, executable tasks. Evaluate against the goal hierarchy provided — do not propose tasks unrelated to the goals. Return ONLY a JSON array of {title, description}, nothing else.",
+    "You are the Executive Planner. Break this business objective into 1-3 milestones, each with 1-4 concrete, executable tasks. Evaluate against the goal hierarchy provided — do not propose milestones/tasks unrelated to the goals. Return ONLY a JSON array of {title, description, acceptance_criteria, tasks: [{title, description}]}, nothing else.",
     `OBJECTIVE: ${objective.raw_request}\n\nDEPARTMENT: ${objective.department_code ?? "unassigned"}\n\nGOAL HIERARCHY:\n${JSON.stringify(goals)}`,
-    900,
+    1200,
     correlationId,
   );
 
   const parsedArray = extractJsonArray(decomposition.text);
-  const taskDrafts: Array<{ title: string; description: string }> = parsedArray ?? [];
   if (!parsedArray) {
     // Honest failure — no fabricated tasks if the model didn't return clean JSON.
-    return { projectId: null, tasksCreated: 0, error: "planner could not parse a task breakdown" };
+    return { projectId: null, tasksCreated: 0, milestonesCreated: 0, error: "planner could not parse a task breakdown" };
   }
-  if (taskDrafts.length === 0) return { projectId: null, tasksCreated: 0, error: "planner produced zero tasks" };
+  const milestoneDrafts = normalizeToMilestones(parsedArray, objective.raw_request);
+  if (milestoneDrafts.length === 0) return { projectId: null, tasksCreated: 0, milestonesCreated: 0, error: "planner produced zero tasks" };
 
   const { data: proj, error: pErr } = await client
     .from("orchestration_projects")
     .insert({ request: `[objective:${objective.id}] ${objective.raw_request}`.slice(0, 2000), status: "working", output_type: "document" })
     .select("id")
     .single();
-  if (pErr || !proj) return { projectId: null, tasksCreated: 0, error: pErr?.message ?? "project insert failed" };
+  if (pErr || !proj) return { projectId: null, tasksCreated: 0, milestonesCreated: 0, error: pErr?.message ?? "project insert failed" };
 
-  const tasks = taskDrafts.slice(0, 4).map((t) => ({
-    project_id: proj.id,
-    role: "general", // orchestration_tasks.role is a software-persona field (frontend/backend/.../general); business objectives stay 'general' — department assignment is already tracked on the objective itself, not duplicated here.
-    title: String(t.title ?? "Task").slice(0, 200),
-    description: String(t.description ?? "").slice(0, 2000),
-    status: "pending",
-    attempts: 0,
-  }));
+  // fkaios_create_milestones (20260924054000_fkaios_milestones_and_
+  // objective_graph.sql) returns ids in the SAME order it received them -
+  // zipped back onto milestoneDrafts by index below. A failure here is
+  // non-fatal to task creation: tasks still get created (milestone_id left
+  // null for all of them) rather than losing the whole plan over the
+  // grouping layer.
+  let milestoneIds: string[] = [];
+  try {
+    const { data: ids, error: mErr } = await client.rpc("fkaios_create_milestones", {
+      objective_id: objective.id,
+      milestones: milestoneDrafts.map((m, i) => ({ title: m.title, description: m.description, acceptance_criteria: m.acceptance_criteria, sequence: i })),
+    });
+    if (mErr) console.error(JSON.stringify({ level: "WARN", message: "fkaios_create_milestones failed, tasks will have no milestone_id", source: "executive-planner", correlationId, error: mErr.message }));
+    else milestoneIds = (ids ?? []) as string[];
+  } catch (err) {
+    console.error(JSON.stringify({ level: "WARN", message: "fkaios_create_milestones threw, tasks will have no milestone_id", source: "executive-planner", correlationId, error: err instanceof Error ? err.message : String(err) }));
+  }
+
+  const tasks = milestoneDrafts.flatMap((m, mi) =>
+    m.tasks.map((t) => ({
+      project_id: proj.id,
+      milestone_id: milestoneIds[mi] ?? null,
+      role: "general", // orchestration_tasks.role is a software-persona field (frontend/backend/.../general); business objectives stay 'general' — department assignment is already tracked on the objective itself, not duplicated here.
+      title: t.title,
+      description: t.description,
+      status: "pending",
+      attempts: 0,
+    }))
+  );
 
   const { error: tErr } = await client.from("orchestration_tasks").insert(tasks);
-  if (tErr) return { projectId: proj.id, tasksCreated: 0, error: tErr.message };
+  if (tErr) return { projectId: proj.id, tasksCreated: 0, milestonesCreated: milestoneIds.length, error: tErr.message };
 
   try {
     await founderMemory.episodic.append({
       function_name: "executive-planner", action: "plan_objective", status: "success",
-      input_summary: objective.raw_request.slice(0, 300), output_summary: `project ${proj.id}, ${tasks.length} tasks`,
+      input_summary: objective.raw_request.slice(0, 300), output_summary: `project ${proj.id}, ${milestoneIds.length} milestone(s), ${tasks.length} tasks`,
     });
   } catch { /* non-blocking */ }
 
-  return { projectId: proj.id, tasksCreated: tasks.length };
+  return { projectId: proj.id, tasksCreated: tasks.length, milestonesCreated: milestoneIds.length };
 }
 
 // ── Progress tracking — real aggregation, not a fabricated percentage ──

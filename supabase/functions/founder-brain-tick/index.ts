@@ -114,7 +114,7 @@ Deno.serve(async (req: Request) => {
 
     // SPRINT 6: if this cycle assigned an objective, plan it immediately —
     // best-effort, never lets a planning failure break the tick's response.
-    let planned: { projectId: string | null; tasksCreated: number } | null = null;
+    let planned: { projectId: string | null; tasksCreated: number; milestonesCreated: number } | null = null;
     // SPRINT 9: and once planned, the Work Engine allocates each task to
     // the best-fit AI employee — the brain no longer just plans, it hands
     // off to a real worker in the same cycle.
@@ -125,7 +125,7 @@ Deno.serve(async (req: Request) => {
         const { data: objective } = await client.from("orchestrator_requests").select("id, raw_request, department_code, status").eq("id", result.assigned.taskId).single();
         if (objective) {
           const plan = await planObjective(objective, result.correlationId);
-          planned = { projectId: plan.projectId, tasksCreated: plan.tasksCreated };
+          planned = { projectId: plan.projectId, tasksCreated: plan.tasksCreated, milestonesCreated: plan.milestonesCreated };
           if (plan.projectId) {
             const work = await allocateProjectWork(plan.projectId);
             allocated = work.allocated;
