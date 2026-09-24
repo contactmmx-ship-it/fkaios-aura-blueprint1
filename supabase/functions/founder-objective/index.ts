@@ -21,6 +21,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { assessRisk, createTask, routeToDepartment } from "../_shared/founder-brain.ts";
 import { summarizeObjectiveProgress } from "../_shared/objective-progress.ts";
+import { canRerun, FOUNDER_OBJECTIVE_CLASSIFICATION, rerunUpdate } from "../_shared/objective-rerun.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,13 +37,21 @@ const STATUS_LIST_LIMIT = 5;
 // derived from their real tasks and jobs. Uses the service role so the
 // founder sees progress regardless of per-table RLS, after the same auth
 // check as submission. Never returns task output (see objective-progress.ts).
-async function readObjectiveStatus(objectiveId: string | null) {
-  const admin = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "", {
+function adminClient() {
+  return createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "", {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+}
+
+// Lists only objectives submitted here (classification marks them); the
+// Founder Brain also creates requested_by='founder-brain' rows every tick,
+// which would otherwise push the founder's own objectives off the list.
+async function readObjectiveStatus(objectiveId: string | null) {
+  const admin = adminClient();
   let query = admin.from("orchestrator_requests")
     .select("id, raw_request, status, action_taken, result_summary, risk_level, department_code, created_at")
     .eq("requested_by", "founder-brain")
+    .eq("classification", FOUNDER_OBJECTIVE_CLASSIFICATION)
     .order("created_at", { ascending: false })
     .limit(STATUS_LIST_LIMIT);
   if (objectiveId) query = query.eq("id", objectiveId);
@@ -68,6 +77,26 @@ async function readObjectiveStatus(objectiveId: string | null) {
     }
     return { ...objective, progress: summarizeObjectiveProgress(projects?.length ?? 0, tasks, jobs) };
   }));
+}
+
+// Re-run a BLOCKED or FAILED objective submitted here. Only flips the row
+// to processing with the re-run flag; the objective loop does the planning.
+async function requestRerun(objectiveId: string): Promise<{ ok: boolean; error?: string; status?: number }> {
+  const admin = adminClient();
+  const { data: row, error } = await admin.from("orchestrator_requests")
+    .select("id, status, action_taken, classification")
+    .eq("id", objectiveId)
+    .eq("requested_by", "founder-brain")
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message, status: 500 };
+  if (!row || row.classification !== FOUNDER_OBJECTIVE_CLASSIFICATION) return { ok: false, error: "Objective not found", status: 404 };
+  if (!canRerun(row)) return { ok: false, error: `Objective is ${row.status}; only a blocked or failed objective can be re-run`, status: 409 };
+  const { error: updateError } = await admin.from("orchestrator_requests")
+    .update(rerunUpdate(new Date().toISOString()))
+    .eq("id", objectiveId)
+    .eq("status", row.status);
+  if (updateError) return { ok: false, error: updateError.message, status: 500 };
+  return { ok: true };
 }
 
 function json(body: unknown, status = 200): Response {
@@ -104,6 +133,13 @@ Deno.serve(async (req: Request) => {
       const objectiveId = typeof body.objectiveId === "string" ? body.objectiveId : null;
       return json({ ok: true, objectives: await readObjectiveStatus(objectiveId) });
     }
+    if (body.action === "rerun") {
+      if (typeof body.objectiveId !== "string" || !body.objectiveId) return json({ ok: false, error: "objectiveId required" }, 400);
+      const rerun = await requestRerun(body.objectiveId);
+      if (!rerun.ok) return json({ ok: false, error: rerun.error }, rerun.status ?? 500);
+      console.log(JSON.stringify({ level: "INFO", message: "objective re-run requested", source: "founder-objective", correlationId, objectiveId: body.objectiveId, requestedBy: user.id }));
+      return json({ ok: true, objectiveId: body.objectiveId, status: "processing" });
+    }
     const objective = typeof body.objective === "string" ? body.objective.trim() : "";
     if (objective.length < MIN_OBJECTIVE_CHARS) return json({ ok: false, error: `Objective must be at least ${MIN_OBJECTIVE_CHARS} characters` }, 400);
     if (objective.length > MAX_OBJECTIVE_CHARS) return json({ ok: false, error: `Objective must be at most ${MAX_OBJECTIVE_CHARS} characters` }, 400);
@@ -118,6 +154,11 @@ Deno.serve(async (req: Request) => {
       console.error(JSON.stringify({ level: "ERROR", message: "createTask failed", source: "founder-objective", correlationId, error: result.error }));
       return json({ ok: false, error: "FKAIOS could not record the objective", correlationId }, 500);
     }
+
+    // Mark it as a Command Center objective so the status list shows it.
+    const { error: markError } = await adminClient().from("orchestrator_requests")
+      .update({ classification: FOUNDER_OBJECTIVE_CLASSIFICATION }).eq("id", row.id);
+    if (markError) console.error(JSON.stringify({ level: "WARN", message: "could not mark founder objective", source: "founder-objective", correlationId, objectiveId: row.id, error: markError.message }));
 
     console.log(JSON.stringify({ level: "INFO", message: "objective submitted", source: "founder-objective", correlationId, objectiveId: row.id, status: row.status, riskLevel, departmentCode, submittedBy: user.id }));
     return json({

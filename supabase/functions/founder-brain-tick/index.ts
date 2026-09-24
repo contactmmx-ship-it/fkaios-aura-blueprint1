@@ -32,6 +32,7 @@ import { cognitiveTick, getGoals, seedGoalHierarchy } from "../_shared/founder-b
 import { planObjective, escalateBlocked } from "../_shared/executive-planner.ts";
 import { allocateProjectWork, returnCompletedWork } from "../_shared/work-engine.ts";
 import { runObjectiveLoop } from "../_shared/objective-loop.ts";
+import { COGNITIVE_CYCLE_ACTION, cognitiveIntervalMinutes, shouldRunCognitiveCycle } from "../_shared/cognitive-budget.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
 const corsHeaders = {
@@ -92,7 +93,23 @@ Deno.serve(async (req: Request) => {
       console.error("founder-brain-tick: objective loop failed", err instanceof Error ? err.message : String(err));
     }
 
-    const result = await cognitiveTick("founder");
+    // LLM BUDGET (2026-09-24): cognitiveTick() costs 6-10 LLM calls per run
+    // and exhausted the free Gemini daily quota by itself, starving founder
+    // objectives. It now runs at most once per COGNITIVE_CYCLE_INTERVAL_MINUTES
+    // (default 60); the objective loop above still runs on every tick.
+    // Its own execution_log row is the record of when it last ran.
+    const serviceClient = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
+    const { data: lastCycle } = await serviceClient.from("execution_log").select("created_at")
+      .eq("function_name", "founder-brain-tick").eq("action", COGNITIVE_CYCLE_ACTION)
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    const cognitiveGate = shouldRunCognitiveCycle(
+      lastCycle?.created_at ?? null,
+      new Date(),
+      cognitiveIntervalMinutes(Deno.env.get("COGNITIVE_CYCLE_INTERVAL_MINUTES")),
+    );
+    const result = cognitiveGate.run
+      ? await cognitiveTick("founder")
+      : { cognitiveSkipped: cognitiveGate.reason, assigned: null as { taskId: string } | null, correlationId: crypto.randomUUID().slice(0, 8) };
 
     // SPRINT 6: if this cycle assigned an objective, plan it immediately —
     // best-effort, never lets a planning failure break the tick's response.

@@ -2,7 +2,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { reason } from "./founder-brain.ts";
 import { planObjective } from "./executive-planner.ts";
 import { allocateProjectWork, returnCompletedWork } from "./work-engine.ts";
-import { assessObjectiveTasks, formatBlockedSummary } from "./fact-grounding.ts";
+import { assessCurrentTaskSet, formatBlockedSummary } from "./fact-grounding.ts";
+import { isRerunRequested, OBJECTIVE_LOOP } from "./objective-rerun.ts";
 
 type ObjectiveLoopResult = {
   objectiveId: string;
@@ -143,17 +144,6 @@ function extractDeterministicEvidence(
   return evidence;
 }
 
-function currentTaskGate(
-  projects: Record<string, unknown>[],
-  tasks: Record<string, unknown>[],
-) {
-  const latestProjectId = projects[0]?.id;
-  const currentTasks = latestProjectId === undefined
-    ? tasks
-    : tasks.filter((task) => task.project_id === latestProjectId);
-  return assessObjectiveTasks(currentTasks);
-}
-
 async function evaluateObjective(
   objective: Record<string, unknown>,
   projects: Record<string, unknown>[],
@@ -167,7 +157,7 @@ async function evaluateObjective(
   // whether some evidence record exists somewhere. A task that needs
   // real-world facts but has no capability evidence blocks the objective
   // outright: replanning cannot supply a data source, a human has to.
-  const taskGate = currentTaskGate(projects, tasks);
+  const taskGate = assessCurrentTaskSet(projects, tasks);
   if (projects.length > 0 && taskGate.blocked) {
     return {
       achieved: false,
@@ -393,6 +383,36 @@ export async function runObjectiveLoop(
 
   for (const objective of objectives ?? []) {
     try {
+      /*
+       * Founder-requested re-run (founder-objective `rerun`): start a new
+       * planning pass now. Earlier projects/tasks stay as history; the
+       * objective is judged on the new pass from here on.
+       */
+      if (isRerunRequested(objective)) {
+        const continuation = await createContinuationProject(objective, correlationId);
+        if (!continuation.projectId) {
+          results.push({
+            objectiveId: String(objective.id),
+            action: "no_action",
+            summary: `Re-run requested but planning failed: ${continuation.error ?? "unknown"}. Will retry next run.`,
+          });
+          continue;
+        }
+        const { error: flagError } = await supabase
+          .from("orchestrator_requests")
+          .update({ action_taken: OBJECTIVE_LOOP, result_summary: null })
+          .eq("id", objective.id);
+        if (flagError) throw new Error(`Failed clearing re-run flag: ${flagError.message}`);
+        results.push({
+          objectiveId: String(objective.id),
+          action: "replan",
+          projectId: continuation.projectId,
+          tasksCreated: continuation.tasksCreated,
+          summary: "Re-run requested by the founder: new planning pass created.",
+        });
+        continue;
+      }
+
       const state = await loadObjectiveState(
         supabase,
         String(objective.id),
@@ -409,7 +429,7 @@ export async function runObjectiveLoop(
        * the objective now; waiting for the other tasks (possibly behind a
        * long job backlog) cannot change that outcome.
        */
-      const gate = currentTaskGate(state.projects, state.tasks);
+      const gate = assessCurrentTaskSet(state.projects, state.tasks);
       if (state.projects.length > 0 && gate.blocked) {
         const summary = formatBlockedSummary(gate);
         await markObjective(supabase, String(objective.id), "awaiting_approval", summary);
