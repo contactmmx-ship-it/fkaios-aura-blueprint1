@@ -32,6 +32,8 @@ const corsHeaders = {
 const MIN_OBJECTIVE_CHARS = 10;
 const MAX_OBJECTIVE_CHARS = 2000;
 const STATUS_LIST_LIMIT = 5;
+const MIN_TOPIC_CHARS = 2;
+const MAX_TOPIC_CHARS = 200;
 
 // Read-only status for the Command Center: the objective rows plus progress
 // derived from their real tasks and jobs. Uses the service role so the
@@ -126,12 +128,24 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, error: "This account is not allowed to submit objectives" }, 403);
     }
 
-    let body: { objective?: unknown; action?: unknown; objectiveId?: unknown };
+    let body: { objective?: unknown; action?: unknown; objectiveId?: unknown; topic?: unknown };
     try { body = await req.json(); } catch { return json({ ok: false, error: "Body must be JSON" }, 400); }
 
     if (body.action === "status") {
       const objectiveId = typeof body.objectiveId === "string" ? body.objectiveId : null;
       return json({ ok: true, objectives: await readObjectiveStatus(objectiveId) });
+    }
+    // Rajeev AI / Command Center: what FKAIOS already knows about a topic
+    // (objectives, tasks, knowledge with provenance, research, handoffs,
+    // capabilities) from the canonical Brain, fkaios_brain_context().
+    if (body.action === "brain_context") {
+      const topic = typeof body.topic === "string" ? body.topic.trim() : "";
+      if (topic.length < MIN_TOPIC_CHARS || topic.length > MAX_TOPIC_CHARS) {
+        return json({ ok: false, error: `topic must be ${MIN_TOPIC_CHARS}-${MAX_TOPIC_CHARS} characters` }, 400);
+      }
+      const { data, error } = await adminClient().rpc("fkaios_brain_context", { topic });
+      if (error) return json({ ok: false, error: `brain context failed: ${error.message}` }, 500);
+      return json({ ok: true, context: data });
     }
     if (body.action === "rerun") {
       if (typeof body.objectiveId !== "string" || !body.objectiveId) return json({ ok: false, error: "objectiveId required" }, 400);
