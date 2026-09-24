@@ -96,6 +96,38 @@ async function readObjectiveStatus(objectiveId: string | null) {
   }));
 }
 
+// Command Center visibility (acceptance matrix #29/#30/#32/#33): the
+// worker_handoffs / worker_runs / fkaios_acceptance_matrix tables are
+// RLS-locked to service-role only (by design - see req #42's own audit),
+// so nothing in the browser could ever read them directly. This gives a
+// signed-in founder session a real, filtered read of the SAME data
+// worker_activity already tracks - no new tables, no duplicated state.
+async function readWorkerActivity(objectiveId: string | null) {
+  const admin = adminClient();
+  let handoffQuery = admin.from("worker_handoffs")
+    .select("id, objective_id, project, from_worker, to_worker, status, current_task, current_state, next_action, capacity_state, retry_count, created_at")
+    .order("created_at", { ascending: false }).limit(10);
+  if (objectiveId) handoffQuery = handoffQuery.eq("objective_id", objectiveId);
+  const { data: handoffs, error: handoffErr } = await handoffQuery;
+  if (handoffErr) throw new Error(`worker_handoffs read failed: ${handoffErr.message}`);
+
+  let runQuery = admin.from("worker_runs")
+    .select("id, objective_id, worker, provider, model, status, steps, max_steps, last_step, started_at, ended_at")
+    .order("started_at", { ascending: false }).limit(10);
+  if (objectiveId) runQuery = runQuery.eq("objective_id", objectiveId);
+  const { data: runs, error: runErr } = await runQuery;
+  if (runErr) throw new Error(`worker_runs read failed: ${runErr.message}`);
+
+  let matrixSummary = null;
+  if (objectiveId) {
+    const { data, error } = await admin.rpc("fkaios_acceptance_summary", { p_objective_id: objectiveId });
+    if (error) throw new Error(`acceptance summary read failed: ${error.message}`);
+    matrixSummary = data;
+  }
+
+  return { handoffs: handoffs ?? [], runs: runs ?? [], matrixSummary };
+}
+
 // Re-run a BLOCKED or FAILED objective submitted here. Only flips the row
 // to processing with the re-run flag; the objective loop does the planning.
 async function requestRerun(objectiveId: string): Promise<{ ok: boolean; error?: string; status?: number }> {
@@ -229,6 +261,14 @@ Deno.serve(async (req: Request) => {
       const { data, error } = await adminClient().rpc("fkaios_brain_context", { topic });
       if (error) return json({ ok: false, error: `brain context failed: ${error.message}` }, 500);
       return json({ ok: true, context: data });
+    }
+    if (body.action === "worker_activity") {
+      const objectiveId = typeof body.objectiveId === "string" ? body.objectiveId : null;
+      try {
+        return json({ ok: true, ...(await readWorkerActivity(objectiveId)) });
+      } catch (err) {
+        return json({ ok: false, error: err instanceof Error ? err.message : "worker_activity read failed" }, 500);
+      }
     }
     if (body.action === "rerun") {
       if (typeof body.objectiveId !== "string" || !body.objectiveId) return json({ ok: false, error: "objectiveId required" }, 400);

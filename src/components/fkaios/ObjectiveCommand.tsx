@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Target, Loader2, Send, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Ban } from 'lucide-react';
+import { Target, Loader2, Send, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Ban, Users, GitBranch } from 'lucide-react';
 import { deriveObjectiveView, shouldPoll, STAGES, type ObjectiveState, type ObjectiveStatusRow } from '@/lib/objective-view';
 
 // Objective Command — the Founder's front door into the EXISTING objective
@@ -108,6 +108,83 @@ export function ObjectiveCard({ row, checkedAt, onOpenDecisionCenter }: { row: O
   );
 }
 
+interface WorkerHandoffRow {
+  id: string; objective_id: string | null; project: string | null;
+  from_worker: string | null; to_worker: string | null; status: string;
+  current_task: string | null; current_state: string | null; next_action: string | null;
+  capacity_state: unknown; retry_count: number; created_at: string;
+}
+interface WorkerRunRow {
+  id: string; objective_id: string | null; worker: string; provider: string | null; model: string | null;
+  status: string; steps: number; max_steps: number | null; last_step: string | null;
+  started_at: string; ended_at: string | null;
+}
+
+// Real worker activity (acceptance matrix #29/#30/#32/#33): the actual
+// worker_runs/worker_handoffs rows, not a decorative summary. Reads
+// through founder-objective's worker_activity action (service-role backed
+// - these tables are RLS-locked to service-role only, so the browser
+// cannot query them directly).
+function WorkerActivityPanel() {
+  const [handoffs, setHandoffs] = useState<WorkerHandoffRow[] | null>(null);
+  const [runs, setRuns] = useState<WorkerRunRow[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const { data, error: fnError } = await supabase.functions.invoke('founder-objective', { body: { action: 'worker_activity' } });
+    if (fnError) setErr(await readFunctionError(fnError));
+    else if (!data?.ok) setErr(data?.error || 'Could not read worker activity.');
+    else { setErr(null); setHandoffs(data.handoffs as WorkerHandoffRow[]); setRuns(data.runs as WorkerRunRow[]); }
+    setLoading(false);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Users className="w-4 h-4 text-slate-400" />
+          <h3 className="text-sm font-semibold text-slate-300">Worker activity</h3>
+        </div>
+        <button onClick={load} disabled={loading} className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50">
+          {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Refresh
+        </button>
+      </div>
+      {err && <div className="bg-red-950/40 border border-red-900 rounded-xl px-4 py-3 text-xs text-red-300">Could not read worker activity: {err}</div>}
+      {runs && runs.length > 0 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2">
+          <p className="text-[11px] text-slate-500 uppercase tracking-wider">Worker runs</p>
+          {runs.map((r) => (
+            <div key={r.id} className="text-xs text-slate-300 flex items-center justify-between gap-2 border-b border-slate-800/60 last:border-0 pb-1.5 last:pb-0">
+              <span className="font-mono text-slate-400">{r.worker}</span>
+              <span className="text-slate-500">{r.status}{r.max_steps ? ` · step ${r.steps}/${r.max_steps}` : ''}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {handoffs && handoffs.length > 0 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2">
+          <p className="text-[11px] text-slate-500 uppercase tracking-wider flex items-center gap-1.5"><GitBranch className="w-3 h-3" /> Handoffs</p>
+          {handoffs.map((h) => (
+            <div key={h.id} className="text-xs space-y-0.5 border-b border-slate-800/60 last:border-0 pb-1.5 last:pb-0">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-slate-300">{h.from_worker ?? '?'} → {h.to_worker ?? '(unassigned)'}</span>
+                <span className="text-slate-500">{h.status}</span>
+              </div>
+              {h.current_task && <p className="text-slate-500 truncate">{h.current_task}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+      {handoffs && handoffs.length === 0 && runs && runs.length === 0 && (
+        <p className="text-xs text-slate-500">No worker activity recorded yet.</p>
+      )}
+    </div>
+  );
+}
+
 export default function ObjectiveCommand({ onNavigate }: { onNavigate?: (page: string) => void } = {}) {
   const [objective, setObjective] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -202,6 +279,10 @@ export default function ObjectiveCommand({ onNavigate }: { onNavigate?: (page: s
       {objectives && objectives.length === 0 && <p className="text-xs text-slate-500">No objectives yet.</p>}
       {(objectives ?? []).map((row) => <ObjectiveCard key={row.id} row={row} checkedAt={checkedAt} onOpenDecisionCenter={onNavigate ? () => onNavigate('decision-center') : undefined} />)}
       {anyProcessing && <p className="text-[11px] text-slate-500">Updates automatically. The objective loop runs every 15 minutes: it plans the work, creates tasks and jobs, and verifies the result against evidence.</p>}
+
+      <div className="pt-2 border-t border-slate-800">
+        <WorkerActivityPanel />
+      </div>
     </div>
   );
 }
