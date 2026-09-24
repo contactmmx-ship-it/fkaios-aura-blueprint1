@@ -17,6 +17,16 @@
 // accounts may submit; unset means any signed-in console user, the same
 // bar the rest of /console already uses. The service-role key never
 // leaves this function.
+//
+// Service callers (e.g. Rajeev AI's server, which has no FKAIOS user
+// session): the platform's own JWT check stays on (Authorization must
+// still be a valid Supabase-issued token — the publishable anon key
+// works, since it is one). A SEPARATE header, X-Fkaios-Service-Token,
+// is compared against the FKAIOS_SERVICE_TOKEN secret; a match unlocks
+// ONLY the read-only brain_context action, no founder session needed.
+// Objective submission and rerun always require a real signed-in founder
+// session below — a leaked service token can read the Brain, never spend
+// budget or create work. Unset (the default) disables this path entirely.
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { assessRisk, createTask, routeToDepartment } from "../_shared/founder-brain.ts";
@@ -26,7 +36,7 @@ import { canRerun, FOUNDER_OBJECTIVE_CLASSIFICATION, rerunUpdate } from "../_sha
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, X-Fkaios-Service-Token",
 };
 
 const MIN_OBJECTIVE_CHARS = 10;
@@ -115,6 +125,29 @@ Deno.serve(async (req: Request) => {
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
     if (!token) return json({ ok: false, error: "Sign in required" }, 401);
 
+    let body: { objective?: unknown; action?: unknown; objectiveId?: unknown; topic?: unknown };
+    try { body = await req.json(); } catch { return json({ ok: false, error: "Body must be JSON" }, 400); }
+
+    // Service-to-service path: a matching X-Fkaios-Service-Token header
+    // grants brain_context ONLY, no founder session needed. The
+    // Authorization header above must still be a valid Supabase JWT
+    // (platform-enforced) — the caller sends the publishable anon key.
+    // Everything else falls through to the normal user-JWT check below.
+    const serviceHeader = req.headers.get("X-Fkaios-Service-Token") ?? "";
+    const serviceToken = Deno.env.get("FKAIOS_SERVICE_TOKEN") ?? "";
+    if (serviceToken && serviceHeader && serviceHeader === serviceToken) {
+      if (body.action !== "brain_context") {
+        return json({ ok: false, error: "Service token may only call brain_context" }, 403);
+      }
+      const topic = typeof body.topic === "string" ? body.topic.trim() : "";
+      if (topic.length < MIN_TOPIC_CHARS || topic.length > MAX_TOPIC_CHARS) {
+        return json({ ok: false, error: `topic must be ${MIN_TOPIC_CHARS}-${MAX_TOPIC_CHARS} characters` }, 400);
+      }
+      const { data, error } = await adminClient().rpc("fkaios_brain_context", { topic });
+      if (error) return json({ ok: false, error: `brain context failed: ${error.message}` }, 500);
+      return json({ ok: true, context: data });
+    }
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
     const authClient = createClient(supabaseUrl, anonKey);
@@ -127,9 +160,6 @@ Deno.serve(async (req: Request) => {
     if (allowList.length > 0 && !allowList.includes((user.email ?? "").toLowerCase())) {
       return json({ ok: false, error: "This account is not allowed to submit objectives" }, 403);
     }
-
-    let body: { objective?: unknown; action?: unknown; objectiveId?: unknown; topic?: unknown };
-    try { body = await req.json(); } catch { return json({ ok: false, error: "Body must be JSON" }, 400); }
 
     if (body.action === "status") {
       const objectiveId = typeof body.objectiveId === "string" ? body.objectiveId : null;
