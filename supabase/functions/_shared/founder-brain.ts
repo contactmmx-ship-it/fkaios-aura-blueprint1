@@ -343,10 +343,23 @@ async function fetchFounderMemory(client: SupabaseClient, userId: string, id: st
 
 async function fetchKnowledgeBase(client: SupabaseClient, brandId: string | null, id: string): Promise<DataSourceResult> {
   try {
-    const { data: brands } = await client.from("brands").select("id").limit(5);
+    // ACCEPTANCE MATRIX #3 FIX ("complete available FK/brand/project
+    // history is used"): this previously capped brand-agnostic lookups to
+    // the first 5 brands returned (no ORDER BY — effectively an arbitrary
+    // Postgres row order) and then only the first 3 of those, silently
+    // excluding a majority of real brands from ever being consulted once
+    // more than 3 existed. Live-checked 2026-09-24: 8 real active brands
+    // exist (Arofur, Chaat Masters, Chawla Laboratory, Franchisee Kart, Gio
+    // Paints, GoMax, Mr. Chick'n, Turning Points) — 5 of 8 were dropped on
+    // every brand-agnostic call. `brands` is a tiny table (single-digit to
+    // low-double-digit row count for this business), so querying all of it
+    // costs nothing meaningful; the per-brand chunk limit below still
+    // bounds the total payload size, it just no longer excludes whole
+    // brands to do it.
+    const { data: brands } = await client.from("brands").select("id");
     const brandIds = brandId ? [brandId] : (brands ?? []).map((b: { id: string }) => b.id);
     const results: Array<Record<string, unknown>> = [];
-    for (const bid of brandIds.slice(0, 3)) {
+    for (const bid of brandIds) {
       // FIX: "knowledge_chunks"/"documents"/"knowledge_sources" do not exist
       // in the live schema (confirmed via information_schema). Real tables
       // are brain_knowledge_chunks (column is "text", not "content") and
@@ -357,7 +370,11 @@ async function fetchKnowledgeBase(client: SupabaseClient, brandId: string | null
       if (chunks) results.push(...chunks);
     }
     if (results.length === 0) return { source: "knowledge_base", status: "no_data", data: null, error: "No matching knowledge entries found" };
-    return { source: "knowledge_base", status: "success", data: results };
+    // Bounds total payload size across however many brands exist, without
+    // deciding in advance which brands get excluded (unlike the removed
+    // brandIds cap above) — every brand got a chance to contribute before
+    // this trims the combined list.
+    return { source: "knowledge_base", status: "success", data: results.slice(0, 30) };
   } catch (err) {
     return { source: "knowledge_base", status: "error", data: null, error: err instanceof Error ? err.message : String(err) };
   }
