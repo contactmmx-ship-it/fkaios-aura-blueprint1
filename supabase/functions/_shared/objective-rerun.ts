@@ -17,6 +17,16 @@ export const OBJECTIVE_LOOP = "objective_loop";
 // is otherwise unused for these rows.
 export const FOUNDER_OBJECTIVE_CLASSIFICATION = "founder_objective";
 
+// Marks an objective submitted by Rajeev AI / Founder Avatar (a SEPARATE
+// app, rajeev_ai, speaking through founder-objective's service-token path -
+// see that function's submit_from_avatar action) rather than typed into the
+// Command Center directly. Same orchestrator_requests row shape, same
+// requested_by='founder-brain', same planning/execution loop - distinct
+// classification only so these are auditable as avatar-originated (master
+// spec requirement #28: Rajeev AI must feed the SAME objective system, never
+// a second one).
+export const RAJEEV_AI_AVATAR_CLASSIFICATION = "rajeev_ai_avatar_objective";
+
 export interface ObjectiveLifecycleRow {
   status?: unknown;
   action_taken?: unknown;

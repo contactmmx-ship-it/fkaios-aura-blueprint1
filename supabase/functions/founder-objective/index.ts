@@ -23,15 +23,20 @@
 // still be a valid Supabase-issued token — the publishable anon key
 // works, since it is one). A SEPARATE header, X-Fkaios-Service-Token,
 // is compared against the FKAIOS_SERVICE_TOKEN secret; a match unlocks
-// ONLY the read-only brain_context action, no founder session needed.
-// Objective submission and rerun always require a real signed-in founder
-// session below — a leaked service token can read the Brain, never spend
-// budget or create work. Unset (the default) disables this path entirely.
+// TWO actions only: brain_context (read) and submit_from_avatar (create
+// an objective — master spec requirement #28, Rajeev AI must feed the
+// same objective system, not a duplicate one). Both go through
+// submitObjective()'s identical risk-assessment/approval-gate pipeline a
+// Command Center submission does, so a leaked service token can create
+// low/normal-risk work but still cannot approve its own high/critical
+// objective, rerun a blocked one, or read anything beyond brain_context's
+// scope — rerun and status always require a real signed-in founder
+// session below. Unset (the default) disables this whole path.
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { assessRisk, createTask, routeToDepartment } from "../_shared/founder-brain.ts";
 import { summarizeObjectiveProgress } from "../_shared/objective-progress.ts";
-import { canRerun, FOUNDER_OBJECTIVE_CLASSIFICATION, rerunUpdate } from "../_shared/objective-rerun.ts";
+import { canRerun, FOUNDER_OBJECTIVE_CLASSIFICATION, RAJEEV_AI_AVATAR_CLASSIFICATION, rerunUpdate } from "../_shared/objective-rerun.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -115,6 +120,29 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
 
+// Shared by both entry points (a signed-in founder typing into the Command
+// Center, and the service-token path below) so an avatar-submitted
+// objective goes through the EXACT SAME pipeline as a Command Center one -
+// same risk assessment, same department routing, same approval gate for
+// high/critical risk. Never duplicated, per master spec requirement #28
+// ("must NOT create a duplicate objective system").
+async function submitObjective(objective: string, classification: string, correlationId: string) {
+  const riskLevel = await assessRisk(objective, correlationId);
+  const departmentCode = await routeToDepartment(objective, correlationId);
+  const result = await createTask("founder", { description: objective, department_code: departmentCode, risk_level: riskLevel }, correlationId);
+
+  const row = result.data as { id?: string; status?: string } | null;
+  if (result.status !== "success" || !row?.id) {
+    return { ok: false as const, error: "FKAIOS could not record the objective", result };
+  }
+
+  const { error: markError } = await adminClient().from("orchestrator_requests")
+    .update({ classification }).eq("id", row.id);
+  if (markError) console.error(JSON.stringify({ level: "WARN", message: "could not mark objective classification", source: "founder-objective", correlationId, objectiveId: row.id, classification, error: markError.message }));
+
+  return { ok: true as const, objectiveId: row.id, status: row.status, riskLevel, departmentCode };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
@@ -136,16 +164,41 @@ Deno.serve(async (req: Request) => {
     const serviceHeader = req.headers.get("X-Fkaios-Service-Token") ?? "";
     const serviceToken = Deno.env.get("FKAIOS_SERVICE_TOKEN") ?? "";
     if (serviceToken && serviceHeader && serviceHeader === serviceToken) {
-      if (body.action !== "brain_context") {
-        return json({ ok: false, error: "Service token may only call brain_context" }, 403);
+      if (body.action === "brain_context") {
+        const topic = typeof body.topic === "string" ? body.topic.trim() : "";
+        if (topic.length < MIN_TOPIC_CHARS || topic.length > MAX_TOPIC_CHARS) {
+          return json({ ok: false, error: `topic must be ${MIN_TOPIC_CHARS}-${MAX_TOPIC_CHARS} characters` }, 400);
+        }
+        const { data, error } = await adminClient().rpc("fkaios_brain_context", { topic });
+        if (error) return json({ ok: false, error: `brain context failed: ${error.message}` }, 500);
+        return json({ ok: true, context: data });
       }
-      const topic = typeof body.topic === "string" ? body.topic.trim() : "";
-      if (topic.length < MIN_TOPIC_CHARS || topic.length > MAX_TOPIC_CHARS) {
-        return json({ ok: false, error: `topic must be ${MIN_TOPIC_CHARS}-${MAX_TOPIC_CHARS} characters` }, 400);
+      // Master spec requirement #28: Rajeev AI / Founder Avatar must be able
+      // to feed objectives into the SAME FKAIOS objective system, not a
+      // second one, without needing a founder browser session (the avatar's
+      // server has none). Deliberately narrow: this action ONLY creates an
+      // objective through submitObjective() above - the identical pipeline,
+      // risk assessment, and awaiting_approval gate a Command Center
+      // submission goes through. It can never rerun, read status, or do
+      // anything else - those still require a real founder session below.
+      // A leaked service token can therefore create low/normal work (still
+      // gated to awaiting_approval if assessRisk finds it high/critical) but
+      // still cannot approve its own high-risk objectives, rerun a blocked
+      // one, or read anything beyond brain_context's existing scope.
+      if (body.action === "submit_from_avatar") {
+        const objective = typeof body.objective === "string" ? body.objective.trim() : "";
+        if (objective.length < MIN_OBJECTIVE_CHARS) return json({ ok: false, error: `Objective must be at least ${MIN_OBJECTIVE_CHARS} characters` }, 400);
+        if (objective.length > MAX_OBJECTIVE_CHARS) return json({ ok: false, error: `Objective must be at most ${MAX_OBJECTIVE_CHARS} characters` }, 400);
+
+        const submission = await submitObjective(objective, RAJEEV_AI_AVATAR_CLASSIFICATION, correlationId);
+        if (!submission.ok) {
+          console.error(JSON.stringify({ level: "ERROR", message: "avatar objective submission failed", source: "founder-objective", correlationId, error: submission.error }));
+          return json({ ok: false, error: submission.error, correlationId }, 500);
+        }
+        console.log(JSON.stringify({ level: "INFO", message: "objective submitted via avatar", source: "founder-objective", correlationId, objectiveId: submission.objectiveId, status: submission.status, riskLevel: submission.riskLevel }));
+        return json({ ok: true, objectiveId: submission.objectiveId, status: submission.status, riskLevel: submission.riskLevel, departmentCode: submission.departmentCode, correlationId });
       }
-      const { data, error } = await adminClient().rpc("fkaios_brain_context", { topic });
-      if (error) return json({ ok: false, error: `brain context failed: ${error.message}` }, 500);
-      return json({ ok: true, context: data });
+      return json({ ok: false, error: "Service token may only call brain_context or submit_from_avatar" }, 403);
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
@@ -188,29 +241,21 @@ Deno.serve(async (req: Request) => {
     if (objective.length < MIN_OBJECTIVE_CHARS) return json({ ok: false, error: `Objective must be at least ${MIN_OBJECTIVE_CHARS} characters` }, 400);
     if (objective.length > MAX_OBJECTIVE_CHARS) return json({ ok: false, error: `Objective must be at most ${MAX_OBJECTIVE_CHARS} characters` }, 400);
 
-    // Same order and functions as cognitiveTick's Assign stage.
-    const riskLevel = await assessRisk(objective, correlationId);
-    const departmentCode = await routeToDepartment(objective, correlationId);
-    const result = await createTask("founder", { description: objective, department_code: departmentCode, risk_level: riskLevel }, correlationId);
-
-    const row = result.data as { id?: string; status?: string } | null;
-    if (result.status !== "success" || !row?.id) {
-      console.error(JSON.stringify({ level: "ERROR", message: "createTask failed", source: "founder-objective", correlationId, error: result.error }));
+    // Same pipeline as cognitiveTick's Assign stage (and the avatar path
+    // above) - see submitObjective().
+    const submission = await submitObjective(objective, FOUNDER_OBJECTIVE_CLASSIFICATION, correlationId);
+    if (!submission.ok) {
+      console.error(JSON.stringify({ level: "ERROR", message: "createTask failed", source: "founder-objective", correlationId, error: submission.error }));
       return json({ ok: false, error: "FKAIOS could not record the objective", correlationId }, 500);
     }
 
-    // Mark it as a Command Center objective so the status list shows it.
-    const { error: markError } = await adminClient().from("orchestrator_requests")
-      .update({ classification: FOUNDER_OBJECTIVE_CLASSIFICATION }).eq("id", row.id);
-    if (markError) console.error(JSON.stringify({ level: "WARN", message: "could not mark founder objective", source: "founder-objective", correlationId, objectiveId: row.id, error: markError.message }));
-
-    console.log(JSON.stringify({ level: "INFO", message: "objective submitted", source: "founder-objective", correlationId, objectiveId: row.id, status: row.status, riskLevel, departmentCode, submittedBy: user.id }));
+    console.log(JSON.stringify({ level: "INFO", message: "objective submitted", source: "founder-objective", correlationId, objectiveId: submission.objectiveId, status: submission.status, riskLevel: submission.riskLevel, departmentCode: submission.departmentCode, submittedBy: user.id }));
     return json({
       ok: true,
-      objectiveId: row.id,
-      status: row.status,
-      riskLevel,
-      departmentCode,
+      objectiveId: submission.objectiveId,
+      status: submission.status,
+      riskLevel: submission.riskLevel,
+      departmentCode: submission.departmentCode,
       correlationId,
     });
   } catch (err) {
