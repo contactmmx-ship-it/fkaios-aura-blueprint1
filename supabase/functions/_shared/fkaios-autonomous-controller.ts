@@ -77,10 +77,22 @@ export async function autoAllocateReadyTasks(): Promise<AutoAllocateSummary> {
   const vocabulary = Array.from(new Set((registryRows ?? []).flatMap((r: { capabilities: string[] | null }) => r.capabilities ?? [])));
   if (vocabulary.length === 0) return summary; // nothing genuinely available right now — nothing honest to classify against
 
+  // Only tasks FKAIOS itself planned (project request tagged
+  // "[objective:<id>]" by planObjective). Older pipelines' pending tasks and
+  // "[test:...]" fixtures live in the same table; auto-executing those would
+  // hijack another system's work and spend the LLM quota objectives need.
+  const { data: objectiveProjects } = await client
+    .from("orchestration_projects")
+    .select("id")
+    .like("request", "[objective:%");
+  const objectiveProjectIds = (objectiveProjects ?? []).map((p: { id: string }) => p.id);
+  if (objectiveProjectIds.length === 0) return summary;
+
   const { data: candidateTasks } = await client
     .from("orchestration_tasks")
     .select("id, title, description, depends_on_task_ids")
     .eq("status", "pending")
+    .in("project_id", objectiveProjectIds)
     .limit(50);
   if (!candidateTasks || candidateTasks.length === 0) return summary;
 
@@ -116,7 +128,19 @@ export async function autoAllocateReadyTasks(): Promise<AutoAllocateSummary> {
         if (Array.isArray(parsed)) tags = parsed.filter((x): x is string => typeof x === "string" && vocabulary.includes(x));
       } catch { /* unparseable reply — tags stays empty, never guessed */ }
 
-      if (tags.length === 0) { summary.noCandidate++; continue; }
+      if (tags.length === 0) {
+        // Persist the outcome so this task is not re-classified (another
+        // LLM call) on every 15-minute tick; it surfaces as a capability gap
+        // exactly like fkaios_allocate_task's own no_candidate rows.
+        await client.from("orchestration_task_allocations").insert({
+          task_id: t.id,
+          required_capabilities: [],
+          status: "no_candidate",
+          reason: "autoAllocateReadyTasks: classifier found no registered capability tag that fits this task",
+        });
+        summary.noCandidate++;
+        continue;
+      }
 
       const { data: allocResult, error: allocError } = await client.rpc("fkaios_allocate_task", {
         p_task_id: t.id,
