@@ -41,7 +41,8 @@ snapshot (Aug 29). Do not `git init` it. The git working tree is
 |---|---|---|
 | 4533243 | Migration `fkaios_worker_liveness_and_exhaustion_recovery`: heartbeat, 3h stall sweep, `fkaios_recover_worker_run`, `fkaios_report_worker_limit`, `fkaios_worker_checkin`, `fkaios_dispatch_task(alloc, run)`, `blocked_awaiting_worker`, limit-reset restore, ai_model ↔ `provider_health_state` sync | Matrix #54, #55 verified; #23 tested |
 | bce7d08 | Autonomous controller scoped to `[objective:]` projects + persisted `no_candidate`; founder-brain-tick v22 and founder-executive v53 deployed via CLI from disk | Matrix #49 verified (12:15 pg_cron tick: Gemini dispatch → verification passed, no human) |
-| (this) | pg_cron job 39 HTTP timeout 5s → 120s (migration `founder_brain_tick_cron_timeout`) | Applied live 2026-09-25 |
+| c6d66da | pg_cron job 39 HTTP timeout 5s → 120s (migration `founder_brain_tick_cron_timeout`) | Tick responses captured again (HTTP 200 at 12:21) |
+| eea7256 | Existing `checkWorkerGrounding` rule applied to autonomous ai_model dispatch; founder-brain-tick v23 | Research-type test task refused as `no_data_source` in 65 ms, no LLM call (#20 still partial) |
 
 Controlled tests were labelled `CONTROLLED TEST`. Their artifacts were
 cancelled/verified and the registry was restored to pre-test values.
@@ -71,7 +72,7 @@ cancelled/verified and the registry was restored to pre-test values.
 **E. Duplicate / consolidate**
 - Two knowledge stores with disjoint readers. TS Founder Brain `fetchKnowledgeBase` → `brain_knowledge_chunks` (by brand). SQL `fkaios_brain_context` and `fkaios_ingest_knowledge` → `fleet_memory`. Neither path sees the other's knowledge.
 - Two task executors over `orchestration_tasks`: the legacy work-engine (July website/Kundli tasks, 30 `rework`) and the FKAIOS allocation engine. The autonomous controller is now scoped to FKAIOS objectives to avoid overlap.
-- 6 stale `open` handoffs from 2026-09-24. Checkin accepts only the latest; older ones should be closed as superseded.
+- Stale `open` handoffs from 2026-09-24: 4 closed as superseded this run; `d9fb1714` (human RLS approval) deliberately left open.
 
 **F. Needs real-world verification**
 - #10 milestone planning: the planner change shipped in founder-brain-tick v22 today; it needs a newly planned objective to show `milestones_created > 0`.
@@ -99,6 +100,6 @@ cancelled/verified and the registry was restored to pre-test values.
 ## Next action for the next worker
 
 `select public.fkaios_worker_checkin('claude-code:claude-opus-5-5');` then:
-1. #20 grounding gate (critical, now that ai_model work runs unattended).
+1. #20 remainder: claim-level grounding for non-research ai_model tasks (the research-type bypass is closed, eea7256).
 2. Consolidate knowledge reads (E) before any new ingestion.
-3. Close superseded open handoffs.
+3. Verify #10 on the next newly planned objective (`milestonesCreated > 0` in the tick response).
