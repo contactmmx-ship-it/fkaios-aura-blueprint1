@@ -57,16 +57,46 @@ credential-shaped value. Never put keys, tokens or passwords in any of them.
 
 ## Taking over (worker B)
 
-1. Read the open `worker_handoffs` row for your objective.
+1. `select fkaios_worker_checkin('<your capability_registry name>');` — one
+   call. It opens your `worker_runs` row, accepts the latest open handoff for
+   the objective (linking `to_run_id`), and returns `fkaios_controller_state`,
+   the generated continuation instruction and any pending coding allocations.
+   `fkaios_controller_state.next_action` always names this call.
 2. Do not trust it blindly. Check the real state: `git log` / `git status`,
    the tables and functions it names, deployed edge function versions,
-   and run the relevant tests.
-3. Write what you verified (and any correction) to `verification_notes`,
-   set `status = 'verified'`, open your own `worker_runs` row, and link it as
-   `to_run_id`.
-4. Continue from the stated next action. Do not redo completed work.
-5. Record your steps with `fkaios_worker_step`; hand off again the same way
-   if you reach your own limit.
+   and run the relevant tests. A handoff whose `completed_work.source` says
+   `RECONSTRUCTED` was written by FKAIOS, not by the worker — anything after
+   its `last_heartbeat_at` is unknown; diff git and the acceptance matrix.
+3. Write what you verified (and any correction) to `verification_notes` and
+   set `status = 'verified'`.
+4. Continue from the stated next action. Do not redo completed work. Take an
+   allocation with `fkaios_dispatch_task(<allocation_id>, <run_id>)` so it is
+   bound to your run.
+5. Heartbeat with `fkaios_worker_step` after every meaningful step; hand off
+   again the same way if you reach your own limit.
+
+## Limits, exhaustion and silent worker death
+
+FKAIOS receives **no** Claude Code usage/session-limit event. It relies on:
+
+- **Self-report** (preferred): write your own handoff first, then
+  `select fkaios_report_worker_limit('<run_id>', 'usage_limit', '<reset time or null>', 'provider');`
+  `scope='provider'` marks every `claude-code:*` worker unavailable (they share
+  one subscription quota); an unknown reset time is assumed to be +5h and
+  labelled as an assumption. The run's bound allocations are released.
+- **Inactivity**: `fkaios_master_controller_tick` (pg_cron, every 15 min) marks
+  any active run with no heartbeat for 3h as `stalled` (cause recorded as
+  unknown), releases its bound allocations, and reconstructs a handoff if the
+  worker left none. A later `fkaios_worker_step` on that run revives it.
+- When no authorized worker is selectable, the objective's state becomes
+  `blocked_awaiting_worker` — never complete. The tick restores workers whose
+  reset time has passed (to `unknown`, not `available`; a real checkin proves
+  availability).
+- ai_model registry rows follow `provider_health_state` (real ai-engine
+  failover telemetry) on every tick.
+
+Nothing in FKAIOS starts a new Claude Code session; some session must call
+`fkaios_worker_checkin`. That remains the one open boundary (matrix #46).
 
 ## Human-only boundaries
 
