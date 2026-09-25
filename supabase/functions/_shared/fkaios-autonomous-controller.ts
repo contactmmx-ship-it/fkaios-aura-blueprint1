@@ -50,6 +50,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { reason } from "./founder-brain.ts";
+import { buildNoDataSourceResult, checkWorkerGrounding } from "./fact-grounding.ts";
 
 function getClient() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
@@ -193,6 +194,25 @@ export async function autoDispatchAiModelWork(): Promise<AutoDispatchSummary> {
       const { data: instruction, error: dispatchError } = await client.rpc("fkaios_dispatch_task", { p_allocation_id: a.id });
       if (dispatchError || !instruction) { summary.errors++; continue; }
 
+      // Same structural rule the work-engine/ai-engine path already enforces
+      // (fact-grounding.ts, added after the 2026-09-23 invented-distributors
+      // incident): an ai_model worker has no research/web capability here,
+      // so a task that needs real-world facts cannot be completed from its
+      // answer. Checked before the LLM call (no quota spent on an answer
+      // that would be discarded) and again on the reply (the worker may
+      // itself report no_data_source). Only the explanation is stored;
+      // fkaios_complete_task then records verification_failed.
+      const task = (instruction as { task?: { title?: unknown; description?: unknown } }).task ?? {};
+      const preGrounding = checkWorkerGrounding(task, {});
+      if (!preGrounding.ok) {
+        const { error: completeError } = await client.rpc("fkaios_complete_task", {
+          p_allocation_id: a.id,
+          p_result: { ...buildNoDataSourceResult(preGrounding.reason), evidence: [] },
+        });
+        if (completeError) summary.errors++; else summary.verificationFailed++;
+        continue;
+      }
+
       const workerReply = await reason(
         "You are an FKAIOS worker executing one assigned task end-to-end. You have been given the full objective, milestone, task, prior work already done in this project, and relevant Brain context as JSON below. " +
           "Produce the actual work product yourself (analysis, content, plan, decision — whatever the task genuinely calls for); do not describe what you WOULD do. " +
@@ -215,6 +235,9 @@ export async function autoDispatchAiModelWork(): Promise<AutoDispatchSummary> {
         // text itself, not a completion claim).
         result = { status: "failed_to_parse", evidence: [(workerReply.text ?? "").slice(0, 2000)], next_action: "worker reply was not valid JSON — needs a human or a retry" };
       }
+
+      const grounding = checkWorkerGrounding(task, result);
+      if (!grounding.ok) result = { ...buildNoDataSourceResult(grounding.reason), evidence: [] };
 
       const { data: completion, error: completeError } = await client.rpc("fkaios_complete_task", { p_allocation_id: a.id, p_result: result });
       if (completeError) { summary.errors++; continue; }
