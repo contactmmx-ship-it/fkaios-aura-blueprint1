@@ -646,3 +646,5 @@ export async function runObjectiveLoop(
 
   return results;
 }
+
+// FKAIOS V1 deployment trigger: objective-loop recovery is production-bound.
