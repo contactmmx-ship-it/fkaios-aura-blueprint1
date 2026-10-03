@@ -849,24 +849,32 @@ function validateGrounding(response: string, context: string, cid: string): void
 // documents.process/approvals.check/accounting.record are all
 // verified:false in the registry (executeCapability() already refuses these).
 const WORK_ENGINE_CAPABILITIES_BLOCK = `
-You may optionally invoke ONE approved capability instead of only describing the task, when the task genuinely requires it. The ONLY capabilities available to you right now are:
+You may optionally invoke ONE approved capability instead of only describing the task, when the task genuinely requires it.
+
+APPROVED CAPABILITIES:
 
 - "knowledge.search" — search the company knowledge vault for relevant documents/context.
-  Payload shape: { "query": "string (required)", "match_count"?: number, "brand_id"?: "string or null" }
+  Payload: { "query": "string (required)", "match_count"?: number, "brand_id"?: "string or null" }
 
-- "research.status" — check whether the research engine's external data connection is alive. This is a free check; it does not run or spend anything.
-  Payload shape: {} (no fields required)
+- "research.status" — check whether the research engine's external data connection is alive.
+  Payload: {} (no fields required)
 
-If the task genuinely maps to one of these two capabilities, respond with ONLY this JSON shape:
-{ "capability": "<exact name from the list above>", "payload": { ...matching the payload shape above... } }
+- "research.run" — run the project's configured external research engine for a founder-requested research task.
+  This is an orchestrator-approved, read-only research action. It may consume the configured Apify account's credits.
+  Payload: { "query": "string (required)", "requested_by": "fkaios-orchestrator" }
 
 Rules:
-- Do NOT invent a capability name. Only the two names listed above are real and callable.
-- Do NOT claim the action has already happened or already succeeded. You are only requesting that it be attempted; whether it succeeds is determined after this response, not by you.
-- If the task does not genuinely map to one of these two capabilities, do NOT force a match — instead return your normal task-content JSON response, while remaining honest that no matching automated capability is available for this task.
-- If the task needs real-world facts (companies, contacts, market figures, prices) that neither capability can supply, return ONLY { "status": "no_data_source", "reason": "<what data is missing>" }. Such tasks are checked after your response: any answer to them without a capability is rejected, not stored.
+- "research.run" is allowed only when the task itself requires real-world research/facts and the objective was explicitly submitted by the founder through the objective pipeline.
+- Keep research queries tightly scoped to the task. Do not request unrelated data.
+- Do not invent a capability name.
+- Do not claim the capability already ran or succeeded. You are requesting the dispatch; the dispatcher records the actual result.
+- If the task needs real-world facts and research.run is appropriate, prefer research.run over returning no_data_source.
+- If the task does not require external research, do not force research.run.
+- Respond with ONLY this JSON shape when requesting a capability:
+{ "capability": "<exact name>", "payload": { ... } }
+- If no approved capability can satisfy a task requiring real-world facts, return ONLY:
+{ "status": "no_data_source", "reason": "<what data is missing>" }
 `;
-
 async function executeJob(job: AIJob, cid: string): Promise<Record<string, unknown>> {
   structuredLog("INFO", `Executing job ${job.id} (type: ${job.type})`, { jobId: job.id, agentId: job.agent_id }, cid);
   const capabilityBlock = job.type === "work_engine_task" ? WORK_ENGINE_CAPABILITIES_BLOCK : "";
