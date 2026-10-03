@@ -879,7 +879,7 @@ Rules:
 async function executeRequestedCapability(job: AIJob, parsed: Record<string, unknown>, cid: string): Promise<Record<string, unknown>> {
   const capability = typeof parsed.capability === "string" ? parsed.capability : "";
   if (!capability) return parsed;
-  const founderSubmitted = job.payload?.founder_submitted === true;
+  const founderSubmitted = job.payload?.founder_submitted === true || (typeof job.payload?.objective_id === "string" && job.payload.objective_id.length > 0);
   const allowed = capability === "research.run" || capability === "research.status" || capability === "knowledge.search";
   if (!founderSubmitted || !allowed) {
     throw new NonRetryableJobError(
@@ -921,7 +921,7 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
 let researchEvidence = "";
 let researchResultData: unknown = null;
 let researchResultAttempts = 0;
-if (job.type === "work_engine_task" && job.payload?.founder_submitted === true) {
+if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true || (typeof job.payload?.objective_id === "string" && job.payload.objective_id.length > 0))) {
   const taskText = [job.payload?.title, job.payload?.description].filter((v) => typeof v === "string").join("\n").trim();
   const researchNeeded = /\b(research|market|facts?|sources?|verify|distributor|competitor|industry|trends?|data collection)\b/i.test(taskText);
   if (researchNeeded && taskText) {
@@ -936,6 +936,8 @@ if (job.type === "work_engine_task" && job.payload?.founder_submitted === true) 
         "NO_DATA_SOURCE",
       );
     }
+    researchResultData = research.data ?? null;
+    researchResultAttempts = research.attempts;
     researchEvidence = `\\n\\n[REAL EXTERNAL RESEARCH EVIDENCE — USE ONLY THIS DATA; DO NOT FABRICATE]\\n${JSON.stringify(research.data).slice(0, 12000)}\\n[/REAL EXTERNAL RESEARCH EVIDENCE]`;
     structuredLog("INFO", "Founder research evidence acquired before task generation", {
       objectiveId: job.payload?.objective_id ?? null,
@@ -984,10 +986,9 @@ if (job.type === "work_engine_task" && job.payload?.founder_submitted === true) 
       await supabase.from("ai_agents").update({ total_tasks_completed: (agent.total_tasks_completed ?? 0) + 1, last_active_at: new Date().toISOString() }).eq("id", agent.id);
       await supabase.from("agent_activity_log").insert({ agent_id: agent.id, activity_type: "task", title: `Completed: ${job.type}`, description: typeof parsed === "object" ? JSON.stringify(parsed).slice(0, 200) : String(parsed).slice(0, 200), job_id: job.id, metadata: { automated: true, tokens: { input: llmResult.inputTokens, output: llmResult.outputTokens } } });
       structuredLog("INFO", `Job ${job.id} completed via agent`, { agentId: agent.id }, cid);
-      // Founder research tasks already acquired real external evidence above.
-      // If the model also asks for research.run, do not spend a second external
-      // research call for the same task. Preserve the measured first dispatch.
-      if (researchEvidence && parsed.capability === "research.run") {
+      // Objective research tasks already acquired real external evidence above.
+      // Persist that measured dispatch even when the LLM does not echo the capability.
+      if (researchEvidence) {
         return {
           ...parsed,
           capability: "research.run",
