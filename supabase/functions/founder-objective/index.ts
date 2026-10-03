@@ -138,6 +138,31 @@ Deno.serve(async (req: Request) => {
       // runObjectiveLoop only processes already-recorded processing objectives.
       try {
         await runObjectiveLoop(correlationId);
+
+        // A founder status refresh is an active continuation signal: drain
+        // the single existing ai-engine worker after the loop creates or
+        // reopens work, then reconcile once more in the same request.
+        const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        if (supabaseUrl && serviceRoleKey) {
+          const workerResponse = await fetch(
+            `${supabaseUrl}/functions/v1/ai-engine/run_jobs`,
+            {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${serviceRoleKey}`,
+                "apikey": serviceRoleKey,
+                "Content-Type": "application/json",
+                "X-Correlation-ID": crypto.randomUUID().slice(0, 8),
+              },
+              body: JSON.stringify({}),
+            },
+          );
+          if (!workerResponse.ok) {
+            console.error("founder-objective: ai-engine worker drain returned HTTP error", workerResponse.status);
+          }
+        }
+
+        await runObjectiveLoop(correlationId);
       } catch (err) {
         console.error(JSON.stringify({
           level: "WARN",
