@@ -367,6 +367,35 @@ export async function runObjectiveLoop(
 ): Promise<ObjectiveLoopResult[]> {
   const supabase = getSupabaseAdmin();
 
+  // V1 EXECUTION OWNERSHIP: an objective continuation must be able to
+  // execute its own queued work. Do not depend on a separate scheduler or
+  // heartbeat to notice ai_jobs created by this loop. ai-engine remains the
+  // single executor; this only invokes its existing queue-drain endpoint.
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    if (supabaseUrl && serviceRoleKey) {
+      const workerResponse = await fetch(
+        supabaseUrl + "/functions/v1/ai-engine/run_jobs",
+        {
+          method: "POST",
+          headers: {
+            "Authorization": "Bearer " + serviceRoleKey,
+            "apikey": serviceRoleKey,
+            "Content-Type": "application/json",
+            "X-Correlation-ID": crypto.randomUUID().slice(0, 8),
+          },
+          body: JSON.stringify({}),
+        },
+      );
+      if (!workerResponse.ok) {
+        console.error("objective-loop: ai-engine worker drain returned HTTP error", workerResponse.status);
+      }
+    }
+  } catch (err) {
+    console.error("objective-loop: ai-engine worker drain failed (non-blocking)", err instanceof Error ? err.message : String(err));
+  }
+
   const { data: objectives, error } = await supabase
     .from("orchestrator_requests")
     .select("*")
