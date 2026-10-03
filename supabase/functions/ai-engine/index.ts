@@ -921,7 +921,7 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
 let researchEvidence = "";
 if (job.type === "work_engine_task" && job.payload?.founder_submitted === true) {
   const taskText = [job.payload?.title, job.payload?.description].filter((v) => typeof v === "string").join("\n").trim();
-  const researchNeeded = /\\b(research|market|facts?|sources?|verify|distributor|competitor|industry|trends?|data collection)\\b/i.test(taskText);
+  const researchNeeded = /\b(research|market|facts?|sources?|verify|distributor|competitor|industry|trends?|data collection)\b/i.test(taskText);
   if (researchNeeded && taskText) {
     const research = await executeCapability(
       "research.run",
