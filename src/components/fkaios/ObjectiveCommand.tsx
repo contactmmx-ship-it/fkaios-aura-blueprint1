@@ -67,7 +67,7 @@ function formatTime(iso: string | null): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toLocaleString();
 }
 
-export function ObjectiveCard({ row, checkedAt, onOpenDecisionCenter }: { row: ObjectiveStatusRow; checkedAt?: string | null; onOpenDecisionCenter?: () => void }) {
+export function ObjectiveCard({ row, checkedAt, onOpenDecisionCenter, onRerun, rerunning }: { row: ObjectiveStatusRow; checkedAt?: string | null; onOpenDecisionCenter?: () => void; onRerun?: (objectiveId: string) => void; rerunning?: boolean }) {
   const view = deriveObjectiveView(row);
   const label = view.state.replace('_', ' ');
   return (
@@ -96,9 +96,21 @@ export function ObjectiveCard({ row, checkedAt, onOpenDecisionCenter }: { row: O
             <dd><ul className="list-disc list-inside text-slate-400">{view.progress.map((line) => <li key={line}>{line}</li>)}</ul></dd></div>
         )}
       </dl>
-      {view.opensDecisionCenter && onOpenDecisionCenter && (
-        <button onClick={onOpenDecisionCenter} className="text-xs text-amber-300 hover:text-amber-200 underline underline-offset-2">Open Decision Center</button>
-      )}
+      <div className="flex items-center gap-3">
+        {view.opensDecisionCenter && onOpenDecisionCenter && (
+          <button onClick={onOpenDecisionCenter} className="text-xs text-amber-300 hover:text-amber-200 underline underline-offset-2">Open Decision Center</button>
+        )}
+        {(view.state === 'BLOCKED' || view.state === 'FAILED') && onRerun && (
+          <button
+            onClick={() => onRerun(row.id)}
+            disabled={rerunning}
+            className="flex items-center gap-1.5 text-xs text-cyan-300 hover:text-cyan-200 border border-cyan-900 rounded-lg px-3 py-1.5 disabled:opacity-50"
+          >
+            {rerunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            {rerunning ? 'Re-running…' : 'Re-run objective'}
+          </button>
+        )}
+      </div>
       <p className="text-[10px] text-slate-600">
         {formatTime(view.submittedAt) && <>Submitted {formatTime(view.submittedAt)} · </>}
         {checkedAt && <>Status as of {formatTime(checkedAt)} · </>}
@@ -116,6 +128,7 @@ export default function ObjectiveCommand({ onNavigate }: { onNavigate?: (page: s
   const [objectives, setObjectives] = useState<ObjectiveStatusRow[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
+  const [rerunningId, setRerunningId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -133,6 +146,23 @@ export default function ObjectiveCommand({ onNavigate }: { onNavigate?: (page: s
     const t = setInterval(load, STATUS_POLL_MS);
     return () => clearInterval(t);
   }, [anyProcessing, load]);
+
+  const rerun = async (objectiveId: string) => {
+    setRerunningId(objectiveId);
+    setStatusError(null);
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke('founder-objective', {
+        body: { action: 'rerun', objectiveId },
+      });
+      if (fnError) { setStatusError(await readFunctionError(fnError)); return; }
+      if (!data?.ok) { setStatusError(data?.error || 'FKAIOS could not start the re-run.'); return; }
+      await load();
+    } catch (e) {
+      setStatusError(e instanceof Error ? e.message : 'Re-run request failed');
+    } finally {
+      setRerunningId(null);
+    }
+  };
 
   const submit = async () => {
     const text = objective.trim();
@@ -200,7 +230,16 @@ export default function ObjectiveCommand({ onNavigate }: { onNavigate?: (page: s
       </div>
       {statusError && <div className="bg-red-950/40 border border-red-900 rounded-xl px-4 py-3 text-xs text-red-300">Could not read objective status: {statusError}</div>}
       {objectives && objectives.length === 0 && <p className="text-xs text-slate-500">No objectives yet.</p>}
-      {(objectives ?? []).map((row) => <ObjectiveCard key={row.id} row={row} checkedAt={checkedAt} onOpenDecisionCenter={onNavigate ? () => onNavigate('decision-center') : undefined} />)}
+      {(objectives ?? []).map((row) => (
+        <ObjectiveCard
+          key={row.id}
+          row={row}
+          checkedAt={checkedAt}
+          onOpenDecisionCenter={onNavigate ? () => onNavigate('decision-center') : undefined}
+          onRerun={rerun}
+          rerunning={rerunningId === row.id}
+        />
+      ))}
       {anyProcessing && <p className="text-[11px] text-slate-500">Updates automatically. The objective loop runs every 15 minutes: it plans the work, creates tasks and jobs, and verifies the result against evidence.</p>}
     </div>
   );
