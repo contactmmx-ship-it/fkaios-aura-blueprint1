@@ -94,7 +94,7 @@ export interface AllocationResult {
   error?: string;
 }
 
-export async function allocateTask(task: { id: string; title: string; description: string; departmentCode: string | null }): Promise<AllocationResult> {
+export async function allocateTask(task: { id: string; title: string; description: string; departmentCode: string | null; objectiveId?: string | null; founderSubmitted?: boolean }): Promise<AllocationResult> {
   const client = getClient();
   const workforce = await getWorkforce();
   if (workforce.length === 0) return { taskId: task.id, jobId: null, agentId: null, agentName: null, error: "no active AI employees available" };
@@ -109,7 +109,7 @@ export async function allocateTask(task: { id: string; title: string; descriptio
       type: "work_engine_task",
       // Non-invasive link back to the Executive Planner's task — no schema
       // change, same technique as Sprint 6's [objective:id] tag.
-      payload: { task_id: task.id, title: task.title, description: task.description.slice(0, 1000), objective_id: objectiveId, founder_submitted: objectiveFounderSubmitted },
+      payload: { task_id: task.id, title: task.title, description: task.description.slice(0, 1000), objective_id: task.objectiveId ?? null, founder_submitted: task.founderSubmitted === true },
       status: "pending",
     })
     .select("id")
@@ -153,7 +153,7 @@ export async function allocateProjectWork(projectId: string): Promise<{ allocate
 
   const results: AllocationResult[] = [];
   for (const t of tasks) {
-    const r = await allocateTask({ id: t.id, title: t.title, description: t.description ?? "", departmentCode });
+    const r = await allocateTask({ id: t.id, title: t.title, description: t.description ?? "", departmentCode, objectiveId, founderSubmitted: objectiveFounderSubmitted });
     results.push(r);
   }
   return { allocated: results.filter((r) => r.jobId).length, results };
