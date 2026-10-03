@@ -982,6 +982,16 @@ if (job.type === "work_engine_task" && job.payload?.founder_submitted === true) 
       await supabase.from("ai_agents").update({ total_tasks_completed: (agent.total_tasks_completed ?? 0) + 1, last_active_at: new Date().toISOString() }).eq("id", agent.id);
       await supabase.from("agent_activity_log").insert({ agent_id: agent.id, activity_type: "task", title: `Completed: ${job.type}`, description: typeof parsed === "object" ? JSON.stringify(parsed).slice(0, 200) : String(parsed).slice(0, 200), job_id: job.id, metadata: { automated: true, tokens: { input: llmResult.inputTokens, output: llmResult.outputTokens } } });
       structuredLog("INFO", `Job ${job.id} completed via agent`, { agentId: agent.id }, cid);
+      // Founder research tasks already acquired real external evidence above.
+      // If the model also asks for research.run, do not spend a second external
+      // research call for the same task. Preserve the measured first dispatch.
+      if (researchEvidence && parsed.capability === "research.run") {
+        return {
+          ...parsed,
+          capability: "research.run",
+          capability_result: { evidence_acquired: true },
+        };
+      }
       return await executeRequestedCapability(job, parsed, cid);
     }
   }
