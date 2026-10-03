@@ -32,10 +32,10 @@ jobs:
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.67.1
 
       - name: Deploy changed FKAIOS functions
         run: |
           supabase functions deploy ai-engine --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy founder-brain-tick --project-ref "$SUPABASE_PROJECT_REF"
-            supabase functions deploy founder-objective --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy founder-objective --project-ref "$SUPABASE_PROJECT_REF"
