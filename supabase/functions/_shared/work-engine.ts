@@ -148,7 +148,7 @@ export async function allocateProjectWork(projectId: string): Promise<{ allocate
     objectiveId = objMatch[1];
     const { data: objective } = await client.from("orchestrator_requests").select("department_code, classification").eq("id", objectiveId).maybeSingle();
     departmentCode = objective?.department_code ?? null;
-    objectiveFounderSubmitted = objective?.classification === "founder_command_center";
+    objectiveFounderSubmitted = objective?.classification === "founder_objective";
   }
 
   const results: AllocationResult[] = [];
