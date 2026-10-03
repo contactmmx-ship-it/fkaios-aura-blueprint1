@@ -65,6 +65,7 @@
 // ============================================================================
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { resolveRuntimeResource } from "./resource-intelligence.ts";
 
 function getClient() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
@@ -145,6 +146,15 @@ export async function executeCapability(
     return { capability, status: "unverified_capability", error: `capability '${capability}' is registered but its interface was not verified this sprint — refusing to guess at a payload shape`, attempts: 0 };
   }
 
+  // Resource intelligence is now a real gate between capability selection and
+  // execution. It uses runtime configuration, not a static provider claim.
+  const resource = await resolveRuntimeResource(capability, payload);
+  if (resource.status === "blocked") {
+    const reason = resource.reason.join("; ");
+    await logExecution(capability, def.edgeFunction, "error", payload, resource, correlationId, reason);
+    return { capability, status: "error", error: `resource_blocked: ${reason}`, attempts: 0 };
+  }
+
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   const headers = buildDispatchHeaders(def, serviceKey, Deno.env.get("HEARTBEAT_SECRET") ?? "");
@@ -159,8 +169,11 @@ export async function executeCapability(
       });
       const data = await res.json().catch(() => null);
       if (res.ok) {
-        await logExecution(capability, def.edgeFunction, "success", payload, data, correlationId);
-        return { capability, status: "success", data, attempts: attempt };
+        const enrichedData = resource.status === "selected" && data && typeof data === "object" && !Array.isArray(data)
+          ? { ...(data as Record<string, unknown>), resource_decision: resource }
+          : data;
+        await logExecution(capability, def.edgeFunction, "success", payload, enrichedData, correlationId);
+        return { capability, status: "success", data: enrichedData, attempts: attempt };
       }
       lastError = `HTTP ${res.status}: ${JSON.stringify(data).slice(0, 400)}`;
     } catch (err) {
