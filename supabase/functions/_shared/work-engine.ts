@@ -94,7 +94,7 @@ export interface AllocationResult {
   error?: string;
 }
 
-export async function allocateTask(task: { id: string; title: string; description: string; departmentCode: string | null }): Promise<AllocationResult> {
+export async function allocateTask(task: { id: string; title: string; description: string; departmentCode: string | null; objectiveId?: string | null; founderSubmitted?: boolean }): Promise<AllocationResult> {
   const client = getClient();
   const workforce = await getWorkforce();
   if (workforce.length === 0) return { taskId: task.id, jobId: null, agentId: null, agentName: null, error: "no active AI employees available" };
@@ -109,7 +109,7 @@ export async function allocateTask(task: { id: string; title: string; descriptio
       type: "work_engine_task",
       // Non-invasive link back to the Executive Planner's task — no schema
       // change, same technique as Sprint 6's [objective:id] tag.
-      payload: { task_id: task.id, title: task.title, description: task.description.slice(0, 1000) },
+      payload: { task_id: task.id, title: task.title, description: task.description.slice(0, 1000), objective_id: task.objectiveId ?? null, founder_submitted: task.founderSubmitted === true },
       status: "pending",
     })
     .select("id")
@@ -141,15 +141,19 @@ export async function allocateProjectWork(projectId: string): Promise<{ allocate
   // for every task in this project rather than a query per task.
   const { data: project } = await client.from("orchestration_projects").select("request").eq("id", projectId).single();
   let departmentCode: string | null = null;
+  let objectiveId: string | null = null;
+  let objectiveFounderSubmitted = false;
   const objMatch = project?.request?.match(/^\[objective:([^\]]+)\]/);
   if (objMatch) {
-    const { data: objective } = await client.from("orchestrator_requests").select("department_code").eq("id", objMatch[1]).maybeSingle();
+    objectiveId = objMatch[1];
+    const { data: objective } = await client.from("orchestrator_requests").select("department_code, classification").eq("id", objectiveId).maybeSingle();
     departmentCode = objective?.department_code ?? null;
+    objectiveFounderSubmitted = objective?.classification === "founder_objective";
   }
 
   const results: AllocationResult[] = [];
   for (const t of tasks) {
-    const r = await allocateTask({ id: t.id, title: t.title, description: t.description ?? "", departmentCode });
+    const r = await allocateTask({ id: t.id, title: t.title, description: t.description ?? "", departmentCode, objectiveId, founderSubmitted: objectiveFounderSubmitted });
     results.push(r);
   }
   return { allocated: results.filter((r) => r.jobId).length, results };
