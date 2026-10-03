@@ -910,6 +910,38 @@ async function executeRequestedCapability(job: AIJob, parsed: Record<string, unk
 async function executeJob(job: AIJob, cid: string): Promise<Record<string, unknown>> {
   structuredLog("INFO", `Executing job ${job.id} (type: ${job.type})`, { jobId: job.id, agentId: job.agent_id }, cid);
   const capabilityBlock = job.type === "work_engine_task" ? WORK_ENGINE_CAPABILITIES_BLOCK : "";
+
+// Founder-submitted research tasks get a real evidence acquisition pass BEFORE
+// the LLM is asked to draft the answer. This closes the previous failure mode
+// where the model could correctly say "no_data_source" even though the approved
+// research.run capability existed. The orchestrator has already established
+// founderSubmitted in the job payload; resource intelligence inside
+// executeCapability() decides whether a configured research resource is available.
+// No research is triggered for non-founder work or non-research tasks.
+let researchEvidence = "";
+if (job.type === "work_engine_task" && job.payload?.founder_submitted === true) {
+  const taskText = [job.payload?.title, job.payload?.description].filter((v) => typeof v === "string").join("\n").trim();
+  const researchNeeded = /\\b(research|market|facts?|sources?|verify|distributor|competitor|industry|trends?|data collection)\\b/i.test(taskText);
+  if (researchNeeded && taskText) {
+    const research = await executeCapability(
+      "research.run",
+      { query: taskText.slice(0, 1200), requested_by: "fkaios-orchestrator" },
+      cid,
+    );
+    if (research.status !== "success") {
+      throw new NonRetryableJobError(
+        `Founder research task could not acquire real external evidence: ${research.error ?? research.status}`,
+        "NO_DATA_SOURCE",
+      );
+    }
+    researchEvidence = `\\n\\n[REAL EXTERNAL RESEARCH EVIDENCE — USE ONLY THIS DATA; DO NOT FABRICATE]\\n${JSON.stringify(research.data).slice(0, 12000)}\\n[/REAL EXTERNAL RESEARCH EVIDENCE]`;
+    structuredLog("INFO", "Founder research evidence acquired before task generation", {
+      objectiveId: job.payload?.objective_id ?? null,
+      taskId: job.payload?.task_id ?? null,
+      capability: "research.run",
+    }, cid);
+  }
+}
   if (job.agent_id) {
     await checkRateLimit(job.agent_id, cid);
     const { data: agent } = await supabase.from("ai_agents").select("*").eq("id", job.agent_id).single();
@@ -933,7 +965,7 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
         ? `\nThis is a GENERATE_INVOICE job. Respond with ONLY this JSON structure:\n\n{\n  "line_items": [\n    {\n      "description": "string",\n      "quantity": number,\n      "unit_price_inr": number\n    }\n  ]\n}\n\nRules:\n- Use only real payload/lead/brand data.\n- Never invent products, services, or amounts.\n- If no real billable data exists, return:\n{\n  "line_items": []\n}`
         : "";
       const systemPrompt = `${agent.prompt}${groundedContext}${principlesBlock}\n\nYou will receive a job payload as JSON.\nExecute the task and respond with ONLY a valid JSON object.\nNo prose.\nNo markdown fences.\n${NO_FABRICATED_PERSISTENCE_BLOCK}\n${invoiceSchemaBlock}${capabilityBlock}`;
-      const userContent = JSON.stringify({ type: job.type, payload: job.payload });
+      const userContent = JSON.stringify({ type: job.type, payload: job.payload }) + researchEvidence;
       // NOTE: any failure here THROWS. runJobs() records retry/failed with the real
       // error. It does NOT invent a result. This is the fix.
       // GENERATE_INVOICE gets a forced structured-output tool schema (see
