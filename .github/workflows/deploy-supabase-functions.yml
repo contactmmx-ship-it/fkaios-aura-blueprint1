@@ -1,4 +1,5 @@
 name: Deploy FKAIOS Supabase Functions
+# Backend deployment trigger: keep Supabase Edge Functions in sync with main.
 
 on:
   push:
