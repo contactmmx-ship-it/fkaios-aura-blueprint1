@@ -69,6 +69,35 @@ Deno.serve(async (req: Request) => {
       console.error("founder-brain-tick: goal hierarchy check/seed failed (non-blocking)", err instanceof Error ? err.message : String(err));
     }
 
+    // V1 SELF-DRIVING WORKER: the objective loop creates ai_jobs, but it must not
+    // depend on a separate scheduler invocation to drain them. Drain the existing
+    // ai-engine queue from the same heartbeat before evaluating objective state.
+    // This is not a second executor: ai-engine remains the single execution engine.
+    try {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+      const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+      if (supabaseUrl && serviceRoleKey) {
+        const workerResponse = await fetch(
+          `${supabaseUrl}/functions/v1/ai-engine/run_jobs`,
+          {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${serviceRoleKey}`,
+              "apikey": serviceRoleKey,
+              "Content-Type": "application/json",
+              "X-Correlation-ID": crypto.randomUUID().slice(0, 8),
+            },
+            body: JSON.stringify({}),
+          },
+        );
+        if (!workerResponse.ok) {
+          console.error("founder-brain-tick: ai-engine worker drain returned HTTP error", workerResponse.status);
+        }
+      }
+    } catch (err) {
+      console.error("founder-brain-tick: ai-engine worker drain failed (non-blocking)", err instanceof Error ? err.message : String(err));
+    }
+
     // OBJECTIVE CONTINUATION LOOP RUNS FIRST (reliability fix, V1 mandate
     // Task #20): cognitiveTick() below makes up to 7 sequential LLM calls
     // and real Anthropic latency varies a lot in practice — observed
