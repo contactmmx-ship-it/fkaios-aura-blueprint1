@@ -41,6 +41,7 @@ import {
   type AttemptRecord,
   type FailureCategory,
 } from "../_shared/llm-router.ts";
+import { executeCapability } from "../_shared/company-os.ts";
 import {
   checkWorkerGrounding,
   buildNoDataSourceResult,
@@ -875,6 +876,37 @@ Rules:
 - If no approved capability can satisfy a task requiring real-world facts, return ONLY:
 { "status": "no_data_source", "reason": "<what data is missing>" }
 `;
+async function executeRequestedCapability(job: AIJob, parsed: Record<string, unknown>, cid: string): Promise<Record<string, unknown>> {
+  const capability = typeof parsed.capability === "string" ? parsed.capability : "";
+  if (!capability) return parsed;
+  const founderSubmitted = job.payload?.founder_submitted === true;
+  const allowed = capability === "research.run" || capability === "research.status" || capability === "knowledge.search";
+  if (!founderSubmitted || !allowed) {
+    throw new NonRetryableJobError(
+      `Capability request '${capability}' was not authorized for this work_engine_task; refusing autonomous external dispatch.`,
+      "UNAUTHORIZED_CAPABILITY",
+    );
+  }
+  const payload = parsed.payload && typeof parsed.payload === "object" && !Array.isArray(parsed.payload)
+    ? parsed.payload as Record<string, unknown>
+    : {};
+  if (capability === "research.run") payload.requested_by = "fkaios-orchestrator";
+  const dispatch = await executeCapability(capability, payload, cid);
+  if (dispatch.status !== "success") {
+    throw new Error(`Capability ${capability} failed: ${dispatch.error ?? dispatch.status}`);
+  }
+  structuredLog("INFO", `Capability ${capability} executed successfully`, {
+    capability,
+    attempts: dispatch.attempts,
+    objectiveId: job.payload?.objective_id ?? null,
+  }, cid);
+  return {
+    status: "success",
+    capability,
+    capability_result: dispatch.data ?? null,
+  };
+}
+
 async function executeJob(job: AIJob, cid: string): Promise<Record<string, unknown>> {
   structuredLog("INFO", `Executing job ${job.id} (type: ${job.type})`, { jobId: job.id, agentId: job.agent_id }, cid);
   const capabilityBlock = job.type === "work_engine_task" ? WORK_ENGINE_CAPABILITIES_BLOCK : "";
@@ -914,11 +946,12 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
       const parsed = job.type === "GENERATE_INVOICE"
         ? parseAndValidateInvoicePayload(llmResult.toolCall, llmResult.text)
         : asJSONObject(extractJSONFromText(llmResult.text.replace(/```json|```/g, "").trim()), `Job ${job.id} (${job.type})`);
+      return await executeRequestedCapability(job, parsed, cid);
       validateGrounding(llmResult.text, `${systemPrompt}\n${userContent}`, cid);
       await supabase.from("ai_agents").update({ total_tasks_completed: (agent.total_tasks_completed ?? 0) + 1, last_active_at: new Date().toISOString() }).eq("id", agent.id);
       await supabase.from("agent_activity_log").insert({ agent_id: agent.id, activity_type: "task", title: `Completed: ${job.type}`, description: typeof parsed === "object" ? JSON.stringify(parsed).slice(0, 200) : String(parsed).slice(0, 200), job_id: job.id, metadata: { automated: true, tokens: { input: llmResult.inputTokens, output: llmResult.outputTokens } } });
       structuredLog("INFO", `Job ${job.id} completed via agent`, { agentId: agent.id }, cid);
-      return parsed;
+      return await executeRequestedCapability(job, parsed, cid);
     }
   }
 
