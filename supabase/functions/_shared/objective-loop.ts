@@ -447,14 +447,20 @@ export async function runObjectiveLoop(
         }
         for (const task of state.tasks) {
           const taskStatus = String(task.status ?? "");
-          if (!["assigned", "running", "working"].includes(taskStatus)) continue;
+          if (!["pending", "assigned", "running", "working"].includes(taskStatus)) continue;
           const jobs = jobsByTask.get(String(task.id)) ?? [];
           const hasLiveJob = jobs.some((job) => ["pending", "running", "retry"].includes(String(job.status ?? "")));
-          if (!hasLiveJob && jobs.some((job) => String(job.status ?? "") === "failed")) {
+          if (!hasLiveJob) {
+            const hadFailedJob = jobs.some((job) => String(job.status ?? "") === "failed");
             await supabase.from("orchestration_tasks")
-              .update({ status: "rework", output: JSON.stringify({ status: "rework", reason: "The assigned execution job failed and no replacement job is active; objective loop is reopening the task for recovery." }) })
+              .update({ status: "rework", output: JSON.stringify({
+                status: "rework",
+                reason: hadFailedJob
+                  ? "The execution job failed and no replacement job is active; objective loop is reopening the task for recovery."
+                  : "The task is active but has no executable ai_jobs row; objective loop is reopening it for recovery."
+              }) })
               .eq("id", task.id)
-              .in("status", ["assigned", "running", "working"]);
+              .in("status", ["pending", "assigned", "running", "working"]);
             task.status = "rework";
           }
         }
