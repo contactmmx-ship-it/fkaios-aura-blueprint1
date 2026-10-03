@@ -254,11 +254,33 @@ export async function returnCompletedWork(): Promise<{ returned: number; dispatc
     // every task auto-triggers a business action; only ones whose result
     // actually names one.
     let finalOutput: unknown = job.result;
-    const resultObj = job.result as { capability?: string; payload?: Record<string, unknown> } | null;
+    const resultObj = job.result as {
+      capability?: string;
+      payload?: Record<string, unknown>;
+      capability_result?: unknown;
+      capability_attempts?: number;
+    } | null;
     if (resultObj?.capability) {
-      const dispatch = await executeCapability(resultObj.capability, resultObj.payload ?? {});
-      dispatched++;
-      finalOutput = { llmResult: job.result, companyOsDispatch: compactDispatchForStorage(dispatch) };
+      // Founder research is executed deterministically in ai-engine before
+      // LLM generation. If that measured result is already attached to the
+      // job, persist it directly instead of dispatching research.run again.
+      // This preserves the real evidence and prevents a duplicate Apify call.
+      if (
+        resultObj.capability === "research.run" &&
+        resultObj.capability_result !== undefined
+      ) {
+        const measuredDispatch = {
+          capability: "research.run",
+          status: "success",
+          attempts: Number(resultObj.capability_attempts ?? 1),
+          data: resultObj.capability_result,
+        };
+        finalOutput = { llmResult: job.result, companyOsDispatch: compactDispatchForStorage(measuredDispatch) };
+      } else {
+        const dispatch = await executeCapability(resultObj.capability, resultObj.payload ?? {});
+        dispatched++;
+        finalOutput = { llmResult: job.result, companyOsDispatch: compactDispatchForStorage(dispatch) };
+      }
     }
 
     await client.from("orchestration_tasks").update({ status: "done", output: JSON.stringify(finalOutput).slice(0, 5000) }).eq("id", task.id);
