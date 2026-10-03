@@ -38,3 +38,4 @@ jobs:
         run: |
           supabase functions deploy ai-engine --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy founder-brain-tick --project-ref "$SUPABASE_PROJECT_REF"
+            supabase functions deploy founder-objective --project-ref "$SUPABASE_PROJECT_REF"

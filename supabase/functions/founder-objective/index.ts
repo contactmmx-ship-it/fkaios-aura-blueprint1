@@ -22,6 +22,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { assessRisk, createTask, routeToDepartment } from "../_shared/founder-brain.ts";
 import { summarizeObjectiveProgress } from "../_shared/objective-progress.ts";
 import { canRerun, FOUNDER_OBJECTIVE_CLASSIFICATION, rerunUpdate } from "../_shared/objective-rerun.ts";
+import { runObjectiveLoop } from "../_shared/objective-loop.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -131,6 +132,22 @@ Deno.serve(async (req: Request) => {
 
     if (body.action === "status") {
       const objectiveId = typeof body.objectiveId === "string" ? body.objectiveId : null;
+      // A status read is also a safe continuation signal: if the founder is
+      // actively watching an objective, reconcile and advance the existing
+      // pipeline before reporting its state. This does not create new work;
+      // runObjectiveLoop only processes already-recorded processing objectives.
+      try {
+        await runObjectiveLoop(correlationId);
+      } catch (err) {
+        console.error(JSON.stringify({
+          level: "WARN",
+          message: "objective status continuation failed",
+          source: "founder-objective",
+          correlationId,
+          objectiveId,
+          error: err instanceof Error ? err.message : String(err),
+        }));
+      }
       return json({ ok: true, objectives: await readObjectiveStatus(objectiveId) });
     }
     if (body.action === "rerun") {
