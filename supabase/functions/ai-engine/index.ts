@@ -919,6 +919,8 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
 // executeCapability() decides whether a configured research resource is available.
 // No research is triggered for non-founder work or non-research tasks.
 let researchEvidence = "";
+let researchResultData: unknown = null;
+let researchResultAttempts = 0;
 if (job.type === "work_engine_task" && job.payload?.founder_submitted === true) {
   const taskText = [job.payload?.title, job.payload?.description].filter((v) => typeof v === "string").join("\n").trim();
   const researchNeeded = /\b(research|market|facts?|sources?|verify|distributor|competitor|industry|trends?|data collection)\b/i.test(taskText);
@@ -989,7 +991,8 @@ if (job.type === "work_engine_task" && job.payload?.founder_submitted === true) 
         return {
           ...parsed,
           capability: "research.run",
-          capability_result: { evidence_acquired: true },
+          capability_result: researchResultData,
+          capability_attempts: researchResultAttempts,
         };
       }
       return await executeRequestedCapability(job, parsed, cid);
