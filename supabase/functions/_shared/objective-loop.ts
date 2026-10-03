@@ -418,6 +418,48 @@ export async function runObjectiveLoop(
         String(objective.id),
       );
 
+      // ORPHANED TASK RECOVERY: an ai_jobs failure is terminal for the job,
+      // but older work-engine code can leave its orchestration_task stuck at
+      // "assigned". That status is treated as active below, so the objective
+      // loop can wait forever even though there is no executable job left.
+      // Reconcile task state against the real ai_jobs queue before deciding
+      // that work is still active. A failed job with no newer pending/running/
+      // retry job moves the task to "rework", allowing the normal evaluator /
+      // planner path to recover it on this cycle. Completed jobs are handled
+      // by returnCompletedWork(), so they are intentionally left alone here.
+      const taskIds = state.tasks.map((task) => String(task.id)).filter(Boolean);
+      if (taskIds.length > 0) {
+        const { data: objectiveJobs } = await supabase
+          .from("ai_jobs")
+          .select("id, status, retry_count, payload, created_at")
+          .eq("type", "work_engine_task")
+          .in("payload->>task_id", taskIds)
+          .order("created_at", { ascending: false });
+        const jobsByTask = new Map<string, Record<string, unknown>[]>();
+        for (const job of objectiveJobs ?? []) {
+          const taskId = typeof (job.payload as Record<string, unknown> | null)?.task_id === "string"
+            ? String((job.payload as Record<string, unknown>).task_id)
+            : "";
+          if (!taskId) continue;
+          const list = jobsByTask.get(taskId) ?? [];
+          list.push(job as Record<string, unknown>);
+          jobsByTask.set(taskId, list);
+        }
+        for (const task of state.tasks) {
+          const taskStatus = String(task.status ?? "");
+          if (!["assigned", "running", "working"].includes(taskStatus)) continue;
+          const jobs = jobsByTask.get(String(task.id)) ?? [];
+          const hasLiveJob = jobs.some((job) => ["pending", "running", "retry"].includes(String(job.status ?? "")));
+          if (!hasLiveJob && jobs.some((job) => String(job.status ?? "") === "failed")) {
+            await supabase.from("orchestration_tasks")
+              .update({ status: "rework", output: JSON.stringify({ status: "rework", reason: "The assigned execution job failed and no replacement job is active; objective loop is reopening the task for recovery." }) })
+              .eq("id", task.id)
+              .in("status", ["assigned", "running", "working"]);
+            task.status = "rework";
+          }
+        }
+      }
+
       const activeTasks = state.tasks.filter((task) =>
         ["pending", "assigned", "running", "working"].includes(
           String(task.status ?? ""),
