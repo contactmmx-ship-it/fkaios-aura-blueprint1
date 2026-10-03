@@ -946,7 +946,6 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
       const parsed = job.type === "GENERATE_INVOICE"
         ? parseAndValidateInvoicePayload(llmResult.toolCall, llmResult.text)
         : asJSONObject(extractJSONFromText(llmResult.text.replace(/```json|```/g, "").trim()), `Job ${job.id} (${job.type})`);
-      return await executeRequestedCapability(job, parsed, cid);
       validateGrounding(llmResult.text, `${systemPrompt}\n${userContent}`, cid);
       await supabase.from("ai_agents").update({ total_tasks_completed: (agent.total_tasks_completed ?? 0) + 1, last_active_at: new Date().toISOString() }).eq("id", agent.id);
       await supabase.from("agent_activity_log").insert({ agent_id: agent.id, activity_type: "task", title: `Completed: ${job.type}`, description: typeof parsed === "object" ? JSON.stringify(parsed).slice(0, 200) : String(parsed).slice(0, 200), job_id: job.id, metadata: { automated: true, tokens: { input: llmResult.inputTokens, output: llmResult.outputTokens } } });
