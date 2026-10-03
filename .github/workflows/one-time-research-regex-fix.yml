@@ -1,0 +1,38 @@
+name: One-time research regex fix
+
+on:
+  push:
+    branches: [fkaios-research-regex-fix]
+    paths:
+      - 'supabase/functions/ai-engine/index.ts'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fkaios-research-regex-fix
+          fetch-depth: 0
+      - name: Fix research detection regex
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("supabase/functions/ai-engine/index.ts")
+          s = p.read_text()
+          old = r'const researchNeeded = /\\b(research|market|facts?|sources?|verify|distributor|competitor|industry|trends?|data collection)\\b/i.test(taskText);'
+          new = r'const researchNeeded = /\b(research|market|facts?|sources?|verify|distributor|competitor|industry|trends?|data collection)\b/i.test(taskText);'
+          if old not in s:
+              raise SystemExit("Expected research regex not found; refusing to patch.")
+          p.write_text(s.replace(old, new, 1))
+          PY
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/functions/ai-engine/index.ts
+          git commit -m "Fix founder research task detection regex"
+          git push origin fkaios-research-regex-fix
