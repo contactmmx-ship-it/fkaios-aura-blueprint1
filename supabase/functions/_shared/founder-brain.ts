@@ -1022,6 +1022,26 @@ export async function createTask(userId: string, task: TaskCandidate, correlatio
   const client = getFounderBrainClient();
   const needsApproval = task.risk_level === "high" || task.risk_level === "critical";
   try {
+    // GOVERNANCE DEDUPLICATION: an unresolved high/critical action must have
+    // exactly one active approval. Repeated Founder Brain ticks may rediscover
+    // the same action; do not create another actionable approval card.
+    if (needsApproval) {
+      const { data: existingRequests } = await client
+        .from("orchestrator_requests")
+        .select("id, status, raw_request, department_code, risk_level")
+        .eq("requested_by", "founder-brain")
+        .eq("status", "awaiting_approval")
+        .eq("raw_request", task.description)
+        .limit(1);
+      if (existingRequests && existingRequests.length > 0) {
+        return {
+          source: "orchestrator_requests",
+          status: "success",
+          data: existingRequests[0],
+        };
+      }
+    }
+
     const { data, error } = await client
       .from("orchestrator_requests")
       .insert({
