@@ -526,7 +526,11 @@ export async function runObjectiveLoop(
         }
         for (const task of state.tasks) {
           const taskStatus = String(task.status ?? "");
-          if (!["pending", "assigned", "running", "working"].includes(taskStatus)) continue;
+          // "pending" is excluded: pending tasks are deliberately held back
+          // (no ai_jobs row yet) until the previous task in the evidence chain
+          // returns, and are allocated further below. Only tasks that claim to
+          // be executing without a job are orphaned.
+          if (!["assigned", "running", "working"].includes(taskStatus)) continue;
           const jobs = jobsByTask.get(String(task.id)) ?? [];
           const hasLiveJob = jobs.some((job) => ["pending", "running", "retry"].includes(String(job.status ?? "")));
           const hasCompletedJob = jobs.some((job) => String(job.status ?? "") === "completed");
