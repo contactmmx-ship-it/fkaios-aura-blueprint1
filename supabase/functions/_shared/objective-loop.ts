@@ -435,6 +435,17 @@ export async function runObjectiveLoop(
     console.error("objective-loop: ai-engine worker drain failed (non-blocking)", err instanceof Error ? err.message : String(err));
   }
 
+  // Reconcile completed worker jobs BEFORE loading objective state.
+  // Otherwise an ai-engine job can finish while its orchestration task is still
+  // assigned; the state reader then sees active work and defers, leaving the
+  // task stranded until another heartbeat. Returning completed work first makes
+  // the worker->task handoff deterministic within the same objective-loop pass.
+  try {
+    await returnCompletedWork();
+  } catch (err) {
+    console.error("objective-loop: completed-work reconciliation failed (non-blocking)", err instanceof Error ? err.message : String(err));
+  }
+
   const { data: objectives, error } = await supabase
     .from("orchestrator_requests")
     .select("*")
