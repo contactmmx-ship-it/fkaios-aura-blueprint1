@@ -1481,3 +1481,5 @@ Deno.serve(async (req: Request) => {
     return errorResponse(message, 500, undefined, cid);
   }
 });
+
+// Deployment verification pass: source-grounded objective evidence gate.
