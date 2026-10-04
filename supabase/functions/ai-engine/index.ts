@@ -991,7 +991,7 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
 
       if (priorEvidence && /\\b(verify|verified|verification|report|sources?)\\b/i.test(taskText)) {
         const facts = Array.isArray(parsed.verified_facts) ? parsed.verified_facts : [];
-        const sourceUrls = new Set([...priorEvidence.matchAll(/https?:\\/\\/[^\\s"\\}\\]]+/g)].map((m) => m[0].replace(/[),.;]+$/, "")));
+        const sourceUrlRe = /https?:\\/\\/[^\\s"\\}\\]]+/g;\n        const sourceUrls = new Set([...priorEvidence.matchAll(sourceUrlRe)].map((m) => m[0].replace(/[),.;]+$/, "")));
         const validFacts = facts.filter((f) => {
           if (!f || typeof f !== "object") return false;
           const row = f as Record<string, unknown>;
