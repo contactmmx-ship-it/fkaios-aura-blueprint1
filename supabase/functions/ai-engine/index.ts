@@ -921,8 +921,10 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
 let researchEvidence = "";
 let researchResultData: unknown = null;
 let researchResultAttempts = 0;
+// taskText is also read by the downstream verification gate below, so it is
+// declared at function scope rather than inside the research branch.
+const taskText = [job.payload?.title, job.payload?.description].filter((v) => typeof v === "string").join("\n").trim();
 if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true || (typeof job.payload?.objective_id === "string" && job.payload.objective_id.length > 0))) {
-  const taskText = [job.payload?.title, job.payload?.description].filter((v) => typeof v === "string").join("\n").trim();
   const researchNeeded = /\b(research|market|facts?|sources?|verify|distributor|competitor|industry|trends?|data collection)\b/i.test(taskText);
   if (researchNeeded && taskText) {
     const research = await executeCapability(
@@ -938,7 +940,7 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
     }
     researchResultData = research.data ?? null;
     researchResultAttempts = research.attempts;
-    researchEvidence = `\\n\\n[REAL EXTERNAL RESEARCH EVIDENCE — USE ONLY THIS DATA; DO NOT FABRICATE]\\n${JSON.stringify(research.data).slice(0, 12000)}\\n[/REAL EXTERNAL RESEARCH EVIDENCE]`;
+    researchEvidence = `\n\n[REAL EXTERNAL RESEARCH EVIDENCE — USE ONLY THIS DATA; DO NOT FABRICATE]\n${JSON.stringify(research.data).slice(0, 12000)}\n[/REAL EXTERNAL RESEARCH EVIDENCE]`;
     structuredLog("INFO", "Founder research evidence acquired before task generation", {
       objectiveId: job.payload?.objective_id ?? null,
       taskId: job.payload?.task_id ?? null,
@@ -971,7 +973,7 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
       const priorEvidence = Array.isArray(job.payload?.prior_completed_tasks)
         ? "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(job.payload.prior_completed_tasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
         : "";
-      const verificationContract = priorEvidence && /\\b(verify|verified|verification|report|sources?)\\b/i.test(taskText)
+      const verificationContract = priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)
         ? "\n\nThis is a downstream verification/report task. Return ONLY JSON with verified_facts (at least 3 when the objective asks for three facts), report, and sources. Every verified_fact must include fact, source_url, source_title, and verification_note. Every source_url must appear in the supplied prior evidence. Do not include unsupported facts."
         : "";
       const systemPrompt = `${agent.prompt}${groundedContext}${principlesBlock}\n\nYou will receive a job payload as JSON.\nExecute the task and respond with ONLY a valid JSON object.\nNo prose.\nNo markdown fences.\n${NO_FABRICATED_PERSISTENCE_BLOCK}\n${invoiceSchemaBlock}${capabilityBlock}`;
@@ -989,9 +991,9 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
         ? parseAndValidateInvoicePayload(llmResult.toolCall, llmResult.text)
         : asJSONObject(extractJSONFromText(llmResult.text.replace(/```json|```/g, "").trim()), `Job ${job.id} (${job.type})`);
 
-      if (priorEvidence && /\\b(verify|verified|verification|report|sources?)\\b/i.test(taskText)) {
+      if (priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)) {
         const facts = Array.isArray(parsed.verified_facts) ? parsed.verified_facts : [];
-        const sourceUrls = new Set(priorEvidence.split(/\s+/).filter((u) => u.startsWith("http://") || u.startsWith("https://")).map((u) => u.replace(/[),.;\\]}"]+$/, "")));
+        const sourceUrls = new Set(priorEvidence.split(/\s+/).filter((u) => u.startsWith("http://") || u.startsWith("https://")).map((u) => u.replace(/[),.;\]}"]+$/, "")));
         const validFacts = facts.filter((f) => {
           if (!f || typeof f !== "object") return false;
           const row = f as Record<string, unknown>;
