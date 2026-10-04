@@ -1022,6 +1022,26 @@ export async function createTask(userId: string, task: TaskCandidate, correlatio
   const client = getFounderBrainClient();
   const needsApproval = task.risk_level === "high" || task.risk_level === "critical";
   try {
+    // GOVERNANCE DEDUPLICATION: an unresolved high/critical action must have
+    // exactly one active approval. Repeated Founder Brain ticks may rediscover
+    // the same action; do not create another actionable approval card.
+    if (needsApproval) {
+      const { data: existingRequests } = await client
+        .from("orchestrator_requests")
+        .select("id, status, raw_request, department_code, risk_level")
+        .eq("requested_by", "founder-brain")
+        .eq("status", "awaiting_approval")
+        .eq("raw_request", task.description)
+        .limit(1);
+      if (existingRequests && existingRequests.length > 0) {
+        return {
+          source: "orchestrator_requests",
+          status: "success",
+          data: existingRequests[0],
+        };
+      }
+    }
+
     const { data, error } = await client
       .from("orchestrator_requests")
       .insert({
@@ -1050,13 +1070,22 @@ export async function createTask(userId: string, task: TaskCandidate, correlatio
     // than building a new approval mechanism.
     if (needsApproval && data?.id) {
       try {
-        await client.from("approvals").insert({
+        const { data: approval, error: approvalInsertError } = await client.from("approvals").insert({
           department_code: task.department_code ?? null,
           action_type: "founder_brain_task",
           payload: { orchestrator_request_id: data.id, description: task.description },
           risk_level: task.risk_level,
           reason: `Founder Brain assessed this task as ${task.risk_level} risk before assignment`,
-        });
+        }).select("id").single();
+
+        if (approvalInsertError) throw approvalInsertError;
+        if (approval?.id) {
+          const { error: linkError } = await client
+            .from("orchestrator_requests")
+            .update({ approval_id: approval.id })
+            .eq("id", data.id);
+          if (linkError) throw linkError;
+        }
       } catch (approvalErr) {
         log("ERROR", "createTask: failed to file approvals row (task itself was still created, but may be invisible to the Founder)", { error: approvalErr instanceof Error ? approvalErr.message : String(approvalErr) }, correlationId);
       }

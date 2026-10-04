@@ -86,7 +86,9 @@ export function useDecisionItems() {
     const [apprRes, delRes, reqRes] = await Promise.all([
       supabase.from('approvals').select('id, action_type, reason, risk_level, amount_inr, payload, created_at').eq('status', 'pending').order('created_at', { ascending: true }),
       supabase.from('agent_task_delegations').select('id, from_agent, to_agent, task_description, context, created_at').eq('requires_founder_approval', true).neq('status', 'completed').order('created_at', { ascending: true }),
-      supabase.from('orchestrator_requests').select('id, raw_request, department_code, risk_level, created_at').eq('status', 'awaiting_approval').order('created_at', { ascending: true }),
+      // Requests with a real approvals row are represented by the approval
+      // card below; only unlinked legacy requests remain read-only here.
+      supabase.from('orchestrator_requests').select('id, raw_request, department_code, risk_level, created_at').eq('status', 'awaiting_approval').is('approval_id', null).order('created_at', { ascending: true }),
     ]);
     if (apprRes.error || delRes.error || reqRes.error) {
       setError(apprRes.error?.message || delRes.error?.message || reqRes.error?.message || 'Failed to load decisions');
@@ -110,7 +112,30 @@ export async function decideItem(item: DecisionItem, decision: 'approved' | 'rej
   if (item.source === 'request') return; // read-only source, the UI never calls decideItem for these
 
   if (item.source === 'approvals') {
-    await supabase.from('approvals').update({ status: decision, decided_by: 'founder', decided_at: new Date().toISOString() }).eq('id', item.id);
+    const decidedAt = new Date().toISOString();
+    const { data: approval, error: approvalError } = await supabase
+      .from('approvals')
+      .update({ status: decision, decided_by: 'founder', decided_at: decidedAt })
+      .eq('id', item.id)
+      .select('id, payload')
+      .single();
+    if (approvalError) throw approvalError;
+
+    // Resume/stop the exact request that produced this approval. Approval is
+    // scoped to the immutable request id stored in approvals.payload.
+    const requestId = approval?.payload?.orchestrator_request_id;
+    if (requestId) {
+      const nextStatus = decision === 'approved' ? 'processing' : 'failed';
+      const actionTaken = decision === 'approved'
+        ? 'Founder approved via Decision Center'
+        : 'Founder rejected via Decision Center';
+      const { error: requestError } = await supabase
+        .from('orchestrator_requests')
+        .update({ status: nextStatus, action_taken: actionTaken })
+        .eq('id', requestId)
+        .eq('status', 'awaiting_approval');
+      if (requestError) throw requestError;
+    }
   } else {
     await supabase.from('agent_task_delegations').update({
       requires_founder_approval: false,
