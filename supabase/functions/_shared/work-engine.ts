@@ -232,7 +232,7 @@ export async function reassignStuckWork(): Promise<{ reassigned: number }> {
 // explicit ask.
 export async function returnCompletedWork(): Promise<{ returned: number; dispatched: number }> {
   const client = getClient();
-  const { data: completedJobs } = await client.from("ai_jobs").select("id, payload, result").eq("status", "completed").eq("type", "work_engine_task").limit(20);
+  // Only inspect completed jobs whose linked orchestration task is still open.\n  // The old global .limit(20) could be consumed by unrelated historical jobs,\n  // leaving a newly completed objective task at "assigned" with no live job.\n  // The objective loop then correctly (but wrongly for this case) re-opened it\n  // as "rework". Resolve the open-task set first so completion return is\n  // deterministic and independent of queue history.\n  const { data: openTasks } = await client\n    .from("orchestration_tasks")\n    .select("id, status")\n    .in("status", ["pending", "assigned", "running", "working", "rework"])\n    .limit(500);\n  const openTaskIds = (openTasks ?? []).map((t) => String(t.id)).filter(Boolean);\n  if (openTaskIds.length === 0) return { returned: 0, dispatched: 0 };\n\n  const { data: completedJobs } = await client\n    .from("ai_jobs")\n    .select("id, payload, result")\n    .eq("status", "completed")\n    .eq("type", "work_engine_task")\n    .in("payload->>task_id", openTaskIds);
   if (!completedJobs || completedJobs.length === 0) return { returned: 0, dispatched: 0 };
 
   let returned = 0;
