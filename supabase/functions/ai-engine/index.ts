@@ -968,8 +968,14 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
       const invoiceSchemaBlock = job.type === "GENERATE_INVOICE"
         ? `\nThis is a GENERATE_INVOICE job. Respond with ONLY this JSON structure:\n\n{\n  "line_items": [\n    {\n      "description": "string",\n      "quantity": number,\n      "unit_price_inr": number\n    }\n  ]\n}\n\nRules:\n- Use only real payload/lead/brand data.\n- Never invent products, services, or amounts.\n- If no real billable data exists, return:\n{\n  "line_items": []\n}`
         : "";
+      const priorEvidence = Array.isArray(job.payload?.prior_completed_tasks)
+        ? "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(job.payload.prior_completed_tasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
+        : "";
+      const verificationContract = priorEvidence && /\\b(verify|verified|verification|report|sources?)\\b/i.test(taskText)
+        ? "\n\nThis is a downstream verification/report task. Return ONLY JSON with verified_facts (at least 3 when the objective asks for three facts), report, and sources. Every verified_fact must include fact, source_url, source_title, and verification_note. Every source_url must appear in the supplied prior evidence. Do not include unsupported facts."
+        : "";
       const systemPrompt = `${agent.prompt}${groundedContext}${principlesBlock}\n\nYou will receive a job payload as JSON.\nExecute the task and respond with ONLY a valid JSON object.\nNo prose.\nNo markdown fences.\n${NO_FABRICATED_PERSISTENCE_BLOCK}\n${invoiceSchemaBlock}${capabilityBlock}`;
-      const userContent = JSON.stringify({ type: job.type, payload: job.payload }) + researchEvidence;
+      const userContent = JSON.stringify({ type: job.type, payload: job.payload }) + researchEvidence + priorEvidence + verificationContract;
       // NOTE: any failure here THROWS. runJobs() records retry/failed with the real
       // error. It does NOT invent a result. This is the fix.
       // GENERATE_INVOICE gets a forced structured-output tool schema (see
@@ -982,6 +988,17 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
       const parsed = job.type === "GENERATE_INVOICE"
         ? parseAndValidateInvoicePayload(llmResult.toolCall, llmResult.text)
         : asJSONObject(extractJSONFromText(llmResult.text.replace(/```json|```/g, "").trim()), `Job ${job.id} (${job.type})`);
+
+      if (priorEvidence && /\\b(verify|verified|verification|report|sources?)\\b/i.test(taskText)) {
+        const facts = Array.isArray(parsed.verified_facts) ? parsed.verified_facts : [];
+        const sourceUrls = new Set([...priorEvidence.matchAll(/https?:\\/\\/[^\\s"\\}\\]]+/g)].map((m) => m[0].replace(/[),.;]+$/, "")));
+        const validFacts = facts.filter((f) => {
+          if (!f || typeof f !== "object") return false;
+          const row = f as Record<string, unknown>;
+          return typeof row.fact === "string" && row.fact.trim().length > 10 && typeof row.source_url === "string" && sourceUrls.has(row.source_url.replace(/[),.;]+$/, ""));
+        });
+        if (validFacts.length < 3) throw new Error(`Research verification failed: expected at least 3 source-grounded verified_facts, received ${validFacts.length}.`);
+      }
       validateGrounding(llmResult.text, `${systemPrompt}\n${userContent}`, cid);
       await supabase.from("ai_agents").update({ total_tasks_completed: (agent.total_tasks_completed ?? 0) + 1, last_active_at: new Date().toISOString() }).eq("id", agent.id);
       await supabase.from("agent_activity_log").insert({ agent_id: agent.id, activity_type: "task", title: `Completed: ${job.type}`, description: typeof parsed === "object" ? JSON.stringify(parsed).slice(0, 200) : String(parsed).slice(0, 200), job_id: job.id, metadata: { automated: true, tokens: { input: llmResult.inputTokens, output: llmResult.outputTokens } } });
