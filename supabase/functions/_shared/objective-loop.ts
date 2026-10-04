@@ -316,17 +316,56 @@ async function markObjective(
   status: "completed" | "failed" | "awaiting_approval",
   summary: string,
 ) {
+  const boundedSummary = summary.slice(0, 5000);
+
   const { error } = await supabase
     .from("orchestrator_requests")
     .update({
       status,
-      result_summary: summary.slice(0, 5000),
+      result_summary: boundedSummary,
       action_taken: "objective_loop",
     })
     .eq("id", objectiveId);
 
   if (error) {
     throw new Error(`Failed updating objective ${objectiveId}: ${error.message}`);
+  }
+
+  // Project projection: the Command Center reads orchestration_projects for
+  // execution state and final output. Keep it in sync with the authoritative
+  // objective decision above. Without this, an objective could be COMPLETED
+  // in orchestrator_requests while its project remained "working", leaving
+  // the Console with no final result to display.
+  const { data: projects, error: projectReadError } = await supabase
+    .from("orchestration_projects")
+    .select("id")
+    .like("request", `[objective:${objectiveId}]%`)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (projectReadError) {
+    throw new Error(`Failed loading project for completed objective ${objectiveId}: ${projectReadError.message}`);
+  }
+
+  const projectId = projects?.[0]?.id;
+  if (!projectId) return;
+
+  const projectUpdate: Record<string, unknown> = { status };
+  if (status === "completed") {
+    projectUpdate.final_output = boundedSummary;
+    projectUpdate.draft_final_output = null;
+    projectUpdate.error_message = null;
+  } else {
+    projectUpdate.error_message = boundedSummary;
+  }
+
+  const { error: projectUpdateError } = await supabase
+    .from("orchestration_projects")
+    .update(projectUpdate)
+    .eq("id", projectId);
+
+  if (projectUpdateError) {
+    throw new Error(`Failed updating project ${projectId}: ${projectUpdateError.message}`);
   }
 }
 
