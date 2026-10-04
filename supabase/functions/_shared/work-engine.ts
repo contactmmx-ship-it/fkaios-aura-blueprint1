@@ -267,7 +267,37 @@ export async function reassignStuckWork(): Promise<{ reassigned: number }> {
 // explicit ask.
 export async function returnCompletedWork(): Promise<{ returned: number; dispatched: number }> {
   const client = getClient();
-  // Only inspect completed jobs whose linked orchestration task is still open.\n  // The old global .limit(20) could be consumed by unrelated historical jobs,\n  // leaving a newly completed objective task at "assigned" with no live job.\n  // The objective loop then correctly (but wrongly for this case) re-opened it\n  // as "rework". Resolve the open-task set first so completion return is\n  // deterministic and independent of queue history.\n  const { data: openTasks } = await client\n    .from("orchestration_tasks")\n    .select("id, status")\n    .in("status", ["pending", "assigned", "running", "working", "rework"])\n    .limit(500);\n  const openTaskIds = (openTasks ?? []).map((t) => String(t.id)).filter(Boolean);\n  if (openTaskIds.length === 0) return { returned: 0, dispatched: 0 };\n\n  const { data: completedJobs } = await client\n    .from("ai_jobs")\n    .select("id, payload, result")\n    .eq("status", "completed")\n    .eq("type", "work_engine_task")\n    .in("payload->>task_id", openTaskIds);
+  // Only inspect completed jobs whose linked orchestration task is still open.
+  // The old global .limit(20) could be consumed by unrelated historical jobs,
+  // leaving a newly completed objective task at "assigned" with no live job.
+  // Resolve the FULL open-task set (paginated, newest first) and look up
+  // completed jobs in chunks, so neither a row cap nor URL length can hide a
+  // newly finished objective task.
+  const openTaskIds: string[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data: page, error: pageErr } = await client
+      .from("orchestration_tasks")
+      .select("id")
+      .in("status", ["pending", "assigned", "running", "working", "rework"])
+      .order("created_at", { ascending: false })
+      .range(from, from + 999);
+    if (pageErr) throw new Error(`returnCompletedWork: open task load failed: ${pageErr.message}`);
+    for (const t of page ?? []) if (t?.id) openTaskIds.push(String(t.id));
+    if (!page || page.length < 1000) break;
+  }
+  if (openTaskIds.length === 0) return { returned: 0, dispatched: 0 };
+
+  const completedJobs: Array<{ id: string; payload: unknown; result: unknown }> = [];
+  for (let k = 0; k < openTaskIds.length; k += 100) {
+    const { data: chunk, error: jobErr } = await client
+      .from("ai_jobs")
+      .select("id, payload, result")
+      .eq("status", "completed")
+      .eq("type", "work_engine_task")
+      .in("payload->>task_id", openTaskIds.slice(k, k + 100));
+    if (jobErr) throw new Error(`returnCompletedWork: completed job load failed: ${jobErr.message}`);
+    completedJobs.push(...((chunk ?? []) as typeof completedJobs));
+  }
   if (!completedJobs || completedJobs.length === 0) return { returned: 0, dispatched: 0 };
 
   let returned = 0;
