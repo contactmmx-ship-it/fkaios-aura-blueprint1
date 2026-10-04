@@ -61,13 +61,31 @@ async function readObjectiveStatus(objectiveId: string | null) {
 
   return await Promise.all((objectives ?? []).map(async (objective) => {
     const { data: projects } = await admin.from("orchestration_projects")
-      .select("id").like("request", `[objective:${objective.id}]%`).order("created_at", { ascending: false });
-    const latestProjectId = projects?.[0]?.id;
+      .select("id, status, created_at")
+      .like("request", `[objective:${objective.id}]%`)
+      .order("created_at", { ascending: false });
+
+    // Terminal objectives must report work from the project that actually
+    // reached the same terminal state. A re-planning pass can leave newer
+    // historical projects in "working"/"assigned" state; selecting the newest
+    // project unconditionally made the Console say COMPLETED while also saying
+    // "0/2 tasks completed" or "tasks still in progress". The objective row is
+    // authoritative for terminal state, so prefer the matching terminal
+    // project; only processing/blocked objectives use the newest project.
+    const objectiveStatus = String(objective.status ?? "");
+    const terminalProjectStatus =
+      objectiveStatus === "completed" ? "complete" :
+      objectiveStatus === "failed" ? "failed" :
+      null;
+    const selectedProject = terminalProjectStatus
+      ? (projects ?? []).find((p) => String(p.status ?? "") === terminalProjectStatus) ?? projects?.[0]
+      : projects?.[0];
+    const selectedProjectId = selectedProject?.id;
     let tasks: Record<string, unknown>[] = [];
     let jobs: Record<string, unknown>[] = [];
-    if (latestProjectId) {
+    if (selectedProjectId) {
       const { data: taskRows } = await admin.from("orchestration_tasks")
-        .select("id, title, description, status, output").eq("project_id", latestProjectId);
+        .select("id, title, description, status, output").eq("project_id", selectedProjectId);
       tasks = taskRows ?? [];
       const taskIds = tasks.map((t) => String(t.id));
       if (taskIds.length > 0) {
