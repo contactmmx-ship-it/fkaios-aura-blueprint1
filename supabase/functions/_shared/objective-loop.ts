@@ -500,11 +500,13 @@ export async function runObjectiveLoop(
         }
       }
 
+      // Only assigned/running work is actively executing. Pending tasks are
+      // intentionally held back so the project executes as an evidence chain:
+      // research -> verification -> report, never parallel independent answers.
       const activeTasks = state.tasks.filter((task) =>
-        ["pending", "assigned", "running", "working"].includes(
-          String(task.status ?? ""),
-        )
+        ["assigned", "running", "working"].includes(String(task.status ?? ""))
       );
+      const pendingTasks = state.tasks.filter((task) => String(task.status ?? "") === "pending");
 
       /*
        * A task already known to need data no capability can supply blocks
@@ -526,6 +528,8 @@ export async function runObjectiveLoop(
 
       /*
        * If work is still executing, do not create duplicate projects.
+       * Pending tasks are not execution yet; allocate exactly the next task
+       * after the previous task has returned verified evidence.
        */
       if (activeTasks.length > 0) {
         results.push({
@@ -539,8 +543,25 @@ export async function runObjectiveLoop(
         continue;
       }
 
+      if (pendingTasks.length > 0) {
+        const projectId = state.projects[0]?.id ? String(state.projects[0].id) : null;
+        if (projectId) {
+          const allocation = await allocateProjectWork(projectId);
+          if (allocation.allocated > 0) {
+            results.push({
+              objectiveId: String(objective.id),
+              action: "continue_execution",
+              projectId,
+              tasksCreated: allocation.allocated,
+              summary: "Advanced to the next task after the prior task completed; evidence was handed forward.",
+            });
+            continue;
+          }
+        }
+      }
+
       /*
-       * No active work remains.
+       * No active or pending work remains.
        * Now evaluate the ORIGINAL OBJECTIVE rather than merely
        * checking whether tasks completed.
        */
