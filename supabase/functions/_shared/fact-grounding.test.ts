@@ -146,3 +146,43 @@ Deno.test("C2: an empty task set is never achievable", () => {
 Deno.test("C3: a done task with no recorded output is not evidence", () => {
   assert(assessTaskEvidence({ id: "x", title: "Task", status: "done", output: null }).verdict === "failed", "missing output must not verify");
 });
+
+// ── D: sales / revenue performance of a real business ─────────────────────
+// Live shape of objective 6217332e: a sales analysis that the knowledge
+// vault has no source for. It used to be classified as internal work, so a
+// zero-match search "verified" it and the objective replanned indefinitely.
+const SALES_TASK = {
+  title: "GoMax Sales Analysis & Risk Identification",
+  description: "Analyze the current GoMax sales performance to evaluate its contribution toward the ₹5 Crore annual revenue gate, and identify 3 critical sales risks.",
+};
+
+Deno.test("D1: sales / revenue / turnover analysis tasks need external facts", () => {
+  assert(requiresExternalFacts(SALES_TASK), "current sales performance analysis must need external facts");
+  assert(requiresExternalFacts({ title: "Revenue review", description: "Assess actual revenue and sales figures for the last quarter." }), "revenue figures must need external facts");
+  assert(requiresExternalFacts({ title: "Turnover check", description: "Compare annual turnover across the brand's outlets." }), "turnover must need external facts");
+  assert(requiresExternalFacts({ title: "Sales data", description: "Compile the brand's current sales data." }), "sales data must need external facts");
+});
+
+Deno.test("D2: sales wording without a fact-finding verb stays internal", () => {
+  assert(!requiresExternalFacts({ title: "Draft a sales pitch email", description: "Write a short sales pitch email template for the revenue team." }), "drafting sales copy is internal work");
+});
+
+Deno.test("D3: a sales-performance task whose vault search found no source blocks the objective as no_data_source", () => {
+  const output = JSON.stringify({
+    llmResult: { capability: "knowledge.search" },
+    companyOsDispatch: { capability: "knowledge.search", status: "success", evidence: { query: "GoMax sales performance", matches: [] } },
+  });
+  const gate = assessObjectiveTasks([
+    { id: "933a7152", ...SALES_TASK, status: "done", output },
+    { id: "341c7394", title: "Strategic Action Plan & Execution Roadmap", description: "Develop 3 targeted recommendations and a prioritized execution plan.", status: "done", output },
+  ]);
+  assert(gate.blocked && !gate.allVerified, "a sales task with no sourced evidence must block, not merely be not-achieved");
+  assert(gate.tasks.find((t) => t.id === "933a7152")?.verdict === NO_DATA_SOURCE, "the sales analysis must be no_data_source");
+});
+
+Deno.test("D4: a sales task backed by a relevant sourced vault match is verified", () => {
+  const output = JSON.stringify({
+    companyOsDispatch: { capability: "knowledge.search", status: "success", evidence: { matches: [{ chunk_id: "c1", document_id: "d1", similarity: 0.91, excerpt: "Q2 sales report" }] } },
+  });
+  assert(assessTaskEvidence({ id: "s", ...SALES_TASK, status: "done", output }).verdict === "verified", "real sourced sales evidence must verify");
+});
