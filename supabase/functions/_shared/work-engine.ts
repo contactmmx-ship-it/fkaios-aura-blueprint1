@@ -94,13 +94,34 @@ export interface AllocationResult {
   error?: string;
 }
 
-export async function allocateTask(task: { id: string; title: string; description: string; departmentCode: string | null; objectiveId?: string | null; founderSubmitted?: boolean }): Promise<AllocationResult> {
+export async function allocateTask(task: { id: string; title: string; description: string; departmentCode: string | null; objectiveId?: string | null; projectId?: string | null; founderSubmitted?: boolean }): Promise<AllocationResult> {
   const client = getClient();
   const workforce = await getWorkforce();
   if (workforce.length === 0) return { taskId: task.id, jobId: null, agentId: null, agentName: null, error: "no active AI employees available" };
 
   const employee = selectBestEmployee(workforce, task.departmentCode);
   if (!employee) return { taskId: task.id, jobId: null, agentId: null, agentName: null, error: "no suitable employee found" };
+
+  // Sequential evidence handoff: later tasks must receive the actual recorded
+  // outputs of earlier completed tasks. This prevents a verifier/report task
+  // from independently researching the same question and losing the evidence
+  // chain. Only completed task outputs from the same project are included.
+  let priorCompletedTasks: Array<{ id: string; title: string; output: unknown }> = [];
+  if (task.projectId) {
+    const { data: prior } = await client
+      .from("orchestration_tasks")
+      .select("id, title, output, status, created_at")
+      .eq("project_id", task.projectId)
+      .in("status", ["done", "approved"])
+      .neq("id", task.id)
+      .order("created_at", { ascending: true })
+      .limit(10);
+    priorCompletedTasks = (prior ?? []).map((p) => ({
+      id: String(p.id),
+      title: String(p.title ?? ""),
+      output: typeof p.output === "string" ? (() => { try { return JSON.parse(p.output); } catch { return p.output.slice(0, 5000); } })() : p.output,
+    }));
+  }
 
   const { data: job, error } = await client
     .from("ai_jobs")
@@ -109,7 +130,15 @@ export async function allocateTask(task: { id: string; title: string; descriptio
       type: "work_engine_task",
       // Non-invasive link back to the Executive Planner's task — no schema
       // change, same technique as Sprint 6's [objective:id] tag.
-      payload: { task_id: task.id, title: task.title, description: task.description.slice(0, 1000), objective_id: task.objectiveId ?? null, founder_submitted: task.founderSubmitted === true },
+      payload: {
+        task_id: task.id,
+        title: task.title,
+        description: task.description.slice(0, 1000),
+        objective_id: task.objectiveId ?? null,
+        project_id: task.projectId ?? null,
+        founder_submitted: task.founderSubmitted === true,
+        prior_completed_tasks: priorCompletedTasks,
+      },
       status: "pending",
     })
     .select("id")
@@ -133,7 +162,13 @@ export async function allocateTask(task: { id: string; title: string; descriptio
 //    the Executive Planner's planObjective() creates them) ──────────
 export async function allocateProjectWork(projectId: string): Promise<{ allocated: number; results: AllocationResult[] }> {
   const client = getClient();
-  const { data: tasks } = await client.from("orchestration_tasks").select("id, title, description, project_id").eq("project_id", projectId).eq("status", "pending");
+  const { data: tasks } = await client
+    .from("orchestration_tasks")
+    .select("id, title, description, project_id")
+    .eq("project_id", projectId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: true })
+    .limit(1);
   if (!tasks || tasks.length === 0) return { allocated: 0, results: [] };
 
   // Department is carried on the objective, not the task (Sprint 6's
@@ -153,7 +188,7 @@ export async function allocateProjectWork(projectId: string): Promise<{ allocate
 
   const results: AllocationResult[] = [];
   for (const t of tasks) {
-    const r = await allocateTask({ id: t.id, title: t.title, description: t.description ?? "", departmentCode, objectiveId, founderSubmitted: objectiveFounderSubmitted });
+    const r = await allocateTask({ id: t.id, title: t.title, description: t.description ?? "", departmentCode, objectiveId, projectId: t.project_id, founderSubmitted: objectiveFounderSubmitted });
     results.push(r);
   }
   return { allocated: results.filter((r) => r.jobId).length, results };
