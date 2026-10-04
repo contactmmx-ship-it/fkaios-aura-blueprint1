@@ -287,6 +287,20 @@ export async function returnCompletedWork(): Promise<{ returned: number; dispatc
   }
   if (openTaskIds.length === 0) return { returned: 0, dispatched: 0 };
 
+  // Only reconcile work belonging to an active founder objective (the same set
+  // runObjectiveLoop() processes). Completed jobs left behind by objectives that
+  // are awaiting approval or already finished, or by non-objective work, stay
+  // untouched: returning them would re-dispatch historical capabilities (e.g.
+  // paid research.run calls) that nobody is waiting on.
+  const { data: activeObjectives, error: objErr } = await client
+    .from("orchestrator_requests")
+    .select("id")
+    .eq("requested_by", "founder-brain")
+    .eq("status", "processing");
+  if (objErr) throw new Error(`returnCompletedWork: active objective load failed: ${objErr.message}`);
+  const activeObjectiveIds = (activeObjectives ?? []).map((o) => String(o.id)).filter(Boolean);
+  if (activeObjectiveIds.length === 0) return { returned: 0, dispatched: 0 };
+
   const completedJobs: Array<{ id: string; payload: unknown; result: unknown }> = [];
   for (let k = 0; k < openTaskIds.length; k += 100) {
     const { data: chunk, error: jobErr } = await client
@@ -294,6 +308,7 @@ export async function returnCompletedWork(): Promise<{ returned: number; dispatc
       .select("id, payload, result")
       .eq("status", "completed")
       .eq("type", "work_engine_task")
+      .in("payload->>objective_id", activeObjectiveIds)
       .in("payload->>task_id", openTaskIds.slice(k, k + 100));
     if (jobErr) throw new Error(`returnCompletedWork: completed job load failed: ${jobErr.message}`);
     completedJobs.push(...((chunk ?? []) as typeof completedJobs));
