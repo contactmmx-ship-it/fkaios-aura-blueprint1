@@ -479,7 +479,12 @@ export async function runObjectiveLoop(
           if (!["pending", "assigned", "running", "working"].includes(taskStatus)) continue;
           const jobs = jobsByTask.get(String(task.id)) ?? [];
           const hasLiveJob = jobs.some((job) => ["pending", "running", "retry"].includes(String(job.status ?? "")));
-          if (!hasLiveJob) {
+          const hasCompletedJob = jobs.some((job) => String(job.status ?? "") === "completed");
+          // A completed job is executable evidence even if returnCompletedWork()
+          // has not closed the task yet. Never convert such a task to rework:
+          // doing so races the completion-return step below and can erase a
+          // genuinely completed execution before it is persisted to the task.
+          if (!hasLiveJob && !hasCompletedJob) {
             const hadFailedJob = jobs.some((job) => String(job.status ?? "") === "failed");
             await supabase.from("orchestration_tasks")
               .update({ status: "rework", output: JSON.stringify({
