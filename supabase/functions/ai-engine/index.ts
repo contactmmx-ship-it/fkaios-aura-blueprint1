@@ -997,10 +997,6 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
           const row = f as Record<string, unknown>;
           return typeof row.fact === "string" && row.fact.trim().length > 10 && typeof row.source_url === "string" && sourceUrls.has(row.source_url.replace(/[),.;]+$/, ""));
         });
-          if (!f || typeof f !== "object") return false;
-          const row = f as Record<string, unknown>;
-          return typeof row.fact === "string" && row.fact.trim().length > 10 && typeof row.source_url === "string" && sourceUrls.has(row.source_url.replace(/[),.;]+$/, ""));
-        });
         if (validFacts.length < 3) throw new Error(`Research verification failed: expected at least 3 source-grounded verified_facts, received ${validFacts.length}.`);
       }
       validateGrounding(llmResult.text, `${systemPrompt}\n${userContent}`, cid);
