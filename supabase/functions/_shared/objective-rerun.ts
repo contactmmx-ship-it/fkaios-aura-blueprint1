@@ -41,3 +41,23 @@ export function rerunUpdate(requestedAt: string): { status: string; action_taken
     result_summary: `Re-run requested at ${requestedAt}. The objective loop will plan it again on its next run.`,
   };
 }
+
+// orchestration_projects.status check constraint. Objective and project
+// statuses are different vocabularies: copying the objective status onto the
+// project ('completed', 'awaiting_approval') violates this constraint.
+export const PROJECT_STATUSES = ["planning", "working", "reviewing", "reworking", "merging", "complete", "failed"] as const;
+
+export type ObjectiveDecision = "completed" | "failed" | "awaiting_approval";
+
+// The project projection of an objective decision. A completed objective
+// completes its project with the summary as final_output; a failed one fails
+// it. A blocked objective (awaiting_approval) is not finished and can be
+// re-run, so the project keeps its current non-terminal status and only
+// records the blocker.
+export function projectUpdateForObjective(status: ObjectiveDecision, summary: string): Record<string, unknown> {
+  if (status === "completed") {
+    return { status: "complete", final_output: summary, draft_final_output: null, error_message: null };
+  }
+  if (status === "failed") return { status: "failed", error_message: summary };
+  return { error_message: summary };
+}

@@ -3,7 +3,7 @@ import { reason } from "./founder-brain.ts";
 import { planObjective } from "./executive-planner.ts";
 import { allocateProjectWork, returnCompletedWork } from "./work-engine.ts";
 import { assessCurrentTaskSet, formatBlockedSummary } from "./fact-grounding.ts";
-import { isRerunRequested, OBJECTIVE_LOOP } from "./objective-rerun.ts";
+import { isRerunRequested, OBJECTIVE_LOOP, projectUpdateForObjective } from "./objective-rerun.ts";
 
 type ObjectiveLoopResult = {
   objectiveId: string;
@@ -350,18 +350,9 @@ async function markObjective(
   const projectId = projects?.[0]?.id;
   if (!projectId) return;
 
-  const projectUpdate: Record<string, unknown> = { status };
-  if (status === "completed") {
-    projectUpdate.final_output = boundedSummary;
-    projectUpdate.draft_final_output = null;
-    projectUpdate.error_message = null;
-  } else {
-    projectUpdate.error_message = boundedSummary;
-  }
-
   const { error: projectUpdateError } = await supabase
     .from("orchestration_projects")
-    .update(projectUpdate)
+    .update(projectUpdateForObjective(status, boundedSummary))
     .eq("id", projectId);
 
   if (projectUpdateError) {

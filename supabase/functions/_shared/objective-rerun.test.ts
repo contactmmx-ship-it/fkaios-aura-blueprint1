@@ -1,7 +1,7 @@
 /// <reference lib="deno.ns" />
 // Regression tests for the research-evidence rules and the BLOCKED -> re-run
 // path, using the live Bharat Paints task set (objective 79ef3604).
-import { canRerun, isRerunRequested, rerunUpdate } from "./objective-rerun.ts";
+import { canRerun, isRerunRequested, PROJECT_STATUSES, projectUpdateForObjective, rerunUpdate } from "./objective-rerun.ts";
 import {
   assessCurrentTaskSet,
   assessTaskEvidence,
@@ -97,4 +97,41 @@ Deno.test("after a re-run, the new planning pass decides; the old blocked pass s
   assert(done.allVerified, "with real evidence the new pass can be achieved");
   const stillOld = assessCurrentTaskSet([{ id: "old" }], [oldBlocked]);
   assert(stillOld.blocked, "without a new pass the objective stays blocked");
+});
+
+// ── Project projection of an objective decision ──────────────────────────
+// Live failure, objective 6217332e on 2026-10-04: the loop wrote the
+// objective status 'awaiting_approval' onto orchestration_projects and hit
+// orchestration_projects_status_check, so the blocked objective's project
+// stayed 'working' with no recorded blocker.
+const allowedProjectStatus = (update: Record<string, unknown>) =>
+  !("status" in update) || (PROJECT_STATUSES as readonly unknown[]).includes(update.status);
+
+Deno.test("P1: completed objective -> project 'complete' (allowed by the constraint)", () => {
+  const update = projectUpdateForObjective("completed", "Objective achieved.");
+  assert(update.status === "complete", "a completed objective must complete its project as 'complete', not 'completed'");
+  assert(allowedProjectStatus(update), "project status must satisfy orchestration_projects_status_check");
+});
+
+Deno.test("P2: failed objective -> project 'failed' with the reason recorded", () => {
+  const update = projectUpdateForObjective("failed", "FAILED: terminal error");
+  assert(update.status === "failed", "a failed objective must fail its project");
+  assert(update.error_message === "FAILED: terminal error", "the failure reason must be recorded");
+  assert(allowedProjectStatus(update), "project status must satisfy orchestration_projects_status_check");
+});
+
+Deno.test("P3: blocked (awaiting_approval) objective keeps an allowed project status and records the blocker", () => {
+  const blocker = "BLOCKED: FKAIOS could not complete this objective ... no_data_source";
+  const update = projectUpdateForObjective("awaiting_approval", blocker);
+  assert(update.status !== "awaiting_approval", "the objective status must never be copied onto the project");
+  assert(allowedProjectStatus(update), "project status must satisfy orchestration_projects_status_check");
+  assert(!("status" in update), "a blocked objective is not finished: the project keeps its current non-terminal status");
+  assert(update.error_message === blocker, "the blocker must be persisted in error_message");
+  assert(!("final_output" in update), "a blocked objective must not write a final output");
+});
+
+Deno.test("P4: a genuinely completed objective persists final_output and clears stale draft/error", () => {
+  const update = projectUpdateForObjective("completed", "Verified report: 3 risks, 3 actions, P1/P2/P3 plan.");
+  assert(update.final_output === "Verified report: 3 risks, 3 actions, P1/P2/P3 plan.", "final_output must be the objective summary");
+  assert(update.draft_final_output === null && update.error_message === null, "draft and error must be cleared on completion");
 });
