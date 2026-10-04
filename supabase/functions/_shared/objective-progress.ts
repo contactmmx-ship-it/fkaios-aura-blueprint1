@@ -2,9 +2,9 @@
 // (its latest orchestration project's tasks and their ai_jobs). Pure, so the
 // founder-objective status action and its tests share one implementation.
 //
-// Task output is deliberately never passed through: an unverified or
-// rejected answer (e.g. the invented distributor list of 2026-09-23) must
-// not reach the Command Center. Only titles, statuses and verdicts do.
+// Task output is deliberately exposed only when the task itself is verified.
+// This gives the Founder a real result viewer without allowing an unverified
+// or rejected answer to reach the Command Center.
 import { assessTaskEvidence, type TaskEvidenceRecord, type TaskVerdict } from "./fact-grounding.ts";
 
 export interface ProgressJob {
@@ -22,7 +22,19 @@ export interface ObjectiveProgress {
   tasksFailed: number;
   jobsRetrying: number;
   jobsRunning: number;
-  tasks: Array<{ title: string; status: string; verdict: TaskVerdict; reason: string }>;
+  tasks: Array<{ title: string; status: string; verdict: TaskVerdict; reason: string; output?: string }>;
+}
+
+function verifiedOutput(output: unknown): string | undefined {
+  if (typeof output !== "string" || output.trim().length === 0) return undefined;
+  try {
+    const parsed = JSON.parse(output);
+    // Keep the full verified deliverable reasonably bounded for the console.
+    // The worker already stores bounded output; this is an additional UI guard.
+    return JSON.stringify(parsed, null, 2).slice(0, 20000);
+  } catch {
+    return output.slice(0, 20000);
+  }
 }
 
 export function summarizeObjectiveProgress(
@@ -31,10 +43,18 @@ export function summarizeObjectiveProgress(
   jobs: ProgressJob[],
 ): ObjectiveProgress {
   // The verdict reason describes the evidence (e.g. "capability
-  // knowledge.search succeeded", a dispatch error), never the task's answer.
+  // knowledge.search succeeded", a dispatch error). For verified tasks the
+  // actual recorded output is also returned so the Founder can inspect the
+  // deliverable that caused completion.
   const assessed = tasks.map((t) => {
     const { verdict, reason } = assessTaskEvidence(t);
-    return { title: String(t.title ?? ""), status: String(t.status ?? ""), verdict, reason: reason.slice(0, 300) };
+    return {
+      title: String(t.title ?? ""),
+      status: String(t.status ?? ""),
+      verdict,
+      reason: reason.slice(0, 300),
+      ...(verdict === "verified" ? { output: verifiedOutput(t.output) } : {}),
+    };
   });
   const liveJobs = jobs.filter((j) => j.status === "pending" || j.status === "running" || j.status === "retry");
   return {

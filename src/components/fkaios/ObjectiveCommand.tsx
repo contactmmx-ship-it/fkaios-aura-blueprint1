@@ -95,6 +95,19 @@ export function ObjectiveCard({ row, checkedAt, onOpenDecisionCenter, onRerun, r
           <div><dt className="text-slate-500">{view.terminal ? 'Work recorded' : 'Progress'}</dt>
             <dd><ul className="list-disc list-inside text-slate-400">{view.progress.map((line) => <li key={line}>{line}</li>)}</ul></dd></div>
         )}
+        {view.resultDetails.length > 0 && view.state === 'COMPLETED' && (
+          <div className="pt-2 border-t border-slate-800">
+            <dt className="text-slate-300 font-semibold mb-2">Objective deliverables</dt>
+            <dd className="space-y-3">
+              {view.resultDetails.map((detail) => (
+                <section key={detail.title} className="rounded-lg border border-slate-800 bg-slate-950/70 overflow-hidden">
+                  <div className="px-3 py-2 bg-slate-900/80 border-b border-slate-800 text-xs font-medium text-cyan-200">{detail.title}</div>
+                  <pre className="p-3 text-[11px] leading-5 text-slate-300 whitespace-pre-wrap break-words max-h-[520px] overflow-auto font-mono">{detail.output}</pre>
+                </section>
+              ))}
+            </dd>
+          </div>
+        )}
       </dl>
       <div className="flex items-center gap-3">
         {view.opensDecisionCenter && onOpenDecisionCenter && (
