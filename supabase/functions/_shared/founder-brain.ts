@@ -1070,13 +1070,22 @@ export async function createTask(userId: string, task: TaskCandidate, correlatio
     // than building a new approval mechanism.
     if (needsApproval && data?.id) {
       try {
-        await client.from("approvals").insert({
+        const { data: approval, error: approvalInsertError } = await client.from("approvals").insert({
           department_code: task.department_code ?? null,
           action_type: "founder_brain_task",
           payload: { orchestrator_request_id: data.id, description: task.description },
           risk_level: task.risk_level,
           reason: `Founder Brain assessed this task as ${task.risk_level} risk before assignment`,
-        });
+        }).select("id").single();
+
+        if (approvalInsertError) throw approvalInsertError;
+        if (approval?.id) {
+          const { error: linkError } = await client
+            .from("orchestrator_requests")
+            .update({ approval_id: approval.id })
+            .eq("id", data.id);
+          if (linkError) throw linkError;
+        }
       } catch (approvalErr) {
         log("ERROR", "createTask: failed to file approvals row (task itself was still created, but may be invisible to the Founder)", { error: approvalErr instanceof Error ? approvalErr.message : String(approvalErr) }, correlationId);
       }
