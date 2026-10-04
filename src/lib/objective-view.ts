@@ -1,16 +1,6 @@
 // Maps an objective row (orchestrator_requests + progress from the
-// founder-objective `status` action) to what the Command Center shows.
+// founder-objective status action) to what the Command Center shows.
 // Pure and import-free so it is unit-tested directly.
-//
-// orchestrator_requests.status has no 'blocked' value (check constraint:
-// processing | completed | failed | awaiting_approval). The objective loop
-// records a block as awaiting_approval with action_taken='objective_loop';
-// a high-risk objective waiting for sign-off before any work is
-// awaiting_approval without it. That is the distinction used here.
-//
-// Nothing here reads task output: the only task data is title, status and
-// the evidence verdict/reason computed server-side (objective-progress.ts),
-// so a rejected or unverified answer can never be shown as a result.
 
 export type ObjectiveState = 'PROCESSING' | 'BLOCKED' | 'AWAITING_APPROVAL' | 'COMPLETED' | 'FAILED';
 export type TaskVerdict = 'verified' | 'no_data_source' | 'failed' | 'incomplete';
@@ -20,6 +10,7 @@ export interface ObjectiveTaskData {
   status: string;
   verdict: TaskVerdict;
   reason?: string;
+  output?: string;
 }
 
 export interface ObjectiveProgressData {
@@ -44,12 +35,13 @@ export interface ObjectiveStatusRow {
   progress?: ObjectiveProgressData | null;
 }
 
-// Real lifecycle stages. Each is derived from recorded state, never a timer:
-// Accepted = row exists, no planning pass yet; Planning = a pass exists but
-// has produced no tasks; Executing = a task is still active; Verifying = all
-// tasks settled, the objective loop has not ruled yet.
 export const STAGES = ['Accepted', 'Planning', 'Executing', 'Verifying'] as const;
 export type Stage = typeof STAGES[number] | 'Completed' | 'Blocked' | 'Failed' | 'Awaiting approval';
+
+export interface ObjectiveResultDetail {
+  title: string;
+  output: string;
+}
 
 export interface ObjectiveView {
   state: ObjectiveState;
@@ -57,6 +49,7 @@ export interface ObjectiveView {
   stage: Stage;
   objective: string;
   result: string | null;
+  resultDetails: ObjectiveResultDetail[];
   reason: string | null;
   nextAction: string | null;
   retry: string | null;
@@ -69,8 +62,6 @@ export interface ObjectiveView {
 
 const LOOP_ACTION = 'objective_loop';
 
-// Splits "BLOCKED: ...\nREASON: ...\nNEXT ACTION: ..." (fact-grounding.ts
-// formatBlockedSummary) into its parts; any other text is kept whole.
 function parseSummary(summary: string | null): { result: string | null; reason: string | null; nextAction: string | null } {
   if (!summary) return { result: null, reason: null, nextAction: null };
   let result: string | null = null;
@@ -102,14 +93,16 @@ const VERDICT_TEXT: Record<Exclude<TaskVerdict, 'verified'>, string> = {
   incomplete: 'still in progress',
 };
 
-function taskLists(p: ObjectiveProgressData | null | undefined): { completed: string[]; notCompleted: string[] } {
+function taskLists(p: ObjectiveProgressData | null | undefined): { completed: string[]; notCompleted: string[]; resultDetails: ObjectiveResultDetail[] } {
   const tasks = p?.tasks ?? [];
+  const verified = tasks.filter((t) => t.verdict === 'verified');
   return {
-    completed: tasks.filter((t) => t.verdict === 'verified').map((t) => (t.reason ? `${t.title} (${t.reason})` : t.title)),
+    completed: verified.map((t) => (t.reason ? `${t.title} (${t.reason})` : t.title)),
     notCompleted: tasks.filter((t) => t.verdict !== 'verified').map((t) => {
       const base = `${t.title}: ${VERDICT_TEXT[t.verdict as Exclude<TaskVerdict, 'verified'>] ?? t.verdict}`;
       return t.verdict === 'failed' && t.reason ? `${base} (${t.reason})` : base;
     }),
+    resultDetails: verified.filter((t) => !!t.output).map((t) => ({ title: t.title, output: t.output! })),
   };
 }
 
@@ -129,11 +122,14 @@ export function progressLines(p: ObjectiveProgressData | null | undefined, proce
 export function deriveObjectiveView(row: ObjectiveStatusRow): ObjectiveView {
   const parsed = parseSummary(row.result_summary);
   const processing = row.status === 'processing';
+  const lists = taskLists(row.progress);
   const base = {
     objective: row.raw_request,
     progress: progressLines(row.progress, processing),
     submittedAt: row.created_at ?? null,
-    ...taskLists(row.progress),
+    completed: lists.completed,
+    notCompleted: lists.notCompleted,
+    resultDetails: lists.resultDetails,
     retry: null as string | null,
     opensDecisionCenter: false,
   };
@@ -178,7 +174,6 @@ export function deriveObjectiveView(row: ObjectiveStatusRow): ObjectiveView {
   return { ...base, state: 'PROCESSING', stage: processingStage(row.progress), terminal: false, result: null, reason: null, nextAction: null };
 }
 
-// The Command Center re-reads status only while something can still change.
 export function shouldPoll(rows: ObjectiveStatusRow[] | null): boolean {
   return (rows ?? []).some((row) => !deriveObjectiveView(row).terminal);
 }
