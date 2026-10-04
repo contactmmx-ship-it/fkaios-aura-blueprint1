@@ -35,3 +35,8 @@ Stage Summary:
 - Phase tracker visually shows where in the sales process the conversation is
 - Handles 10+ conversation intents with data-driven, brand-aware responses
 - Ready for deploy via `vercel --prod` with valid token or GitHub push
+
+---
+Deployment verification note — 2026-10-04:
+- PR #31 approval deduplication and Decision Center filtering are merged on `main` at `55f92a9e2c5ab191354b87844429fe88b5be15c2`.
+- Production verification requires the Vercel deployment for this exact `main` commit; branch deployment `bd6bfdae0b70ab106f2603ad5f8341272e986f81` contains the backend deduplication fix but not the Decision Center UI filtering change.
