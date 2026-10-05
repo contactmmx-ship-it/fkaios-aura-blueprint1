@@ -75,7 +75,8 @@ Deno.serve(async (req) => {
     const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
     console.log('JWT PAYLOAD', { sub: payload.sub, exp: payload.exp });
     if (payload.exp && payload.exp < Date.now() / 1000) return err('JWT expired', 401);
-    const userId = payload.sub as string;
+    const isServiceRole = payload.role === 'service_role';
+    const userId = isServiceRole ? null : (payload.sub as string);
 
     const body = await req.json() as any;
     console.log('BODY', JSON.stringify(body).slice(0, 200));
