@@ -104,10 +104,23 @@ export function ObjectiveCard({ row, checkedAt, onOpenDecisionCenter, onRerun, r
             </div>
             <p className="text-xs text-slate-300">{view.result || 'Objective achieved and verified by the objective loop.'}</p>
             {artifact.liveUrl && (
-              <div className="flex flex-wrap items-center gap-2">
-                <a href={artifact.liveUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 py-2 text-xs font-semibold text-white">Open live product ↗</a>
-                <span className="text-[10px] text-slate-500 break-all">{artifact.liveUrl}</span>
-              </div>
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <a href={artifact.liveUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 py-2 text-xs font-semibold text-white">Open live product ↗</a>
+                  <span className="text-[10px] text-slate-500 break-all">{artifact.liveUrl}</span>
+                </div>
+                <div className="rounded-xl overflow-hidden border border-slate-800 bg-white" data-final-preview="true">
+                  <div className="px-3 py-2 bg-slate-950 border-b border-slate-800 text-[10px] uppercase tracking-[0.16em] text-slate-400">
+                    Live final deliverable preview
+                  </div>
+                  <iframe
+                    src={artifact.liveUrl}
+                    title="Live final deliverable"
+                    className="w-full h-[620px] bg-white"
+                    loading="lazy"
+                  />
+                </div>
+              </>
             )}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               <div className="rounded-lg bg-slate-950/60 border border-slate-800 px-3 py-2"><p className="text-[9px] uppercase text-slate-600">Verification</p><p className="text-xs text-emerald-300 mt-0.5">{artifact.httpStatus ? `HTTP ${artifact.httpStatus}` : 'Evidence recorded'}</p></div>
