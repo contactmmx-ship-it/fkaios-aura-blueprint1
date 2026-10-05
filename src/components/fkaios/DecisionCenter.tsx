@@ -86,16 +86,34 @@ export function useDecisionItems() {
     const [apprRes, delRes, reqRes] = await Promise.all([
       supabase.from('approvals').select('id, action_type, reason, risk_level, amount_inr, payload, created_at').eq('status', 'pending').order('created_at', { ascending: true }),
       supabase.from('agent_task_delegations').select('id, from_agent, to_agent, task_description, context, created_at').eq('requires_founder_approval', true).neq('status', 'completed').order('created_at', { ascending: true }),
-      // Requests with a real approvals row are represented by the approval
-      // card below; only unlinked legacy requests remain read-only here.
-      supabase.from('orchestrator_requests').select('id, raw_request, department_code, risk_level, created_at').eq('status', 'awaiting_approval').is('approval_id', null).order('created_at', { ascending: true }),
+      // Founder Brain high/critical requests are governed by exactly one
+      // active approval. Historical Founder Brain requests remain in the DB
+      // for audit but are not presented as live decisions. Other unlinked
+      // request types remain read-only here.
+      supabase.from('orchestrator_requests').select('id, raw_request, department_code, risk_level, created_at').eq('status', 'awaiting_approval').neq('requested_by', 'founder-brain').order('created_at', { ascending: true }),
     ]);
     if (apprRes.error || delRes.error || reqRes.error) {
       setError(apprRes.error?.message || delRes.error?.message || reqRes.error?.message || 'Failed to load decisions');
       setLoading(false);
       return;
     }
-    const approvals: ApprovalItem[] = (apprRes.data || []).map((a: any) => ({ source: 'approvals', id: a.id, action_type: a.action_type, reason: a.reason, risk_level: a.risk_level, amount_inr: a.amount_inr, payload: a.payload, created_at: a.created_at }));
+    // GOVERNANCE PRESENTATION GATE: preserve every historical pending row,
+    // but surface only the newest unresolved Founder Brain approval. Other
+    // approval types retain their normal queue behavior.
+    const { data: activeFounderRequest } = await supabase
+      .from('orchestrator_requests')
+      .select('approval_id')
+      .eq('requested_by', 'founder-brain')
+      .eq('status', 'awaiting_approval')
+      .not('approval_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const activeFounderApprovalId = activeFounderRequest?.approval_id || null;
+
+    const approvals: ApprovalItem[] = (apprRes.data || [])
+      .filter((a: any) => a.action_type !== 'founder_brain_task' || a.id === activeFounderApprovalId)
+      .map((a: any) => ({ source: 'approvals', id: a.id, action_type: a.action_type, reason: a.reason, risk_level: a.risk_level, amount_inr: a.amount_inr, payload: a.payload, created_at: a.created_at }));
     const delegations: DelegationItem[] = (delRes.data || []).map((d: any) => ({ source: 'delegation', id: d.id, from_agent: d.from_agent, to_agent: d.to_agent, task_description: d.task_description, risk_level: d.context?.risk_level || 'medium', created_at: d.created_at }));
     const requests: RequestItem[] = (reqRes.data || []).map((r: any) => ({ source: 'request', id: r.id, raw_request: r.raw_request, department_code: r.department_code, risk_level: r.risk_level, created_at: r.created_at }));
     const all: DecisionItem[] = [...approvals, ...delegations, ...requests].sort((a, b) => (riskWeight[b.risk_level] || 0) - (riskWeight[a.risk_level] || 0));
