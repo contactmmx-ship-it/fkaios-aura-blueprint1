@@ -914,9 +914,9 @@ async function executeProductBuild(job: AIJob, cid: string): Promise<Record<stri
 
   const text = [job.payload?.title, job.payload?.description].filter((v) => typeof v === "string").join("\n").trim();
   const lower = text.toLowerCase();
-  const build_type = /\\b(landing\\s*page|landing page)\\b/.test(lower) ? "landing_page"
-    : /\\b(crm)\\b/.test(lower) ? "crm"
-    : /\\b(saas|portal|platform)\\b/.test(lower) ? "saas"
+  const build_type = /\b(landing\\s*page|landing page)\b/.test(lower) ? "landing_page"
+    : /\b(crm)\b/.test(lower) ? "crm"
+    : /\b(saas|portal|platform)\b/.test(lower) ? "saas"
     : "website";
 
   const response = await fetch(supabaseUrl + "/functions/v1/builder-engine", {
@@ -955,8 +955,8 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
   // The generated source is only an intermediate artifact; the builder also exposes a live product URL.
   const productTask = job.type === "work_engine_task" &&
     (job.payload?.founder_submitted === true || typeof job.payload?.objective_id === "string") &&
-    /\\b(build|create|develop|launch|ship|deliver)\\b/i.test([job.payload?.title, job.payload?.description].filter(Boolean).join(" ")) &&
-    /\\b(app|application|website|web app|portal|platform|saas|software|system|product|dashboard|crm)\\b/i.test([job.payload?.title, job.payload?.description].filter(Boolean).join(" "));
+    /\b(build|create|develop|launch|ship|deliver)\b/i.test([job.payload?.title, job.payload?.description].filter(Boolean).join(" ")) &&
+    /\b(app|application|website|web app|portal|platform|saas|software|system|product|dashboard|crm)\b/i.test([job.payload?.title, job.payload?.description].filter(Boolean).join(" "));
   if (productTask) return await executeProductBuild(job, cid);
 
   structuredLog("INFO", `Executing job ${job.id} (type: ${job.type})`, { jobId: job.id, agentId: job.agent_id }, cid);
