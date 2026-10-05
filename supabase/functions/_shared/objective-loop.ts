@@ -4,6 +4,7 @@ import { planObjective } from "./executive-planner.ts";
 import { allocateProjectWork, returnCompletedWork } from "./work-engine.ts";
 import { assessCurrentTaskSet, formatBlockedSummary } from "./fact-grounding.ts";
 import { isRerunRequested, OBJECTIVE_LOOP, projectUpdateForObjective } from "./objective-rerun.ts";
+import { completionContract } from "./objective-contract.ts";
 
 type ObjectiveLoopResult = {
   objectiveId: string;
@@ -150,6 +151,27 @@ async function evaluateObjective(
   tasks: Record<string, unknown>[],
   correlationId?: string,
 ): Promise<ObjectiveEvaluation> {
+  const contract = completionContract(String(objective.raw_request ?? ""));
+  const productLiveEvidence = contract.requiresLiveArtifact && (
+    projects.some((p) => /https?:\\/\\//i.test(String(p.final_output ?? "")) && /live|deploy|url/i.test(String(p.final_output ?? ""))) ||
+    tasks.some((t) => typeof t.output === "string" && /https?:\\/\\//i.test(t.output) && /live|deploy|url|production|netlify|vercel/i.test(t.output))
+  );
+
+  // Outcome gate: for product objectives, code generation is never the final
+  // outcome. A product is complete only when a usable deployed artifact is
+  // evidenced. This is intentionally deterministic and runs after task-level
+  // verification, so an LLM cannot mark source code as a finished product.
+  if (contract.requiresLiveArtifact && !productLiveEvidence) {
+    return {
+      achieved: false,
+      blocked: false,
+      failed: false,
+      verificationUnavailable: true,
+      reason: "Product work is not complete: FKAIOS has not produced verified evidence of a deployed, usable product. Generated code is an intermediate artifact, not the finished outcome.",
+      next_action: "Complete deployment/integration, verify the live product against the acceptance criteria, and record the live URL as evidence.",
+    };
+  }
+
   const deterministicEvidence = extractDeterministicEvidence(tasks);
 
   // TASK-SET GATE: judge the objective by its CURRENT task set (the latest
