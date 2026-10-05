@@ -89,10 +89,11 @@ function extractJsonArray(raw: string): unknown[] | null {
 export async function planObjective(objective: Objective, correlationId?: string): Promise<PlanResult> {
   const client = getClient();
   const goals = await getGoals("founder");
+  const contract = completionContract(objective.raw_request);
 
   const decomposition = await reason(
-    "You are the Executive Planner. Break this business objective into 2-4 concrete, executable tasks. Evaluate against the goal hierarchy provided — do not propose tasks unrelated to the goals. Return ONLY a JSON array of {title, description}, nothing else.",
-    `OBJECTIVE: ${objective.raw_request}\n\nDEPARTMENT: ${objective.department_code ?? "unassigned"}\n\nGOAL HIERARCHY:\n${JSON.stringify(goals)}`,
+    "You are the Executive Planner. Break this objective into 2-4 concrete, executable tasks. The objective is NOT complete merely because code or analysis was generated. Plan through the required outcome contract. For a product objective, the final task must produce a usable deployed product and evidence; code is only an intermediate artifact. For information objectives, require source-backed verification. Return ONLY a JSON array of {title, description}, nothing else.",
+    `OBJECTIVE: ${objective.raw_request}\n\nCOMPLETION CONTRACT: ${JSON.stringify(contract)}\n\nDEPARTMENT: ${objective.department_code ?? "unassigned"}\n\nGOAL HIERARCHY:\n${JSON.stringify(goals)}`,
     900,
     correlationId,
   );
@@ -107,7 +108,7 @@ export async function planObjective(objective: Objective, correlationId?: string
 
   const { data: proj, error: pErr } = await client
     .from("orchestration_projects")
-    .insert({ request: `[objective:${objective.id}] ${objective.raw_request}`.slice(0, 2000), status: "working", output_type: "document" })
+    .insert({ request: `[objective:${objective.id}] ${objective.raw_request}`.slice(0, 2000), status: "working", output_type: contract.objectiveType === "product_creation" ? "product" : contract.objectiveType === "software_build" ? "software" : contract.objectiveType === "information" ? "report" : "business_outcome" })
     .select("id")
     .single();
   if (pErr || !proj) return { projectId: null, tasksCreated: 0, error: pErr?.message ?? "project insert failed" };
