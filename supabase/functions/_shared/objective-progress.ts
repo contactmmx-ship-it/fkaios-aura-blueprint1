@@ -29,8 +29,20 @@ function verifiedOutput(output: unknown): string | undefined {
   if (typeof output !== "string" || output.trim().length === 0) return undefined;
   try {
     const parsed = JSON.parse(output);
-    // Keep the full verified deliverable reasonably bounded for the console.
-    // The worker already stores bounded output; this is an additional UI guard.
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const row = parsed as Record<string, unknown>;
+      // Code is an intermediate artifact for product objectives. Do not make
+      // the Founder UI mistake source code for the delivered outcome.
+      if (Array.isArray(row.files) || typeof row.component_tsx === "string" || typeof row.migration_sql === "string") {
+        const summary = typeof row.description === "string" ? row.description : "Engineering artifact generated; this is not the finished product.";
+        return summary.slice(0, 4000);
+      }
+      if (row.companyOsDispatch && typeof row.companyOsDispatch === "object") {
+        const dispatch = row.companyOsDispatch as Record<string, unknown>;
+        if (typeof dispatch.data === "string") return dispatch.data.slice(0, 12000);
+        if (dispatch.data && typeof dispatch.data === "object") return JSON.stringify(dispatch.data, null, 2).slice(0, 12000);
+      }
+    }
     return JSON.stringify(parsed, null, 2).slice(0, 20000);
   } catch {
     return output.slice(0, 20000);
