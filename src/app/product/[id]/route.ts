@@ -1,8 +1,6 @@
 import { NextRequest } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
-// Renderer uses the public Supabase function; no server-side secret is required.
 
 export async function GET(
   _request: NextRequest,
@@ -16,16 +14,12 @@ export async function GET(
   const response = await fetch(endpoint, { cache: "no-store" });
   const body = await response.text();
 
-  return new Response(body || (response.ok ? "Product is empty." : "Product unavailable."), {
+  return new Response(body || (response.ok ? "<!doctype html><html><body><p>Product is empty.</p></body></html>" : "<!doctype html><html><body><p>Product unavailable.</p></body></html>"), {
     status: response.status,
     headers: {
-      "Content-Type": response.headers.get("content-type") ?? "text/plain; charset=utf-8",
+      "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store",
       "X-FKAIOS-Product-ID": id,
     },
   });
-}
-
-function escapeHtml(value: string) {
-  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
