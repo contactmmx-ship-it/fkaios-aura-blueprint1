@@ -197,15 +197,23 @@ STRICT RULES: no iframes, no external embeds, no opacity-0 fade-in animations th
       }
     }
 
+    // A generated product is not considered delivered until it has a live,
+    // addressable runtime. FKAIOS serves generated HTML through its production
+    // product renderer; this is the deployment target used by the objective
+    // completion gate and gives the founder a real usable URL.
+    const publicBase = (Deno.env.get('FKAIOS_PUBLIC_URL') ?? 'https://fkaios-aura-blueprint1.vercel.app').replace(/\\/$/, '');
+    const deployedUrl = isHtml ? `${publicBase}/product/${buildId}` : null;
+
     const { error: updateErr } = await db.from('build_projects').update({
       status: 'complete',
       output_html: outputHtml,
       output_json: outputJson,
+      deployed_url: deployedUrl,
       token_cost: { input: genUsage.input, output: genUsage.output, model: genUsage.model, provider: genUsage.provider },
     }).eq('id', buildId);
     if (updateErr) console.log('UPDATE ERROR (non-fatal)', updateErr.message);
 
-    return ok({ build_id: buildId, status: 'complete', build_type, brand: brandName, model: genUsage.model });
+    return ok({ build_id: buildId, status: 'complete', build_type, brand: brandName, model: genUsage.model, deployed_url: deployedUrl });
 
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
