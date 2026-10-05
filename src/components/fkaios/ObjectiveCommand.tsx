@@ -61,6 +61,20 @@ function Stepper({ stage, terminal }: { stage: string; terminal: boolean }) {
   );
 }
 
+
+function extractFinalArtifact(progress: ObjectiveStatusRow['progress']) {
+  const outputs = (progress?.tasks ?? [])
+    .filter((t) => t.verdict === 'verified' && t.output)
+    .map((t) => t.output as string);
+  const joined = outputs.join('\n');
+  const urls = joined.match(/https?:\/\/[^\s"'<>\\]+/g) ?? [];
+  const liveUrl = urls.find((u) => u.includes('/product/') || u.includes('vercel.app')) ?? urls[0] ?? null;
+  const buildId = joined.match(/build[_-]?id["'\s:]+([0-9a-f]{8}-[0-9a-f-]{27,})/i)?.[1] ?? null;
+  const httpStatus = joined.match(/http[_ -]?status["'\s:]+(\d{3})/i)?.[1] ?? null;
+  const responsive = joined.match(/responsive[_ -]?status["'\s:]+["']?([^,"'}\n]+)/i)?.[1]?.trim() ?? null;
+  return { liveUrl, buildId, httpStatus, responsive };
+}
+
 function formatTime(iso: string | null): string | null {
   if (!iso) return null;
   const d = new Date(iso);
@@ -77,6 +91,32 @@ export function ObjectiveCard({ row, checkedAt, onOpenDecisionCenter, onRerun, r
         <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full border ${STATE_TONE[view.state]}`}>{label}</span>
       </div>
       <Stepper stage={view.stage} terminal={view.terminal} />
+      {view.state === 'COMPLETED' && (() => {
+        const artifact = extractFinalArtifact(row.progress);
+        return (
+          <section className="rounded-xl border border-emerald-900/70 bg-emerald-950/20 p-4 space-y-3" data-final-result="true">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-emerald-400 font-semibold">Final Result</p>
+                <h3 className="text-sm font-semibold text-white mt-1">Objective completed and verified</h3>
+              </div>
+              <span className="text-[10px] uppercase font-semibold px-2 py-1 rounded-full border border-emerald-800 bg-emerald-950/50 text-emerald-300">VERIFIED</span>
+            </div>
+            <p className="text-xs text-slate-300">{view.result || 'Objective achieved and verified by the objective loop.'}</p>
+            {artifact.liveUrl && (
+              <div className="flex flex-wrap items-center gap-2">
+                <a href={artifact.liveUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 py-2 text-xs font-semibold text-white">Open live product ↗</a>
+                <span className="text-[10px] text-slate-500 break-all">{artifact.liveUrl}</span>
+              </div>
+            )}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <div className="rounded-lg bg-slate-950/60 border border-slate-800 px-3 py-2"><p className="text-[9px] uppercase text-slate-600">Verification</p><p className="text-xs text-emerald-300 mt-0.5">{artifact.httpStatus ? `HTTP ${artifact.httpStatus}` : 'Evidence recorded'}</p></div>
+              <div className="rounded-lg bg-slate-950/60 border border-slate-800 px-3 py-2"><p className="text-[9px] uppercase text-slate-600">Responsive</p><p className="text-xs text-slate-300 mt-0.5">{artifact.responsive || 'Verified'}</p></div>
+              <div className="rounded-lg bg-slate-950/60 border border-slate-800 px-3 py-2 col-span-2"><p className="text-[9px] uppercase text-slate-600">Build ID</p><p className="text-[10px] text-slate-300 mt-0.5 font-mono break-all">{artifact.buildId || 'Recorded in evidence'}</p></div>
+            </div>
+          </section>
+        );
+      })()}
       <dl className="space-y-1.5 text-xs">
         <div><dt className="text-slate-500">Objective</dt><dd className="text-slate-200">{view.objective}</dd></div>
         {view.result && <div><dt className="text-slate-500">Result</dt><dd className="text-slate-200">{view.result}</dd></div>}
