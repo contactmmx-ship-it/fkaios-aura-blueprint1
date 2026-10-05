@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
+// Renderer uses the public Supabase function; no server-side secret is required.
 
 export async function GET(
   _request: NextRequest,
