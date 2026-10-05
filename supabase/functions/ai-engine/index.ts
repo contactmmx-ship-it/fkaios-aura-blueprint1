@@ -912,9 +912,9 @@ async function executeProductBuild(job: AIJob, cid: string): Promise<Record<stri
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   if (!supabaseUrl || !serviceRoleKey) throw new Error("Product builder cannot run: Supabase service-role configuration is missing.");
 
-  const text = [job.payload?.title, job.payload?.description].filter((v) => typeof v === "string").join("\n").trim();
+  const text = [job.payload?.title, job.payload?.description, job.payload?.objective].filter((v) => typeof v === "string").join("\n").trim();
   const lower = text.toLowerCase();
-  const build_type = /\b(landing\\s*page|landing page)\b/.test(lower) ? "landing_page"
+  const build_type = /\b(landing\s*page|landing page)\b/.test(lower) ? "landing_page"
     : /\b(crm)\b/.test(lower) ? "crm"
     : /\b(saas|portal|platform)\b/.test(lower) ? "saas"
     : "website";
