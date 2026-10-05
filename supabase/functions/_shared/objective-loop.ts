@@ -153,8 +153,8 @@ async function evaluateObjective(
 ): Promise<ObjectiveEvaluation> {
   const contract = completionContract(String(objective.raw_request ?? ""));
   const productLiveEvidence = contract.requiresLiveArtifact && (
-    projects.some((p) => /https?:\\/\\//i.test(String(p.final_output ?? "")) && /live|deploy|url/i.test(String(p.final_output ?? ""))) ||
-    tasks.some((t) => typeof t.output === "string" && /https?:\\/\\//i.test(t.output) && /live|deploy|url|production|netlify|vercel/i.test(t.output))
+    projects.some((p) => (String(p.final_output ?? "").includes("http://") || String(p.final_output ?? "").includes("https://")) && /live|deploy|url/i.test(String(p.final_output ?? ""))) ||
+    tasks.some((t) => typeof t.output === "string" && (t.output.includes("http://") || t.output.includes("https://")) && /live|deploy|url|production|netlify|vercel/i.test(t.output))
   );
 
   // Outcome gate: for product objectives, code generation is never the final
