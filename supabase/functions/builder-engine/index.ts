@@ -202,7 +202,7 @@ STRICT RULES: no iframes, no external embeds, no opacity-0 fade-in animations th
     // addressable runtime. FKAIOS serves generated HTML through its production
     // product renderer; this is the deployment target used by the objective
     // completion gate and gives the founder a real usable URL.
-    const publicBase = (Deno.env.get('FKAIOS_PUBLIC_URL') ?? 'https://fkaios-aura-blueprint1.vercel.app').replace(/\\/$/, '');
+    const publicBase = (Deno.env.get('FKAIOS_PUBLIC_URL') ?? 'https://fkaios-aura-blueprint1.vercel.app').replace(/\/$/, '');
     const deployedUrl = isHtml ? `${publicBase}/product/${buildId}` : null;
 
     const { error: updateErr } = await db.from('build_projects').update({
