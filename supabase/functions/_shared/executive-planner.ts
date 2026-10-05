@@ -91,20 +91,49 @@ export async function planObjective(objective: Objective, correlationId?: string
   const goals = await getGoals("founder");
   const contract = completionContract(objective.raw_request);
 
-  const decomposition = await reason(
-    "You are the Executive Planner. Break this objective into 2-4 concrete, executable tasks. The objective is NOT complete merely because code or analysis was generated. Plan through the required outcome contract. For a product objective, the final task must produce a usable deployed product and evidence; code is only an intermediate artifact. For information objectives, require source-backed verification. Return ONLY a JSON array of {title, description}, nothing else.",
-    `OBJECTIVE: ${objective.raw_request}\n\nCOMPLETION CONTRACT: ${JSON.stringify(contract)}\n\nDEPARTMENT: ${objective.department_code ?? "unassigned"}\n\nGOAL HIERARCHY:\n${JSON.stringify(goals)}`,
-    900,
-    correlationId,
-  );
-
-  const parsedArray = extractJsonArray(decomposition.text);
-  const taskDrafts: Array<{ title: string; description: string }> = parsedArray ?? [];
-  if (!parsedArray) {
-    // Honest failure — no fabricated tasks if the model didn't return clean JSON.
-    return { projectId: null, tasksCreated: 0, error: "planner could not parse a task breakdown" };
+  // Product objectives have a machine-checkable execution contract. Do not
+  // make creation of the executable project depend on an LLM formatting
+  // response. The LLM may enrich the plan for other objective types, but a
+  // product request always gets a deterministic minimum execution chain:
+  // build -> deploy -> verify -> evidence. This is planning, not fabricated
+  // completion; the real Builder Engine and verification gates still decide
+  // whether the objective can finish.
+  let taskDrafts: Array<{ title: string; description: string }>;
+  if (contract.objectiveType === "product_creation") {
+    taskDrafts = [
+      {
+        title: "Build the requested product",
+        description: `Create the usable product described by the objective. Generate the required application artifact, not merely a plan or source-code explanation. Objective: ${objective.raw_request}`,
+      },
+      {
+        title: "Deploy the product",
+        description: "Deploy the completed product to a live accessible URL and record the measured deployment URL as execution evidence.",
+      },
+      {
+        title: "Verify the live product",
+        description: "Verify the deployed product loads in a browser and that the objective's requested primary UI elements/functionality are present and usable. Record verification evidence and the live URL.",
+      },
+      {
+        title: "Close the objective with evidence",
+        description: "Return the live product URL plus deployment and verification evidence. Do not mark the objective complete if only source code exists or live verification is missing.",
+      },
+    ];
+  } else {
+    const decomposition = await reason(
+      "You are the Executive Planner. Break this objective into 2-4 concrete, executable tasks. The objective is NOT complete merely because code or analysis was generated. Plan through the required outcome contract. For information objectives, require source-backed verification. Return ONLY a JSON array of {title, description}, nothing else.",
+      `OBJECTIVE: ${objective.raw_request}\n\nCOMPLETION CONTRACT: ${JSON.stringify(contract)}\n\nDEPARTMENT: ${objective.department_code ?? "unassigned"}\n\nGOAL HIERARCHY:\n${JSON.stringify(goals)}`,
+      900,
+      correlationId,
+    );
+    const parsedArray = extractJsonArray(decomposition.text);
+    if (!parsedArray || parsedArray.length === 0) {
+      return { projectId: null, tasksCreated: 0, error: !parsedArray ? "planner could not parse a task breakdown" : "planner produced zero tasks" };
+    }
+    taskDrafts = parsedArray
+      .filter((item): item is { title: string; description: string } => !!item && typeof item === "object" && typeof (item as any).title === "string")
+      .slice(0, 4)
+      .map((item) => ({ title: String(item.title), description: String((item as any).description ?? "") }));
   }
-  if (taskDrafts.length === 0) return { projectId: null, tasksCreated: 0, error: "planner produced zero tasks" };
 
   const { data: proj, error: pErr } = await client
     .from("orchestration_projects")
