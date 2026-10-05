@@ -953,10 +953,12 @@ async function executeProductBuild(job: AIJob, cid: string): Promise<Record<stri
 async function executeJob(job: AIJob, cid: string): Promise<Record<string, unknown>> {
   // Product-creation objectives use the real Builder Engine as an execution capability.
   // The generated source is only an intermediate artifact; the builder also exposes a live product URL.
+  const productTaskText = [job.payload?.title, job.payload?.description, job.payload?.objective]
+    .filter((v) => typeof v === "string").join(" ");
   const productTask = job.type === "work_engine_task" &&
     (job.payload?.founder_submitted === true || typeof job.payload?.objective_id === "string") &&
-    /\b(build|create|develop|launch|ship|deliver)\b/i.test([job.payload?.title, job.payload?.description].filter(Boolean).join(" ")) &&
-    /\b(app|application|website|web app|portal|platform|saas|software|system|product|dashboard|crm)\b/i.test([job.payload?.title, job.payload?.description].filter(Boolean).join(" "));
+    /\b(build|create|develop|launch|ship|deliver)\b/i.test(productTaskText) &&
+    /\b(app|application|website|web app|portal|platform|saas|software|system|product|dashboard|crm)\b/i.test(productTaskText);
   if (productTask) return await executeProductBuild(job, cid);
 
   structuredLog("INFO", `Executing job ${job.id} (type: ${job.type})`, { jobId: job.id, agentId: job.agent_id }, cid);
