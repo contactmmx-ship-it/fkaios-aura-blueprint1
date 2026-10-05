@@ -907,7 +907,58 @@ async function executeRequestedCapability(job: AIJob, parsed: Record<string, unk
   };
 }
 
+async function executeProductBuild(job: AIJob, cid: string): Promise<Record<string, unknown>> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (!supabaseUrl || !serviceRoleKey) throw new Error("Product builder cannot run: Supabase service-role configuration is missing.");
+
+  const text = [job.payload?.title, job.payload?.description].filter((v) => typeof v === "string").join("\n").trim();
+  const lower = text.toLowerCase();
+  const build_type = /\\b(landing\\s*page|landing page)\\b/.test(lower) ? "landing_page"
+    : /\\b(crm)\\b/.test(lower) ? "crm"
+    : /\\b(saas|portal|platform)\\b/.test(lower) ? "saas"
+    : "website";
+
+  const response = await fetch(supabaseUrl + "/functions/v1/builder-engine", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + serviceRoleKey,
+      "apikey": serviceRoleKey,
+      "Content-Type": "application/json",
+      "X-Correlation-ID": cid,
+    },
+    body: JSON.stringify({
+      action: "build",
+      build_type,
+      requirements: text.slice(0, 12000),
+      brand_name_override: typeof job.payload?.brand_name === "string" ? job.payload.brand_name : "FKAIOS Generated Product",
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data?.error) throw new Error("Product builder failed: " + String(data?.error ?? response.status));
+  if (data?.status !== "complete") throw new Error("Product builder did not complete: " + JSON.stringify(data).slice(0, 500));
+
+  return {
+    status: "success",
+    capability: "product.build",
+    capability_result: {
+      build_id: data.build_id,
+      build_type: data.build_type,
+      deployed_url: data.deployed_url ?? null,
+      product_status: "live",
+    },
+  };
+}
+
 async function executeJob(job: AIJob, cid: string): Promise<Record<string, unknown>> {
+  // Product-creation objectives use the real Builder Engine as an execution capability.
+  // The generated source is only an intermediate artifact; the builder also exposes a live product URL.
+  const productTask = job.type === "work_engine_task" &&
+    (job.payload?.founder_submitted === true || typeof job.payload?.objective_id === "string") &&
+    /\\b(build|create|develop|launch|ship|deliver)\\b/i.test([job.payload?.title, job.payload?.description].filter(Boolean).join(" ")) &&
+    /\\b(app|application|website|web app|portal|platform|saas|software|system|product|dashboard|crm)\\b/i.test([job.payload?.title, job.payload?.description].filter(Boolean).join(" "));
+  if (productTask) return await executeProductBuild(job, cid);
+
   structuredLog("INFO", `Executing job ${job.id} (type: ${job.type})`, { jobId: job.id, agentId: job.agent_id }, cid);
   const capabilityBlock = job.type === "work_engine_task" ? WORK_ENGINE_CAPABILITIES_BLOCK : "";
 
