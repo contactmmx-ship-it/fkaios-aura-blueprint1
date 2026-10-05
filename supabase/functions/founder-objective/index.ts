@@ -94,7 +94,20 @@ async function readObjectiveStatus(objectiveId: string | null) {
         jobs = jobRows ?? [];
       }
     }
-    return { ...objective, progress: summarizeObjectiveProgress(projects?.length ?? 0, tasks, jobs) };
+    const progress = summarizeObjectiveProgress(projects?.length ?? 0, tasks, jobs) as Record<string, unknown>;
+    // Completed objectives need the actual deliverable/evidence in the Console.
+    // Processing responses stay lightweight; terminal completed responses may
+    // include the already-recorded task output so the founder can inspect the
+    // finished result without leaving the objective record.
+    if (objectiveStatus === "completed") {
+      progress.tasks = tasks.map((task) => ({
+        title: String(task.title ?? "Completed task"),
+        status: String(task.status ?? ""),
+        verdict: "verified",
+        output: typeof task.output === "string" ? task.output : undefined,
+      }));
+    }
+    return { ...objective, progress };
   }));
 }
 
