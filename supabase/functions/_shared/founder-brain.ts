@@ -1022,16 +1022,18 @@ export async function createTask(userId: string, task: TaskCandidate, correlatio
   const client = getFounderBrainClient();
   const needsApproval = task.risk_level === "high" || task.risk_level === "critical";
   try {
-    // GOVERNANCE DEDUPLICATION: an unresolved high/critical action must have
-    // exactly one active approval. Repeated Founder Brain ticks may rediscover
-    // the same action; do not create another actionable approval card.
+    // GOVERNANCE SINGLE-ACTIVE GATE: Founder Brain must not accumulate a
+    // queue of unresolved high/critical actions. One unresolved Founder Brain
+    // approval is the active decision. Later cognitive ticks are blocked until
+    // that decision is resolved. This preserves every historical row for audit
+    // while preventing the Brain from generating a new approval every cycle.
     if (needsApproval) {
       const { data: existingRequests } = await client
         .from("orchestrator_requests")
-        .select("id, status, raw_request, department_code, risk_level")
+        .select("id, status, raw_request, department_code, risk_level, approval_id")
         .eq("requested_by", "founder-brain")
         .eq("status", "awaiting_approval")
-        .eq("raw_request", task.description)
+        .order("created_at", { ascending: false })
         .limit(1);
       if (existingRequests && existingRequests.length > 0) {
         return {
