@@ -14,13 +14,12 @@ export const NO_DATA_SOURCE = "no_data_source";
 export const NO_DATA_SOURCE_DISPOSITION = "NO_DATA_SOURCE";
 
 // A task needs external facts when it asks to find/research/assess real-world
-// entities or market figures. Both a verb AND a subject must match, so
-// internal work (drafting, logging to fleet_memory, audits, vault searches,
-// connection checks) is not caught.
+// entities, market figures, or a business's current performance/readiness.
+// Both a verb AND a subject must match, so ordinary internal drafting is not caught.
 const EXTERNAL_FACT_VERBS =
   /\b(identify|find|list|shortlist|short-list|research|source|discover|locate|compile|gather|collect|scrape|enumerate|look\s*up|assess|evaluate|analy[sz]e|compare|rank|vet|profile)\b/i;
 const EXTERNAL_FACT_SUBJECTS =
-  /\b(distributors?|dealers?|suppliers?|vendors?|wholesalers?|retailers?|manufacturers?|companies|businesses|firms|contacts?|prospects?|competitors?|customers?|market\s+(size|share|data|figures|trends)|competitive\s+landscape|prices|pricing|phone\s+numbers?|email\s+addresses|addresses)\b/i;
+  /\b(distributors?|dealers?|suppliers?|vendors?|wholesalers?|retailers?|manufacturers?|companies|businesses|firms|contacts?|prospects?|competitors?|customers?|prospect\s+observations?|business\s+signals?|system\s+readiness|current\s+(status|performance|state|figures?|metrics?)|operational\s+(status|performance|metrics?|figures?|readiness)|franchise\s+(expansion|locations?|outlets?)|market\s+(size|share|data|figures|trends)|competitive\s+landscape|prices|pricing|sales|revenues?|turnover|phone\s+numbers?|email\s+addresses|addresses)\b/i;
 
 export function requiresExternalFacts(task: { title?: unknown; description?: unknown }): boolean {
   const text = `${typeof task.title === "string" ? task.title : ""}\n${typeof task.description === "string" ? task.description : ""}`;
@@ -28,6 +27,82 @@ export function requiresExternalFacts(task: { title?: unknown; description?: unk
 }
 
 export type WorkerGrounding = { ok: true } | { ok: false; reason: string };
+
+export interface GroundedClaim {
+  claim: string;
+  source_id: string;
+  source_excerpt: string;
+}
+
+const CLAIM_STOPWORDS = new Set([
+  "a","an","and","are","as","at","be","by","for","from","in","is","it","of","on","or","that",
+  "the","their","this","to","was","were","with","has","have","had","into","its","than","then",
+]);
+
+function claimTokens(value: string): string[] {
+  return value.toLowerCase().replace(/[^a-z0-9%.-]+/g, " ").split(/\s+/)
+    .filter((t) => t.length > 1 && !CLAIM_STOPWORDS.has(t));
+}
+
+function claimNumbers(value: string): string[] {
+  return value.match(/\b\d+(?:\.\d+)?%?\b/g) ?? [];
+}
+
+/**
+ * Claim-level verification for factual AI output.
+ *
+ * A task-level "capability was used" flag is not enough: a model can call a
+ * source and still add unsupported facts. Each factual claim must therefore
+ * carry a traceable source id + source excerpt. Support is deterministic:
+ * every numeric fact in the claim must occur in the cited excerpt and at least
+ * 60% of the claim's substantive tokens must occur in that excerpt.
+ *
+ * This is intentionally conservative. When the evidence is insufficient,
+ * FKAIOS rejects the result rather than guessing that the source supports it.
+ */
+export function verifyClaimGrounding(result: unknown): WorkerGrounding {
+  const obj = result && typeof result === "object" && !Array.isArray(result)
+    ? result as Record<string, unknown>
+    : null;
+  const rawClaims = obj?.claims;
+  if (!Array.isArray(rawClaims) || rawClaims.length === 0) {
+    return { ok: false, reason: "factual output has no claim-level source records; every factual claim needs a source_id and supporting source_excerpt" };
+  }
+
+  for (let i = 0; i < rawClaims.length; i++) {
+    const raw = rawClaims[i];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return { ok: false, reason: `claim[${i}] is not a structured source-grounded claim` };
+    }
+    const claim = raw as Record<string, unknown>;
+    const statement = typeof claim.claim === "string" ? claim.claim.trim() : "";
+    const sourceId = typeof claim.source_id === "string" ? claim.source_id.trim() : "";
+    const excerpt = typeof claim.source_excerpt === "string" ? claim.source_excerpt.trim() : "";
+    if (!statement || !sourceId || !excerpt) {
+      return { ok: false, reason: `claim[${i}] must include claim, source_id and source_excerpt` };
+    }
+
+    const excerptLower = excerpt.toLowerCase();
+    const numbers = claimNumbers(statement);
+    if (numbers.some((n) => !excerptLower.includes(n.toLowerCase()))) {
+      return { ok: false, reason: `claim[${i}] contains a numeric fact not present in its cited source excerpt` };
+    }
+
+    const tokens = claimTokens(statement);
+    if (tokens.length > 0) {
+      const supported = tokens.filter((t) => excerptLower.includes(t)).length / tokens.length;
+      if (supported < 0.60) {
+        return {
+          ok: false,
+          reason: `claim[${i}] has insufficient source support (${Math.round(supported * 100)}% token support; minimum 60%)`,
+        };
+      }
+    }
+  }
+  return { ok: true };
+}
+
+
 
 // Worker-side check, applied to a work_engine_task result BEFORE it may be
 // stored as completed. A capability request is allowed through: the real
@@ -37,16 +112,18 @@ export function checkWorkerGrounding(
   result: unknown,
 ): WorkerGrounding {
   const obj = result && typeof result === "object" && !Array.isArray(result) ? result as Record<string, unknown> : null;
-  if (obj && typeof obj.capability === "string" && obj.capability.length > 0) return { ok: true };
   if (obj && obj.status === NO_DATA_SOURCE) {
     const reason = typeof obj.reason === "string" && obj.reason ? obj.reason : "worker reported no data source for this task";
     return { ok: false, reason };
   }
   if (requiresExternalFacts(task)) {
-    return {
-      ok: false,
-      reason: "task requires real-world facts, but no research or data capability was used, so any names, figures or contacts in the answer could not be verified",
-    };
+    // A capability request is allowed before dispatch. A completed factual
+    // answer, however, must carry claim-level source evidence.
+    if (obj && typeof obj.capability === "string" && obj.capability.length > 0 && !obj.claims) {
+      return { ok: true };
+    }
+    const claims = verifyClaimGrounding(result);
+    if (!claims.ok) return claims;
   }
   return { ok: true };
 }
