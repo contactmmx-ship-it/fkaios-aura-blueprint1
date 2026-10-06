@@ -230,7 +230,7 @@ export function ObjectiveCard({ row, checkedAt, onOpenDecisionCenter, onRerun, r
             <dt className="text-slate-300 font-semibold mb-2">Objective deliverables</dt>
             <dd className="space-y-3">
               {view.resultDetails.map((detail) => {
-                const urls = detail.output.match(/https?:\\/\\/[^\\s"'<>\\\\]+/g) ?? [];
+                const urls = detail.output.match(/https?:\/\/[^\s"'<>\\]+/g) ?? [];
                 const liveUrl = urls.find((u) => u.includes('/product/') || u.includes('vercel.app') || u.includes('netlify.app')) ?? null;
                 const looksLikeProduct =
                   /product\\.(build|deploy|verify)|build_id|build type|product_status|deployed_url|live product|finished product/i.test(
