@@ -95,6 +95,11 @@ async function readObjectiveStatus(objectiveId: string | null) {
       }
     }
     const progress = summarizeObjectiveProgress(projects?.length ?? 0, tasks, jobs) as Record<string, unknown>;
+    const { data: contract } = await admin.from("objective_contracts")
+      .select("objective_type,intent,requirements,acceptance_criteria,quality_benchmark,discovery,solution_plan,continuity,status,created_at,updated_at")
+      .eq("objective_id", objective.id)
+      .maybeSingle();
+    if (contract) progress.contract = contract;
     // Completed objectives need the actual deliverable/evidence in the Console.
     // Processing responses stay lightweight; terminal completed responses may
     // include the already-recorded task output so the founder can inspect the
