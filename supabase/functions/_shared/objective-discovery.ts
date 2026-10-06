@@ -76,6 +76,20 @@ async function discoverCapabilities(type: ObjectiveType, objective: string) {
   return scored.slice(0,12);
 }
 
+function scoreCapability(c:any, objective:string, type:ObjectiveType) {
+  const text=(String(c.name)+" "+String(c.purpose)+" "+String(c.provider)+" "+JSON.stringify(c.capabilities??[])+" "+JSON.stringify(c.operations??[])).toLowerCase();
+  const words=objective.toLowerCase().split(/[^a-z0-9]+/).filter((x:string)=>x.length>=4);
+  const fit=Math.min(100, words.reduce((n:number,w:string)=>n+(text.includes(w)?8:0),0));
+  const availability=/available|configured/i.test(String(c.availability)) ? 100 : /unknown/i.test(String(c.availability)) ? 40 : 0;
+  const auth=/configured|not_required/i.test(String(c.auth_state)) ? 100 : 0;
+  const cost=/free|paid_active/i.test(String(c.cost_state)) ? 80 : /quota_limited/i.test(String(c.cost_state)) ? 45 : 20;
+  const continuity=c.handoff_support ? 100 : 45;
+  const risk=(/unavailable|missing|exhausted|429|insufficient/i.test(String(c.limitations)) ? 60 : 0);
+  const quality=Math.min(100, fit + (c.priority ? Math.max(0,50-Math.min(50,Number(c.priority))) : 0));
+  const score=Math.round(fit*0.30+quality*0.20+availability*0.18+auth*0.12+cost*0.08+continuity*0.07+(100-risk)*0.05);
+  return {score,fit_score:fit,quality_score:quality,availability_score:availability,cost_score:cost,continuity_score:continuity,risk_score:risk};
+}
+
 export async function prepareObjectiveContract(objective:{id:string;raw_request:string;department_code:string|null;status:string}, correlationId?:string) {
   const type=classifyObjective(objective.raw_request);
   const [github,existing,capabilities]=await Promise.all([
@@ -84,7 +98,14 @@ export async function prepareObjectiveContract(objective:{id:string;raw_request:
     discoverCapabilities(type,objective.raw_request)
   ]);
 
-  const context={objective:objective.raw_request,objectiveType:type,existingWork:existing,githubCandidates:github.candidates.slice(0,8),capabilities:capabilities.slice(0,12)};
+  const scoredCapabilities=capabilities.map((c:any)=>({...c,...scoreCapability(c,objective.raw_request,type)})).sort((a:any,b:any)=>b.score-a.score);
+  const githubOptions=github.candidates.map((r:any,i:number)=>({
+    ...r,
+    score:Math.min(100,Math.round(40+Math.min(40,Number(r.stars||0)/5000)+Math.min(15,Number(r.forks||0)/500))),
+    fit_score:0, quality_score:Math.min(100,Math.round(Math.min(100,Number(r.stars||0)/100))), continuity_score:0,
+    availability_score:100, cost_score:100, risk_score:r.license ? 0 : 25
+  }));
+  const context={objective:objective.raw_request,objectiveType:type,existingWork:existing,githubCandidates:githubOptions.slice(0,8),capabilities:scoredCapabilities.slice(0,12)};
   const response=await reason(
     "You are the FKAIOS Solution Architect. Convert the founder objective into a precise execution contract. Preserve the founder's intent; do not invent facts. Reuse existing work before new work. If a repository/capability is only a partial match, explicitly describe what must be adapted. Translate vague quality language such as premium or enterprise into measurable acceptance criteria. Return ONLY JSON.",
     JSON.stringify(context),
@@ -103,7 +124,7 @@ export async function prepareObjectiveContract(objective:{id:string;raw_request:
       github_status:github.status,
       github_candidates:github.candidates.slice(0,8),
       existing_work:existing,
-      capabilities:capabilities.slice(0,12)
+      capabilities:scoredCapabilities.slice(0,12)
     },
     solution_plan:ai.solution_plan ?? {strategy:"reuse_adapt_compose_build"},
     continuity:{
@@ -113,6 +134,15 @@ export async function prepareObjectiveContract(objective:{id:string;raw_request:
     status:"ready"
   };
   const db=client();
+  const options=[
+    ...scoredCapabilities.map((c:any)=>({objective_id:objective.id,source_type:"capability",source_id:String(c.name),name:String(c.name),score:c.score,fit_score:c.fit_score,quality_score:c.quality_score,continuity_score:c.continuity_score,availability_score:c.availability_score,cost_score:c.cost_score,risk_score:c.risk_score,recommendation:c.score>=70?"preferred":c.score>=45?"candidate":"fallback",evidence:{provider:c.provider,purpose:c.purpose,limitations:c.limitations,auth_state:c.auth_state,cost_state:c.cost_state,availability:c.availability}})),
+    ...githubOptions.map((r:any,i:number)=>({objective_id:objective.id,source_type:"github_repo",source_id:String(r.full_name),name:String(r.full_name),rank:i+1,score:r.score,fit_score:r.fit_score,quality_score:r.quality_score,continuity_score:r.continuity_score,availability_score:r.availability_score,cost_score:r.cost_score,risk_score:r.risk_score,recommendation:i===0?"candidate":"alternative",evidence:r}))
+  ];
+  await db.from("objective_solution_options").delete().eq("objective_id",objective.id);
+  if(options.length) {
+    const {error:optionsError}=await db.from("objective_solution_options").insert(options);
+    if(optionsError) throw new Error("solution option persistence failed: "+optionsError.message);
+  }
   const {error}=await db.from("objective_contracts").upsert({
     objective_id:objective.id,
     objective_type:type,
