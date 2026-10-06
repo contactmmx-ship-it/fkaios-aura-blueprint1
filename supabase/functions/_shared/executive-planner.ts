@@ -160,7 +160,15 @@ export async function planObjective(objective: Objective, correlationId?: string
   const { error: tErr } = await client.from("orchestration_tasks").insert(tasks);
   if (tErr) return { projectId: proj.id, tasksCreated: 0, error: tErr.message };
 
-  const packages = tasks.map((t, index) => ({
+  const packages = tasks.map((t, index) => {
+    const title = String(t.title ?? "");
+    const taskWords = title.toLowerCase().split(/[^a-z0-9]+/).filter((w:string)=>w.length>=4);
+    const providerCandidates = Array.isArray(discoveryContract.discovery?.capabilities) ? discoveryContract.discovery.capabilities : [];
+    const bestProvider = providerCandidates
+      .map((c:any)=>({provider:c.provider,name:c.name,score:Number(c.score ?? c.match_score ?? 0),hay:(String(c.name)+" "+String(c.purpose)+" "+JSON.stringify(c.capabilities??[])+" "+JSON.stringify(c.operations??[])).toLowerCase()}))
+      .map((c:any)=>({...c,taskFit:taskWords.reduce((n:number,w:string)=>n+(c.hay.includes(w)?8:0),0)}))
+      .sort((a:any,b:any)=>(b.score+b.taskFit)-(a.score+a.taskFit))[0]?.name ?? null;
+    return {
     objective_id: objective.id,
     sequence: index + 1,
     task_type: t.title,
@@ -169,10 +177,11 @@ export async function planObjective(objective: Objective, correlationId?: string
     required_outputs: [t.description],
     acceptance_criteria: Array.isArray(discoveryContract.acceptance_criteria) ? discoveryContract.acceptance_criteria : [],
     state: { project_id: proj.id, task_id: null, continuity: discoveryContract.continuity },
-    selected_provider: null,
-    handoff_notes: { rule: "preserve contract and artifacts across providers; never restart from a blank prompt" },
+    selected_provider: bestProvider,
+    handoff_notes: { rule: "preserve contract and artifacts across providers; never restart from a blank prompt", selected_provider: bestProvider },
     status: "ready",
-  }));
+  };
+  });
   const { error: wpErr } = await client.from("work_packages").insert(packages);
   if (wpErr) return { projectId: proj.id, tasksCreated: tasks.length, error: "work package creation failed: " + wpErr.message };
 
