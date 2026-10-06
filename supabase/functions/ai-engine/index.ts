@@ -912,6 +912,35 @@ async function executeProductBuild(job: AIJob, cid: string): Promise<Record<stri
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   if (!supabaseUrl || !serviceRoleKey) throw new Error("Product builder cannot run: Supabase service-role configuration is missing.");
 
+  // Continuation/recovery rule: if this objective already has a measured live
+  // product from an earlier planning pass, reuse that artifact before invoking
+  // an LLM-backed builder. This is deterministic continuity, not a fabricated
+  // build, and keeps a provider outage from destroying a real prior result.
+  const objectiveId = typeof job.payload?.objective_id === "string" ? job.payload.objective_id : "";
+  if (objectiveId) {
+    const { data: projects } = await supabase.from("orchestration_projects").select("id").like("request", "[objective:" + objectiveId + "]%");
+    const projectIds = (projects ?? []).map((p) => p.id).filter(Boolean);
+    if (projectIds.length) {
+      const { data: priorTasks } = await supabase.from("orchestration_tasks").select("id,title,status,output,project_id").in("project_id", projectIds);
+      for (const t of priorTasks ?? []) {
+        if (!/build/i.test(String(t.title ?? "")) || String(t.status ?? "") !== "done") continue;
+        try {
+          const parsed = JSON.parse(String(t.output ?? ""));
+          const cr = parsed?.llmResult?.capability_result;
+          if (cr?.deployed_url && (cr?.product_status === "live" || cr?.live === true)) {
+            return { status: "success", capability: "product.build", capability_result: {
+              build_id: cr.build_id ?? null,
+              build_type: cr.build_type ?? "website",
+              deployed_url: String(cr.deployed_url),
+              product_status: "live",
+              reused: true,
+            }};
+          }
+        } catch {}
+      }
+    }
+  }
+
   const text = [job.payload?.title, job.payload?.description, job.payload?.objective].filter((v) => typeof v === "string").join("\n").trim();
   const lower = text.toLowerCase();
   const build_type = /\b(landing\s*page|landing page)\b/.test(lower) ? "landing_page"
