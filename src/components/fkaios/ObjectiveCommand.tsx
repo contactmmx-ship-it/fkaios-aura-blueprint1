@@ -24,7 +24,42 @@ const STATE_TONE: Record<ObjectiveState, string> = {
 
 // Same cadence as GovernanceDashboard's load/setInterval pattern. Polling
 // only runs while an objective is still processing.
-const STATUS_POLL_MS = 30000;
+const STATUS_POLL_MS = 10000;
+
+function LiveExecution({ row }: { row: ObjectiveStatusRow }) {
+  const live = row.progress?.live;
+  if (!live) return null;
+  const wps = live.work_packages ?? [];
+  const handoffs = live.handoffs ?? [];
+  const blockers = live.blockers ?? [];
+  const options = live.solution_options ?? [];
+  return (
+    <section className="rounded-xl border border-slate-800 bg-slate-950/70 p-4 space-y-4" data-live-execution="true">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.18em] text-cyan-400 font-semibold">Execution Room</p>
+          <h3 className="text-sm font-semibold text-white mt-1">What FKAIOS is doing now</h3>
+        </div>
+        <span className="text-[10px] uppercase font-semibold px-2 py-1 rounded-full border border-slate-700 text-slate-300">{live.stage}</span>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-xs">
+        <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2"><p className="text-[9px] uppercase text-slate-600">Current action</p><p className="text-slate-200 mt-1">{live.current_action}</p></div>
+        <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2"><p className="text-[9px] uppercase text-slate-600">Current task</p><p className="text-slate-200 mt-1">{live.current_task || '—'}</p></div>
+        <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2"><p className="text-[9px] uppercase text-slate-600">Provider / worker</p><p className="text-slate-200 mt-1">{live.current_provider || 'FKAIOS orchestrator'}</p></div>
+        <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2"><p className="text-[9px] uppercase text-slate-600">Next action</p><p className="text-slate-200 mt-1">{live.next_action}</p></div>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px]">
+        <div className="rounded-lg border border-slate-800 px-3 py-2 text-slate-400">Work packages <b className="text-white ml-1">{wps.length}</b></div>
+        <div className="rounded-lg border border-slate-800 px-3 py-2 text-slate-400">Handoffs <b className="text-white ml-1">{handoffs.length}</b></div>
+        <div className="rounded-lg border border-slate-800 px-3 py-2 text-slate-400">Solutions evaluated <b className="text-white ml-1">{options.length}</b></div>
+        <div className="rounded-lg border border-slate-800 px-3 py-2 text-slate-400">Last activity <b className="text-white ml-1">{formatTime(live.last_activity_at)}</b></div>
+      </div>
+      {wps.length > 0 && <div><p className="text-[10px] uppercase tracking-[0.12em] text-slate-500 mb-2">Work packages</p><div className="space-y-1.5">{wps.map((w) => <div key={w.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 px-3 py-2 text-[11px]"><span className="text-slate-300">{w.sequence}. {w.task_type}</span><span className="text-slate-500">{w.status}{w.selected_provider ? ` · ${w.selected_provider}` : ''}</span></div>)}</div></div>}
+      {handoffs.length > 0 && <div><p className="text-[10px] uppercase tracking-[0.12em] text-slate-500 mb-2">Provider handoffs</p><div className="space-y-1.5">{handoffs.slice(0,4).map((h) => <div key={h.id} className="rounded-lg border border-slate-800 px-3 py-2 text-[11px] text-slate-300">{h.from_provider || 'initial'} → {h.to_provider || 'unassigned'} · {h.status} · {h.reason}</div>)}</div></div>}
+      {blockers.length > 0 && <div className="rounded-lg border border-amber-900/70 bg-amber-950/20 px-3 py-2"><p className="text-[10px] uppercase text-amber-400 font-semibold">Blockers</p>{blockers.slice(0,4).map((b, i) => <p key={i} className="text-[11px] text-amber-200 mt-1">{b.title}: {b.reason || b.status}</p>)}</div>}
+    </section>
+  );
+}
 
 async function readFunctionError(err: unknown): Promise<string> {
   // supabase-js FunctionsHttpError carries the Response in `context`.
@@ -91,6 +126,7 @@ export function ObjectiveCard({ row, checkedAt, onOpenDecisionCenter, onRerun, r
         <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full border ${STATE_TONE[view.state]}`}>{label}</span>
       </div>
       <Stepper stage={view.stage} terminal={view.terminal} />
+      <LiveExecution row={row} />
       {row.progress?.contract && (
         <section className="rounded-xl border border-cyan-900/60 bg-cyan-950/10 p-4 space-y-3" data-objective-contract="true">
           <div className="flex items-center justify-between gap-3">
@@ -237,9 +273,9 @@ export default function ObjectiveCommand({ onNavigate }: { onNavigate?: (page: s
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
   const [rerunningId, setRerunningId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (refreshOnly = false) => {
     setLoading(true);
-    const { data, error: fnError } = await supabase.functions.invoke('founder-objective', { body: { action: 'status' } });
+    const { data, error: fnError } = await supabase.functions.invoke('founder-objective', { body: { action: refreshOnly ? 'refresh' : 'status' } });
     if (fnError) setStatusError(await readFunctionError(fnError));
     else if (!data?.ok) setStatusError(data?.error || 'Could not read objective status.');
     else { setStatusError(null); setObjectives(data.objectives as ObjectiveStatusRow[]); setCheckedAt(new Date().toISOString()); }
@@ -247,10 +283,10 @@ export default function ObjectiveCommand({ onNavigate }: { onNavigate?: (page: s
   }, []);
 
   const anyProcessing = shouldPoll(objectives);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(false); }, [load]);
   useEffect(() => {
     if (!anyProcessing) return;
-    const t = setInterval(load, STATUS_POLL_MS);
+    const t = setInterval(() => load(true), STATUS_POLL_MS);
     return () => clearInterval(t);
   }, [anyProcessing, load]);
 
@@ -263,7 +299,7 @@ export default function ObjectiveCommand({ onNavigate }: { onNavigate?: (page: s
       });
       if (fnError) { setStatusError(await readFunctionError(fnError)); return; }
       if (!data?.ok) { setStatusError(data?.error || 'FKAIOS could not start the re-run.'); return; }
-      await load();
+      await load(false);
     } catch (e) {
       setStatusError(e instanceof Error ? e.message : 'Re-run request failed');
     } finally {
