@@ -346,6 +346,28 @@ async function markObjective(
 ) {
   const boundedSummary = summary.slice(0, 5000);
 
+  // Defense-in-depth: no caller may mark an objective completed unless the
+  // current planning pass has verified evidence for every task.
+  if (status === "completed") {
+    const { data: projects, error: projectError } = await supabase
+      .from("orchestration_projects")
+      .select("id")
+      .like("request", `[objective:${objectiveId}]%`)
+      .order("created_at", { ascending: false });
+    if (projectError) throw new Error(`Completion gate could not load projects: ${projectError.message}`);
+    const latestProjectId = projects?.[0]?.id;
+    if (!latestProjectId) throw new Error("Completion gate rejected objective: no execution project exists.");
+
+    const { data: currentTasks, error: taskError } = await supabase
+      .from("orchestration_tasks")
+      .select("id,title,description,status,output,project_id")
+      .eq("project_id", latestProjectId);
+    if (taskError) throw new Error(`Completion gate could not load tasks: ${taskError.message}`);
+
+    const gate = assessCurrentTaskSet(projects ?? [], (currentTasks ?? []) as TaskEvidenceRecord[]);
+    if (!gate.allVerified) throw new Error(`Completion gate rejected objective: ${gate.reason}`);
+  }
+
   const { error } = await supabase
     .from("orchestrator_requests")
     .update({
