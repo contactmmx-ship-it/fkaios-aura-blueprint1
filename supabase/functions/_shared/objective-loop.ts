@@ -152,6 +152,7 @@ async function evaluateObjective(
   correlationId?: string,
 ): Promise<ObjectiveEvaluation> {
   const contract = completionContract(String(objective.raw_request ?? ""));
+  const { data: objectiveContract } = await getSupabaseAdmin().from("objective_contracts").select("objective_type,intent,requirements,acceptance_criteria,quality_benchmark,discovery,solution_plan,continuity,status").eq("objective_id", String(objective.id)).maybeSingle();
   const productLiveEvidence = contract.requiresLiveArtifact && (
     projects.some((p) => (String(p.final_output ?? "").includes("http://") || String(p.final_output ?? "").includes("https://")) && /live|deploy|url/i.test(String(p.final_output ?? ""))) ||
     tasks.some((t) => typeof t.output === "string" && (t.output.includes("http://") || t.output.includes("https://")) && /live|deploy|url|production|netlify|vercel/i.test(t.output))
@@ -205,6 +206,9 @@ ${JSON.stringify(projects, null, 2)}
 Current task execution records:
 ${JSON.stringify(tasks, null, 2)}
 
+FKAIOS OBJECTIVE CONTRACT (the acceptance authority for this objective):
+${JSON.stringify(objectiveContract ?? contract, null, 2)}
+
 DETERMINISTIC EXECUTION EVIDENCE (measured fact — real downstream capability
 dispatch results, extracted directly from task output, not anyone's
 interpretation):
@@ -225,7 +229,9 @@ Rules:
 6. Never invent business facts.
 7. If evidence is insufficient, prefer achieved=false and blocked=false.
 8. If the deterministic execution evidence above shows ANY failed capability dispatch, you MUST NOT return achieved=true — real downstream execution has not succeeded, whatever a task's own narrative claims.
-9. Return ONLY valid JSON.
+9. If an FKAIOS Objective Contract exists, every mandatory acceptance criterion must have direct evidence before achieved=true. Do not infer a pass from task completion alone.
+10. Preserve continuity requirements when the contract says existing work must be continued; a technically working replacement that discards required existing alignment is not achieved.
+11. Return ONLY valid JSON.
 
 Schema:
 {
@@ -348,6 +354,12 @@ async function markObjective(
       action_taken: "objective_loop",
     })
     .eq("id", objectiveId);
+
+  const contractStatus = status === "completed" ? "verified" : status === "awaiting_approval" ? "blocked" : status === "failed" ? "blocked" : "executing";
+  await supabase.from("objective_contracts").update({
+    status: contractStatus,
+    updated_at: new Date().toISOString(),
+  }).eq("objective_id", objectiveId);
 
   if (error) {
     throw new Error(`Failed updating objective ${objectiveId}: ${error.message}`);
