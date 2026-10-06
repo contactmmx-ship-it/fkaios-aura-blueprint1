@@ -176,7 +176,7 @@ export async function planObjective(objective: Objective, correlationId?: string
     input_artifacts: [],
     required_outputs: [t.description],
     acceptance_criteria: Array.isArray(discoveryContract.acceptance_criteria) ? discoveryContract.acceptance_criteria : [],
-    state: { project_id: proj.id, task_id: null, continuity: discoveryContract.continuity },
+    state: { project_id: proj.id, task_id: t.id, continuity: discoveryContract.continuity },
     selected_provider: bestProvider,
     handoff_notes: { rule: "preserve contract and artifacts across providers; never restart from a blank prompt", selected_provider: bestProvider },
     status: "ready",
