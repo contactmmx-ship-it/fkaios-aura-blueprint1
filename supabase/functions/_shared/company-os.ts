@@ -172,7 +172,9 @@ export async function executeCapability(
   correlationId?: string,
   maxRetries = 2,
 ): Promise<ExecutionResult> {
-  if (capability === "product.deploy" || capability === "product.verify") return executeProductCapability(capability, payload, correlationId);\n\n  const def = CAPABILITY_REGISTRY[capability];
+  if (capability === "product.deploy" || capability === "product.verify") return executeProductCapability(capability, payload, correlationId);
+
+  const def = CAPABILITY_REGISTRY[capability];
   if (!def) {
     await logExecution(capability, "unknown", "error", payload, null, correlationId, `unregistered capability: ${capability}`);
     return { capability, status: "unknown_capability", error: `no such capability registered: ${capability}`, attempts: 0 };
