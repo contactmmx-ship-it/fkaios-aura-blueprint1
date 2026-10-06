@@ -44,7 +44,7 @@ function adminClient() {
   });
 }
 
-async function readLiveExecution(admin: ReturnType<typeof adminClient>, objectiveId: string, tasks: Record<string, unknown>[], jobs: Record<string, unknown>[]) {
+async function readLiveExecution(admin: ReturnType<typeof adminClient>, objectiveId: string, objectiveStatus: string, tasks: Record<string, unknown>[], jobs: Record<string, unknown>[]) {
   const [{ data: controller }, { data: workPackages }, { data: handoffs }, { data: solutions }] = await Promise.all([
     admin.from("fkaios_controller_state").select("tick_count,last_tick_at,next_action,next_requirement_description,next_requirement_status,open_requirement_count,human_blocked_count,verified_count,total_count,objective_state,active_run_count,available_workers,pending_worker_allocation_count,latest_open_handoff_id").eq("objective_id", objectiveId).maybeSingle(),
     admin.from("work_packages").select("id,sequence,task_type,status,selected_provider,state,handoff_notes,updated_at,created_at").eq("objective_id", objectiveId).order("sequence", { ascending: true }),
@@ -61,7 +61,10 @@ async function readLiveExecution(admin: ReturnType<typeof adminClient>, objectiv
   const { data: contractRow } = await admin.from("objective_contracts").select("status").eq("objective_id", objectiveId).maybeSingle();
   const cs = String(contractRow?.status ?? "");
   let stage = "Accepted";
-  if (cs === "draft") stage = "Contracting";
+  if (objectiveStatus === "completed") stage = "Completed";
+  else if (objectiveStatus === "failed") stage = "Failed";
+  else if (objectiveStatus === "awaiting_approval") stage = "Blocked";
+  else if (cs === "draft") stage = "Contracting";
   else if (!workPackages?.length) stage = "Planning";
   else if (activeTask || activeJob || activeWp?.status === "running") stage = "Executing";
   else if ((workPackages ?? []).some((w) => String(w.status ?? "") === "handoff")) stage = "Handing off";
@@ -156,7 +159,7 @@ async function readObjectiveStatus(objectiveId: string | null) {
         return existing ?? { title: String(task.title ?? "Completed task"), status: String(task.status ?? ""), verdict: "incomplete" };
       });
     }
-    progress.live = await readLiveExecution(admin, String(objective.id), tasks, jobs);
+    progress.live = await readLiveExecution(admin, String(objective.id), objectiveStatus, tasks, jobs);
     return { ...objective, progress };
   }));
 }
