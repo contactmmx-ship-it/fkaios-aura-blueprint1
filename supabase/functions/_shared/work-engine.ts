@@ -395,14 +395,14 @@ export async function returnCompletedWork(): Promise<{ returned: number; dispatc
         };
         finalOutput = { llmResult: job.result, companyOsDispatch: compactDispatchForStorage(measuredDispatch) };
       } else if (
-        resultObj.capability === "product.build" &&
+        ["product.build", "product.deploy", "product.verify"].includes(resultObj.capability) &&
         resultObj.capability_result !== undefined
       ) {
-        // Builder Engine already performed the downstream execution and
-        // returned the measured live product URL. Never re-dispatch this
-        // capability through Company OS.
+        // Product lifecycle execution is already measured by ai-engine.
+        // Do not run it a second time through Company OS; persist the measured
+        // result as the task's verification evidence.
         const measuredDispatch = {
-          capability: "product.build",
+          capability: resultObj.capability,
           status: "success",
           attempts: 1,
           data: resultObj.capability_result,
