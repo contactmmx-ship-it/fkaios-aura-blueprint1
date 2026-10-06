@@ -90,6 +90,8 @@ export const CAPABILITY_REGISTRY: Record<string, CapabilityDefinition> = {
   "whatsapp.mark_replied": { edgeFunction: "whatsapp-engine", action: "mark_replied", description: "Mark a WhatsApp thread as replied", verified: true },
   "research.run": { edgeFunction: "research-engine", action: "run", description: "Run a research task", verified: true },
   "research.status": { edgeFunction: "research-engine", action: "status", description: "Check research task status", verified: true },
+  "product.deploy": { edgeFunction: "direct-http-verification", description: "Confirm the built product URL is reachable in production", verified: true },
+  "product.verify": { edgeFunction: "direct-http-verification", description: "Verify the deployed product URL over HTTP", verified: true },
   "knowledge.search": { edgeFunction: "vault-engine", action: "search", description: "Search the knowledge vault", verified: true, secretHeader: "x-vault-secret" },
   "knowledge.ingest_document": { edgeFunction: "vault-engine", action: "ingest_document", description: "Ingest one document into the knowledge vault", verified: true, secretHeader: "x-vault-secret" },
   "knowledge.ingest_all": { edgeFunction: "vault-engine", action: "ingest_all", description: "Bulk-ingest documents into the knowledge vault", verified: true, secretHeader: "x-vault-secret" },
@@ -170,7 +172,7 @@ export async function executeCapability(
   correlationId?: string,
   maxRetries = 2,
 ): Promise<ExecutionResult> {
-  const def = CAPABILITY_REGISTRY[capability];
+  if (capability === "product.deploy" || capability === "product.verify") return executeProductCapability(capability, payload, correlationId);\n\n  const def = CAPABILITY_REGISTRY[capability];
   if (!def) {
     await logExecution(capability, "unknown", "error", payload, null, correlationId, `unregistered capability: ${capability}`);
     return { capability, status: "unknown_capability", error: `no such capability registered: ${capability}`, attempts: 0 };
