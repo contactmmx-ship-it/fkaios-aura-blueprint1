@@ -27,6 +27,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { reason, getGoals, founderMemory, type Goal, getImaginationHistory, type ImaginationEntry, FOUNDER_BRAIN_DEPARTMENT, getFounderIdentity, getFounderPrinciples, type FounderIdentitySnapshot, type FounderPrincipleSnapshot } from "./founder-brain.ts";
 import { CAPABILITY_REGISTRY } from "./company-os.ts";
 import { prepareObjectiveContract } from "./objective-discovery.ts";
+import { completionContract } from "./objective-contract.ts";
 
 function getClient() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
