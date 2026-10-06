@@ -241,12 +241,49 @@ export async function reassignStuckWork(): Promise<{ reassigned: number }> {
 
     const { data: newJob } = await client
       .from("ai_jobs")
-      .insert({ agent_id: alternative.id, type: "work_engine_task", payload: { ...payload, _reassignedFrom: job.agent_id }, status: "pending" })
+      .insert({ agent_id: alternative.id, type: "work_engine_task", payload: { ...payload, work_package_id: payload.work_package_id ?? null, _reassignedFrom: job.agent_id, handoff_required: true }, status: "pending" })
       .select("id")
       .single();
 
     if (newJob) {
       reassigned++;
+      const wpId = payload.work_package_id ? String(payload.work_package_id) : null;
+      const { data: wp } = wpId
+        ? await client.from("work_packages").select("id,objective_id,selected_provider,contract_snapshot,acceptance_criteria,input_artifacts,required_outputs,state,handoff_notes").eq("id",wpId).maybeSingle()
+        : { data: null };
+      const handoffPacket = {
+        objective_id: payload.objective_id ?? null,
+        task_id: payload.task_id,
+        work_package_id: wp?.id ?? null,
+        original_provider: wp?.selected_provider ?? previousAgent?.name ?? job.agent_id,
+        new_provider: alternative.name,
+        contract_snapshot: wp?.contract_snapshot ?? {},
+        acceptance_criteria: wp?.acceptance_criteria ?? [],
+        input_artifacts: wp?.input_artifacts ?? [],
+        required_outputs: wp?.required_outputs ?? [],
+        state: wp?.state ?? {},
+        prior_job_id: job.id,
+        prior_result: null,
+        handoff_rule: "continue from recorded state; do not regenerate completed work or reinterpret the contract",
+      };
+      const { data: handoff } = await client.from("provider_handoffs").insert({
+        objective_id: payload.objective_id ?? null,
+        work_package_id: wp?.id ?? null,
+        ai_job_id: newJob.id,
+        from_provider: wp?.selected_provider ?? previousAgent?.name ?? job.agent_id,
+        to_provider: alternative.name,
+        reason: "previous execution failed; automatic continuity-preserving reassignment",
+        handoff_packet: handoffPacket,
+        status: "dispatched",
+      }).select("id").single();
+      if (wp?.id) {
+        await client.from("work_packages").update({
+          selected_provider: alternative.name,
+          status: "handoff",
+          handoff_notes: { ...(wp.handoff_notes ?? {}), last_handoff_id: handoff?.id ?? null, from_provider: wp.selected_provider ?? previousAgent?.name ?? job.agent_id, to_provider: alternative.name },
+          updated_at: new Date().toISOString(),
+        }).eq("id",wp.id);
+      }
       try {
         await founderMemory.episodic.append({
           function_name: "work-engine", action: "reassign_stuck_work", status: "success",
