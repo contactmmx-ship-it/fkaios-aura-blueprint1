@@ -13,6 +13,18 @@ export interface ObjectiveTaskData {
   output?: string;
 }
 
+export interface ObjectiveContractData {
+  objective_type?: string;
+  intent?: Record<string, unknown>;
+  requirements?: unknown[];
+  acceptance_criteria?: unknown[];
+  quality_benchmark?: Record<string, unknown>;
+  discovery?: Record<string, unknown>;
+  solution_plan?: Record<string, unknown>;
+  continuity?: Record<string, unknown>;
+  status?: string;
+}
+
 export interface ObjectiveProgressData {
   planningPasses: number;
   tasksTotal: number;
@@ -23,6 +35,7 @@ export interface ObjectiveProgressData {
   jobsRetrying: number;
   jobsRunning: number;
   tasks?: ObjectiveTaskData[];
+  contract?: ObjectiveContractData | null;
 }
 
 export interface ObjectiveStatusRow {
