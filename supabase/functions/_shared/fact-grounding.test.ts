@@ -29,6 +29,10 @@ const EVALUATE_TASK = {
   title: "Evaluate Distributor Profiles and Outreach Strategy",
   description: "Assess the shortlisted distributors based on logistics capabilities, existing network reach, and financial standing, and prepare a preliminary outreach plan to secure initial partnership meetings.",
 };
+const FACTUAL_SYNTHESIS_TASK = {
+  title: "Assemble and Deliver the Single One-Page Go/No-Go Document with Binary Closing Question",
+  description: "Combine Section A (system readiness) and Section B (prospect observations) into one clean, founder-addressed one-page document.",
+};
 
 // Shape of the real fabricated result stored on job d2fe6be4.
 const FABRICATED_RESULT = {
@@ -86,6 +90,12 @@ Deno.test("A6: legitimate internal tasks are not classified as external research
     assert(checkWorkerGrounding(task, { status: "completed", summary: "done" }).ok, `internal task blocked: ${task.title}`);
   }
 });
+Deno.test("A7: factual synthesis of prospect observations is treated as externally grounded work", () => {
+  assert(requiresExternalFacts(FACTUAL_SYNTHESIS_TASK), "prospect observations must require a real source");
+  const verdict = checkWorkerGrounding(FACTUAL_SYNTHESIS_TASK, { status: "completed", summary: "assembled" });
+  assert(!verdict.ok, "an AI synthesis containing prospect facts must not pass without a capability");
+});
+
 
 // ── B / C: objective verification over the full task set ─────────────────
 const doneInternal = (id: string, title: string) => ({ id, title, description: "Write a structured entry into fleet_memory.", status: "done", output: JSON.stringify({ status: "completed", entry: "ok" }) });
