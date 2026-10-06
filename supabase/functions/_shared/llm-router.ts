@@ -1,3 +1,4 @@
+import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 // FKAIOS Shared LLM Router — Phase 6A Step 2
 //
 // Provider reliability and routing layer. Routes requests, classifies
@@ -11,7 +12,7 @@
 // functions (e.g. ai-engine) never construct or hold adapters themselves —
 // they import buildDefaultRouterConfig() and callLLM(), nothing else.
 
-export type ProviderName = "anthropic" | "gemini" | "openai" | "deepseek" | "glm" | "openrouter" | "groq" | "mistral" | "huggingface";
+export type ProviderName = "anthropic" | "gemini" | "openai" | "deepseek" | "glm" | "openrouter" | "groq" | "mistral" | "huggingface" | "self_hosted";
 
 export type FunctionClass =
   | "founder_intelligence" // quality priority
@@ -182,6 +183,68 @@ function getOpenRouterApiKey(): string { return Deno.env.get("OPENROUTER_API_KEY
 function getGroqApiKey(): string { return Deno.env.get("GROQ_API_KEY") ?? ""; }
 function getMistralApiKey(): string { return Deno.env.get("MISTRAL_API_KEY") ?? ""; }
 function getHuggingFaceApiKey(): string { return Deno.env.get("HUGGINGFACE_API_KEY") ?? ""; }
+function getSelfHostedBaseUrl(): string { return Deno.env.get("SELF_HOSTED_LLM_BASE_URL") ?? ""; }
+function getSelfHostedApiKey(): string { return Deno.env.get("SELF_HOSTED_LLM_API_KEY") ?? ""; }
+function getSelfHostedModel(functionClass?: FunctionClass): string { return resolveModel("SELF_HOSTED_LLM_MODEL", "qwen2.5:14b", {}, functionClass); }
+
+const HEALTH_COOLDOWN_MS: Record<FailureCategory, number> = {
+  authentication_failure: 24 * 60 * 60 * 1000,
+  rate_limit: 2 * 60 * 1000,
+  credit_exhaustion: 6 * 60 * 60 * 1000,
+  timeout: 5 * 60 * 1000,
+  invalid_request: 0,
+  provider_outage: 5 * 60 * 1000,
+  invalid_response: 10 * 60 * 1000,
+};
+
+function healthDb() {
+  const url = Deno.env.get("SUPABASE_URL") ?? "";
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (!url || !key) return null;
+  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
+}
+
+async function loadRuntimeProviderHealth(providers: ProviderName[]): Promise<Partial<Record<ProviderName, { status: string; unavailable_until: string | null }>>> {
+  const db = healthDb();
+  if (!db || providers.length === 0) return {};
+  try {
+    const { data } = await db.from("provider_health_state").select("provider,status,unavailable_until").in("provider", providers);
+    const out: Partial<Record<ProviderName, { status: string; unavailable_until: string | null }>> = {};
+    for (const row of data ?? []) out[row.provider as ProviderName] = { status: String(row.status ?? ""), unavailable_until: row.unavailable_until ?? null };
+    return out;
+  } catch { return {}; }
+}
+
+async function persistRuntimeProviderFailure(provider: ProviderName, failure: ClassifiedFailure): Promise<void> {
+  const db = healthDb();
+  if (!db) return;
+  const cooldown = HEALTH_COOLDOWN_MS[failure.category];
+  const unavailableUntil = cooldown > 0 ? new Date(Date.now() + cooldown).toISOString() : null;
+  try {
+    const { data: existing } = await db.from("provider_health_state").select("consecutive_failures").eq("provider", provider).maybeSingle();
+    const nextFailures = Number(existing?.consecutive_failures ?? 0) + 1;
+    await db.from("provider_health_state").update({
+      status: failure.category === "rate_limit" || failure.category === "invalid_response" ? "degraded" : "unavailable",
+      failure_category: failure.category,
+      reason: failure.detail.slice(0, 500),
+      unavailable_until: unavailableUntil,
+      consecutive_failures: nextFailures,
+      last_failure_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("provider", provider);
+  } catch { /* telemetry must never break execution */ }
+}
+
+async function persistRuntimeProviderSuccess(provider: ProviderName): Promise<void> {
+  const db = healthDb();
+  if (!db) return;
+  try {
+    await db.from("provider_health_state").update({
+      status: "healthy", failure_category: null, reason: null, unavailable_until: null,
+      consecutive_failures: 0, last_success_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    }).eq("provider", provider);
+  } catch { /* telemetry must never break execution */ }
+}
 
 // ---------------------------------------------------------------------------
 // Model identity — SINGLE SOURCE OF TRUTH. Every model string this module (or
@@ -483,6 +546,14 @@ export const geminiAdapter: ProviderAdapter = {
   },
 };
 
+
+export const selfHostedAdapter: ProviderAdapter = buildOpenAICompatibleAdapter(
+  "self_hosted",
+  getSelfHostedApiKey,
+  getSelfHostedModel,
+  getSelfHostedBaseUrl(),
+);
+
 /**
  * Explicit operator kill switch, independent of whether an API key happens
  * to be configured. Defaults to enabled — this only ever REMOVES a provider
@@ -506,6 +577,7 @@ export function getConfiguredDefaultProviders(): ProviderAdapter[] {
   if (getGroqApiKey() && isProviderEnabled("PROVIDER_GROQ_ENABLED")) providers.push(groqAdapter);
   if (getMistralApiKey() && isProviderEnabled("PROVIDER_MISTRAL_ENABLED")) providers.push(mistralAdapter);
   if (getHuggingFaceApiKey() && isProviderEnabled("PROVIDER_HUGGINGFACE_ENABLED")) providers.push(huggingFaceAdapter);
+  if (getSelfHostedBaseUrl() && isProviderEnabled("PROVIDER_SELF_HOSTED_ENABLED")) providers.push(selfHostedAdapter);
   return providers;
 }
 
@@ -836,8 +908,12 @@ export async function callLLM(request: LLMRequest, config: RouterConfig): Promis
   }
 
   const candidates = config.providers.map((p) => p.name);
-  const attempts: CallAttempt[] = [];
+  const runtimeHealth = await loadRuntimeProviderHealth(candidates);
   const excluded: ProviderName[] = [];
+  for (const [provider, state] of Object.entries(runtimeHealth) as [ProviderName, {status:string; unavailable_until:string|null}][]) {
+    if (state.status === "unavailable" && state.unavailable_until && new Date(state.unavailable_until).getTime() > Date.now()) excluded.push(provider);
+  }
+  const attempts: CallAttempt[] = [];
   let tokenUsage: { input: number; output: number } | null = null;
 
   while (attempts.length < retryLimit) {
@@ -869,6 +945,7 @@ export async function callLLM(request: LLMRequest, config: RouterConfig): Promis
       tokenUsage = { input: response.inputTokens ?? 0, output: response.outputTokens ?? 0 };
       const cost = adapter.estimateCost(request, response);
       attempts.push({ provider: providerName, model: attemptedModel, outcome: "success", latencyMs, estimatedCostUsd: cost, wasFallback, timedOut: false });
+      await persistRuntimeProviderSuccess(providerName);
       return {
         status: "success",
         content: response.content,
@@ -883,6 +960,7 @@ export async function callLLM(request: LLMRequest, config: RouterConfig): Promis
       ? { category: "timeout" as const, detail: `No response within ${timeoutMs}ms`, shouldFailover: true }
       : classifyLLMFailure(response, thrown);
 
+    await persistRuntimeProviderFailure(providerName, failure);
     attempts.push({
       provider: providerName,
       model: attemptedModel,
