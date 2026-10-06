@@ -950,16 +950,46 @@ async function executeProductBuild(job: AIJob, cid: string): Promise<Record<stri
   };
 }
 
+async function executeProductLifecycle(job: AIJob, cid: string): Promise<Record<string, unknown>> {
+  const objectiveId = typeof job.payload?.objective_id === "string" ? job.payload.objective_id : "";
+  if (!objectiveId) throw new NonRetryableJobError("Product lifecycle task has no objective_id.", "INVALID_PAYLOAD");
+  const { data: projects } = await supabase.from("orchestration_projects").select("id").like("request", "[objective:" + objectiveId + "]%");
+  const projectIds = (projects ?? []).map((p) => p.id).filter(Boolean);
+  if (projectIds.length === 0) throw new NonRetryableJobError("Product lifecycle task has no execution project.", "MISSING_ARTIFACT");
+  const { data: buildTasks } = await supabase.from("orchestration_tasks")
+    .select("id,title,status,output,project_id")
+    .in("project_id", projectIds);
+  let deployedUrl = "";
+  for (const t of buildTasks ?? []) {
+    if (!/build/i.test(String(t.title ?? "")) || String(t.status ?? "") !== "done") continue;
+    try {
+      const parsed = JSON.parse(String(t.output ?? ""));
+      const cr = parsed?.llmResult?.capability_result;
+      if (cr?.deployed_url && (cr?.product_status === "live" || cr?.live === true)) {
+        deployedUrl = String(cr.deployed_url); break;
+      }
+    } catch {}
+  }
+  if (!deployedUrl) throw new NonRetryableJobError("Product lifecycle task has no verified deployed_url from a prior completed build task.", "MISSING_ARTIFACT");
+  const capability = /verify/i.test(String(job.payload?.title ?? "")) ? "product.verify" : "product.deploy";
+  const dispatch = await executeCapability(capability, { deployed_url: deployedUrl, url: deployedUrl });
+  if (dispatch.status !== "success") throw new NonRetryableJobError("Product " + capability + " failed: " + String(dispatch.error ?? dispatch.status), "EXECUTION_FAILED");
+  return { status: "success", capability, capability_result: { ...((dispatch.data && typeof dispatch.data === "object") ? dispatch.data : {}), deployed_url: deployedUrl, live: true } };
+}
+
 async function executeJob(job: AIJob, cid: string): Promise<Record<string, unknown>> {
-  // Product-creation objectives use the real Builder Engine as an execution capability.
-  // The generated source is only an intermediate artifact; the builder also exposes a live product URL.
+  // Product creation uses Builder Engine; deploy/verify are deterministic lifecycle operations.
   const productTaskText = [job.payload?.title, job.payload?.description, job.payload?.objective]
     .filter((v) => typeof v === "string").join(" ");
-  const productTask = job.type === "work_engine_task" &&
+  const productBuildTask = job.type === "work_engine_task" &&
     (job.payload?.founder_submitted === true || typeof job.payload?.objective_id === "string") &&
-    /\b(build|create|develop|launch|ship|deliver)\b/i.test(productTaskText) &&
+    /^build\b/i.test(String(job.payload?.title ?? "")) &&
     /\b(app|application|website|web app|portal|platform|saas|software|system|product|dashboard|crm)\b/i.test(productTaskText);
-  if (productTask) return await executeProductBuild(job, cid);
+  const productLifecycleTask = job.type === "work_engine_task" &&
+    (job.payload?.founder_submitted === true || typeof job.payload?.objective_id === "string") &&
+    /^(deploy|verify)\b/i.test(String(job.payload?.title ?? ""));
+  if (productBuildTask) return await executeProductBuild(job, cid);
+  if (productLifecycleTask) return await executeProductLifecycle(job, cid);
 
   structuredLog("INFO", `Executing job ${job.id} (type: ${job.type})`, { jobId: job.id, agentId: job.agent_id }, cid);
   const capabilityBlock = job.type === "work_engine_task" ? WORK_ENGINE_CAPABILITIES_BLOCK : "";
