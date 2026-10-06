@@ -160,6 +160,22 @@ export async function planObjective(objective: Objective, correlationId?: string
   const { error: tErr } = await client.from("orchestration_tasks").insert(tasks);
   if (tErr) return { projectId: proj.id, tasksCreated: 0, error: tErr.message };
 
+  const packages = tasks.map((t, index) => ({
+    objective_id: objective.id,
+    sequence: index + 1,
+    task_type: t.title,
+    contract_snapshot: discoveryContract,
+    input_artifacts: [],
+    required_outputs: [t.description],
+    acceptance_criteria: Array.isArray(discoveryContract.acceptance_criteria) ? discoveryContract.acceptance_criteria : [],
+    state: { project_id: proj.id, task_id: null, continuity: discoveryContract.continuity },
+    selected_provider: null,
+    handoff_notes: { rule: "preserve contract and artifacts across providers; never restart from a blank prompt" },
+    status: "ready",
+  }));
+  const { error: wpErr } = await client.from("work_packages").insert(packages);
+  if (wpErr) return { projectId: proj.id, tasksCreated: tasks.length, error: "work package creation failed: " + wpErr.message };
+
   try {
     await founderMemory.episodic.append({
       function_name: "executive-planner", action: "plan_objective", status: "success",
