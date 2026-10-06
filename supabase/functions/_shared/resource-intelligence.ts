@@ -37,18 +37,43 @@ export async function resolveRuntimeResource(
   capability: string,
   payload: Record<string, unknown> = {},
 ): Promise<RuntimeResourceDecision> {
-  if (capability !== "research.run") {
-    // The existing Company OS capability registry remains the source of truth
-    // for non-research business capabilities. Resource intelligence does not
-    // pretend to have a provider adapter where one has not been wired.
+  const client = db();
+
+  // Generic provider connection gate. This lets FKAIOS select among multiple
+  // configured providers for the same capability without hardcoding a single
+  // vendor into the objective planner. Secrets remain referenced by auth_ref;
+  // this table never stores the secret itself.
+  const { data: connections } = await client.from("provider_connections")
+    .select("provider,capability,display_name,adapter,status,limits,metadata,last_checked_at")
+    .eq("capability", capability)
+    .in("status", ["active","degraded"])
+    .order("status", { ascending: true })
+    .order("updated_at", { ascending: false });
+
+  if (connections && connections.length > 0) {
+    const preferred = connections.find((c:any)=>c.status === "active") ?? connections[0];
     return {
-      status: "not_required",
+      status: "selected",
       capability,
-      reason: ["no runtime resource selection required for this capability"],
+      resourceId: String(preferred.provider),
+      resourceName: String(preferred.display_name ?? preferred.provider),
+      costMode: preferred.metadata?.cost_mode === "free" ? "free" : preferred.metadata?.cost_mode === "paid" ? "paid" : "credit",
+      reason: [
+        "provider_connection=active",
+        "provider="+String(preferred.provider),
+        "adapter="+String(preferred.adapter),
+        ...(preferred.status === "degraded" ? ["provider_status=degraded"] : []),
+      ],
     };
   }
 
-  const client = db();
+  if (capability !== "research.run") {
+    return {
+      status: "not_required",
+      capability,
+      reason: ["no configured provider connection; use the native capability registry"],
+    };
+  }
   const { data, error } = await client
     .from("apify_connections")
     .select("id, is_active, created_at")
