@@ -223,7 +223,7 @@ async function persistRuntimeProviderFailure(provider: ProviderName, failure: Cl
   try {
     const { data: existing } = await db.from("provider_health_state").select("consecutive_failures").eq("provider", provider).maybeSingle();
     const nextFailures = Number(existing?.consecutive_failures ?? 0) + 1;
-    await db.from("provider_health_state").update({
+    const update = {
       status: failure.category === "rate_limit" || failure.category === "invalid_response" ? "degraded" : "unavailable",
       failure_category: failure.category,
       reason: failure.detail.slice(0, 500),
@@ -231,7 +231,11 @@ async function persistRuntimeProviderFailure(provider: ProviderName, failure: Cl
       consecutive_failures: nextFailures,
       last_failure_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    }).eq("provider", provider);
+    };
+    const { data: updated } = await db.from("provider_health_state").update(update).eq("provider", provider).select("provider");
+    if (!updated || updated.length === 0) {
+      await db.from("provider_health_state").insert({ provider, ...update });
+    }
   } catch { /* telemetry must never break execution */ }
 }
 
