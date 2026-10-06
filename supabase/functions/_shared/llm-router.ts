@@ -594,7 +594,11 @@ export function buildDefaultRouterConfig(): RouterConfig {
   return {
     providers: getConfiguredDefaultProviders(),
     costConfig: { warningPct: 0.8, limitUsd: {} },
-    retryLimitByClass: { founder_intelligence: 3, business_agent: 3, background_agent: 2, customer_agent: 2 },
+    // One bounded attempt per configured provider. The router excludes a provider after
+    // failure, so this must be high enough to traverse the full configured fallback
+    // chain (premium -> free/open cloud -> self-hosted) instead of stopping after
+    // Anthropic/Gemini/OpenAI and falsely blocking while later providers are healthy.
+    retryLimitByClass: { founder_intelligence: 8, business_agent: 8, background_agent: 8, customer_agent: 8 },
     timeoutMsByClass: { founder_intelligence: 60000, business_agent: 60000, background_agent: 30000, customer_agent: 15000 },
   };
 }
