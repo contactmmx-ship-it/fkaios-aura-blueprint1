@@ -1,4 +1,5 @@
 // Fact grounding + objective evidence rules, shared by ai-engine (worker side)
+// LIVE AUDIT NOTE: factual synthesis must remain source-grounded.
 // and objective-loop (verification side). Pure functions, no imports, so both
 // Edge Functions can bundle it and it can be unit-tested offline.
 //
