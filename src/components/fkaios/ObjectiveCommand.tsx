@@ -229,12 +229,42 @@ export function ObjectiveCard({ row, checkedAt, onOpenDecisionCenter, onRerun, r
           <div className="pt-2 border-t border-slate-800">
             <dt className="text-slate-300 font-semibold mb-2">Objective deliverables</dt>
             <dd className="space-y-3">
-              {view.resultDetails.map((detail) => (
-                <section key={detail.title} className="rounded-lg border border-slate-800 bg-slate-950/70 overflow-hidden">
-                  <div className="px-3 py-2 bg-slate-900/80 border-b border-slate-800 text-xs font-medium text-cyan-200">{detail.title}</div>
-                  <pre className="p-3 text-[11px] leading-5 text-slate-300 whitespace-pre-wrap break-words max-h-[520px] overflow-auto font-mono">{detail.output}</pre>
-                </section>
-              ))}
+              {view.resultDetails.map((detail) => {
+                const urls = detail.output.match(/https?:\\/\\/[^\\s"'<>\\\\]+/g) ?? [];
+                const liveUrl = urls.find((u) => u.includes('/product/') || u.includes('vercel.app') || u.includes('netlify.app')) ?? null;
+                const looksLikeProduct =
+                  /product\\.(build|deploy|verify)|build_id|build type|product_status|deployed_url|live product|finished product/i.test(
+                    `${detail.title} ${detail.output}`,
+                  );
+
+                return (
+                  <section key={detail.title} className="rounded-lg border border-slate-800 bg-slate-950/70 overflow-hidden">
+                    <div className="px-3 py-2 bg-slate-900/80 border-b border-slate-800 text-xs font-medium text-cyan-200">{detail.title}</div>
+                    {looksLikeProduct && liveUrl ? (
+                      <div className="p-3 space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-semibold text-white">Finished product</p>
+                            <p className="text-[10px] text-slate-500 break-all mt-1">{liveUrl}</p>
+                          </div>
+                          <a href={liveUrl} target="_blank" rel="noreferrer" className="inline-flex items-center rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 py-2 text-xs font-semibold text-white">
+                            Open finished product ↗
+                          </a>
+                        </div>
+                        <div className="rounded-xl overflow-hidden border border-slate-800 bg-white">
+                          <iframe src={liveUrl} title={`${detail.title} — finished product`} className="w-full h-[620px] bg-white" loading="lazy" />
+                        </div>
+                        <details className="text-[10px] text-slate-500">
+                          <summary className="cursor-pointer hover:text-slate-300">Show execution evidence</summary>
+                          <pre className="mt-2 p-3 rounded-lg bg-slate-950 text-[10px] leading-4 whitespace-pre-wrap break-words max-h-[360px] overflow-auto font-mono">{detail.output}</pre>
+                        </details>
+                      </div>
+                    ) : (
+                      <div className="p-3 text-xs text-slate-300 whitespace-pre-wrap break-words">{detail.output}</div>
+                    )}
+                  </section>
+                );
+              })}
             </dd>
           </div>
         )}
