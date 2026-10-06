@@ -137,6 +137,7 @@ export async function allocateTask(task: { id: string; title: string; descriptio
         objective_id: task.objectiveId ?? null,
         project_id: task.projectId ?? null,
         founder_submitted: task.founderSubmitted === true,
+        work_package_id: task.objectiveId ? (await client.from("work_packages").select("id").eq("objective_id", task.objectiveId).eq("state->>task_id", task.id).maybeSingle()).data?.id ?? null : null,
         prior_completed_tasks: priorCompletedTasks,
       },
       status: "pending",
