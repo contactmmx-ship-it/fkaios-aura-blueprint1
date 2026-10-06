@@ -130,6 +130,40 @@ export function buildDispatchHeaders(def: CapabilityDefinition, serviceKey: stri
 //    functions to hit. Retries on failure, logs every attempt to
 //    execution_log (the SAME table 11+ other engines already write to —
 //    not a new execution-tracking table). ──
+export async function executeProductCapability(
+  capability: string,
+  payload: Record<string, unknown>,
+  correlationId?: string,
+): Promise<ExecutionResult> {
+  if (capability !== "product.deploy" && capability !== "product.verify") {
+    return { capability, status: "unknown_capability", error: `unsupported product capability: ${capability}`, attempts: 0 };
+  }
+
+  const url = String(payload.deployed_url ?? payload.url ?? "").trim();
+  if (!url || !/^https?:\\/\\//i.test(url)) {
+    return { capability, status: "error", error: "product URL is required", attempts: 1 };
+  }
+
+  try {
+    const res = await fetch(url, { method: "GET", redirect: "follow" });
+    const ok = res.ok;
+    const data = {
+      url,
+      http_status: res.status,
+      live: ok,
+      verified_at: new Date().toISOString(),
+    };
+    await logExecution(capability, "direct-http-verification", ok ? "success" : "error", payload, data, correlationId, ok ? undefined : `HTTP ${res.status}`);
+    return ok
+      ? { capability, status: "success", data, attempts: 1 }
+      : { capability, status: "error", error: `HTTP ${res.status}`, data, attempts: 1 };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await logExecution(capability, "direct-http-verification", "error", payload, null, correlationId, message);
+    return { capability, status: "error", error: message, attempts: 1 };
+  }
+}
+
 export async function executeCapability(
   capability: string,
   payload: Record<string, unknown>,
