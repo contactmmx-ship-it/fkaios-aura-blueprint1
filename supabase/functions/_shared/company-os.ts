@@ -142,7 +142,7 @@ export async function executeProductCapability(
   }
 
   const url = String(payload.deployed_url ?? payload.url ?? "").trim();
-  if (!url || !/^https?:\\/\\//i.test(url)) {
+  if (!url || !/^https?:\/\//i.test(url)) {
     return { capability, status: "error", error: "product URL is required", attempts: 1 };
   }
 
