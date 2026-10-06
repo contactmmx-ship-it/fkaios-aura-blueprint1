@@ -91,6 +91,47 @@ export function ObjectiveCard({ row, checkedAt, onOpenDecisionCenter, onRerun, r
         <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full border ${STATE_TONE[view.state]}`}>{label}</span>
       </div>
       <Stepper stage={view.stage} terminal={view.terminal} />
+      {row.progress?.contract && (
+        <section className="rounded-xl border border-cyan-900/60 bg-cyan-950/10 p-4 space-y-3" data-objective-contract="true">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-cyan-400 font-semibold">Objective Contract</p>
+              <h3 className="text-sm font-semibold text-white mt-1">What FKAIOS must deliver</h3>
+            </div>
+            <span className="text-[10px] uppercase font-semibold px-2 py-1 rounded-full border border-cyan-800 text-cyan-300">{row.progress.contract.status ?? 'READY'}</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+            <div className="rounded-lg bg-slate-950/60 border border-slate-800 px-3 py-2">
+              <p className="text-[9px] uppercase text-slate-600">Type</p>
+              <p className="text-slate-200 mt-0.5">{row.progress.contract.objective_type ?? '—'}</p>
+            </div>
+            <div className="rounded-lg bg-slate-950/60 border border-slate-800 px-3 py-2">
+              <p className="text-[9px] uppercase text-slate-600">Requirements</p>
+              <p className="text-slate-200 mt-0.5">{row.progress.contract.requirements?.length ?? 0}</p>
+            </div>
+            <div className="rounded-lg bg-slate-950/60 border border-slate-800 px-3 py-2">
+              <p className="text-[9px] uppercase text-slate-600">Acceptance criteria</p>
+              <p className="text-slate-200 mt-0.5">{row.progress.contract.acceptance_criteria?.length ?? 0}</p>
+            </div>
+          </div>
+          {Array.isArray(row.progress.contract.acceptance_criteria) && row.progress.contract.acceptance_criteria.length > 0 && (
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500 mb-1">Acceptance criteria</p>
+              <ul className="list-disc list-inside text-xs text-slate-300 space-y-1">
+                {row.progress.contract.acceptance_criteria.slice(0, 8).map((criterion, i) => (
+                  <li key={i}>{typeof criterion === 'string' ? criterion : JSON.stringify(criterion)}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {row.progress.contract.discovery?.github_candidates && (
+            <p className="text-[10px] text-slate-500">
+              Discovery: {Array.isArray(row.progress.contract.discovery.github_candidates) ? row.progress.contract.discovery.github_candidates.length : 0} GitHub candidates evaluated · existing-work continuity checked · capability registry evaluated.
+            </p>
+          )}
+        </section>
+      )}
+
       {view.state === 'COMPLETED' && (() => {
         const artifact = extractFinalArtifact(row.progress);
         return (
