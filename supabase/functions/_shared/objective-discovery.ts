@@ -14,31 +14,55 @@ function extractObject(raw: string): Record<string, unknown> {
   return {};
 }
 
-function githubQuery(objective: string, type: ObjectiveType): string {
+function githubQueries(objective: string, type: ObjectiveType): string[] {
   const cleaned = objective.toLowerCase()
     .replace(/[^a-z0-9\s-]/g, " ")
     .replace(/\b(build|create|make|develop|launch|ship|deliver|fully|functional|premium|responsive|called|named|please|want|need|objective)\b/g, " ")
     .replace(/\s+/g, " ").trim();
-  const domain = type === "product_creation" ? "website app saas dashboard crm" : type === "software_build" ? "software library framework starter" : "";
-  return [cleaned.slice(0,120), domain].filter(Boolean).join(" ").trim();
+  const words = cleaned.split(" ").filter((w:string)=>w.length>=4);
+  const domain = type === "product_creation"
+    ? ["website app saas dashboard crm","starter template ui ux","open source platform"]
+    : type === "software_build"
+    ? ["software library framework starter","open source implementation","production ready template"]
+    : ["open source implementation","automation tool integration"];
+  const base = cleaned.slice(0,120);
+  return [...new Set(domain.map(d=>[base,d].filter(Boolean).join(" ").trim()).concat(
+    words.length>3 ? [words.slice(0,5).join(" ")] : []
+  ))].filter(Boolean).slice(0,4);
 }
 
 async function discoverGithub(objective: string, type: ObjectiveType) {
-  const q=githubQuery(objective,type);
-  if(!q) return {query:"", candidates:[], status:"no_query"};
+  const queries=githubQueries(objective,type);
+  if(!queries.length) return {query:"",candidates:[],status:"no_query"};
   try {
-    const url="https://api.github.com/search/repositories?q="+encodeURIComponent(q)+"&sort=stars&order=desc&per_page=8";
-    const res=await fetch(url,{headers:{"Accept":"application/vnd.github+json","User-Agent":"FKAIOS-Discovery/1.0"}});
-    if(!res.ok) return {query:q,candidates:[],status:"github_search_error",httpStatus:res.status};
-    const body=await res.json();
-    const candidates=(Array.isArray(body.items)?body.items:[]).map((r:any)=>({
-      full_name:r.full_name, name:r.name, description:r.description, html_url:r.html_url,
-      stars:r.stargazers_count, forks:r.forks_count, language:r.language,
-      license:r.license?.spdx_id ?? null, updated_at:r.updated_at,
-      archived:r.archived === true, open_issues:r.open_issues_count
-    })).filter((r:any)=>!r.archived);
-    return {query:q,candidates,status:"ok"};
-  } catch(e) { return {query:q,candidates:[],status:"github_search_failed",error:e instanceof Error?e.message:String(e)}; }
+    const results=await Promise.all(queries.map(async(q)=>{
+      const url="https://api.github.com/search/repositories?q="+encodeURIComponent(q)+"&sort=stars&order=desc&per_page=10";
+      const res=await fetch(url,{headers:{"Accept":"application/vnd.github+json","User-Agent":"FKAIOS-Discovery/1.0"}});
+      if(!res.ok) return {q,items:[],status:"error",httpStatus:res.status};
+      const body=await res.json();
+      return {q,items:Array.isArray(body.items)?body.items:[],status:"ok"};
+    }));
+    const byRepo=new Map<string,any>();
+    for(const result of results) for(const r of result.items) {
+      if(r.archived===true) continue;
+      const existing=byRepo.get(r.full_name);
+      const record={
+        full_name:r.full_name,name:r.name,description:r.description,html_url:r.html_url,
+        stars:r.stargazers_count,forks:r.forks_count,language:r.language,
+        license:r.license?.spdx_id ?? null,updated_at:r.updated_at,archived:r.archived===true,
+        open_issues:r.open_issues_count,
+        matched_queries:[...(existing?.matched_queries??[]),result.q]
+      };
+      byRepo.set(r.full_name,record);
+    }
+    const candidates=[...byRepo.values()].sort((a,b)=>{
+      const activityA=new Date(a.updated_at||0).getTime(), activityB=new Date(b.updated_at||0).getTime();
+      const scoreA=Number(a.stars||0)+Number(a.forks||0)*3+(a.matched_queries?.length||0)*5000+(activityA>0&&Date.now()-activityA<365*86400000?3000:0);
+      const scoreB=Number(b.stars||0)+Number(b.forks||0)*3+(b.matched_queries?.length||0)*5000+(activityB>0&&Date.now()-activityB<365*86400000?3000:0);
+      return scoreB-scoreA;
+    }).slice(0,20);
+    return {queries,candidates,status:results.every(r=>r.status==="ok")?"ok":"partial"};
+  } catch(e) { return {queries,candidates:[],status:"github_search_failed",error:e instanceof Error?e.message:String(e)}; }
 }
 
 async function discoverExisting(objective: string) {
@@ -120,9 +144,9 @@ export async function prepareObjectiveContract(objective:{id:string;raw_request:
     acceptance_criteria:Array.isArray(ai.acceptance_criteria)?ai.acceptance_criteria:[],
     quality_benchmark:ai.quality_benchmark ?? {},
     discovery:{
-      github_query:github.query,
+      github_queries:github.queries ?? [],
       github_status:github.status,
-      github_candidates:github.candidates.slice(0,8),
+      github_candidates:github.candidates.slice(0,20),
       existing_work:existing,
       capabilities:scoredCapabilities.slice(0,12)
     },
