@@ -44,6 +44,50 @@ function adminClient() {
   });
 }
 
+async function readLiveExecution(admin: ReturnType<typeof adminClient>, objectiveId: string, tasks: Record<string, unknown>[], jobs: Record<string, unknown>[]) {
+  const [{ data: controller }, { data: workPackages }, { data: handoffs }, { data: solutions }] = await Promise.all([
+    admin.from("fkaios_controller_state").select("tick_count,last_tick_at,next_action,next_requirement_description,next_requirement_status,open_requirement_count,human_blocked_count,verified_count,total_count,objective_state,active_run_count,available_workers,pending_worker_allocation_count,latest_open_handoff_id").eq("objective_id", objectiveId).maybeSingle(),
+    admin.from("work_packages").select("id,sequence,task_type,status,selected_provider,state,handoff_notes,updated_at,created_at").eq("objective_id", objectiveId).order("sequence", { ascending: true }),
+    admin.from("provider_handoffs").select("id,work_package_id,from_provider,to_provider,reason,status,attempt,created_at,updated_at").eq("objective_id", objectiveId).order("created_at", { ascending: false }).limit(10),
+    admin.from("objective_solution_options").select("source_type,source_id,name,score,rank,recommendation,selected,fit_score,quality_score,availability_score,cost_score,risk_score,created_at").eq("objective_id", objectiveId).order("score", { ascending: false }).limit(10),
+  ]);
+  const activeTask = tasks.find((t) => ["assigned","running","working"].includes(String(t.status ?? "")));
+  const pendingTask = tasks.find((t) => String(t.status ?? "") === "pending");
+  const activeJob = activeTask ? jobs.find((j) => String((j.payload as Record<string, unknown> | null)?.task_id ?? "") === String(activeTask.id ?? "") && ["pending","running","retry"].includes(String(j.status ?? ""))) : undefined;
+  const activeWp = (workPackages ?? []).find((w) => ["running","handoff","blocked"].includes(String(w.status ?? ""))) ?? (workPackages ?? []).find((w) => String(w.status ?? "") === "ready");
+  const failedTasks = tasks.filter((t) => ["failed","rework"].includes(String(t.status ?? ""))).map((t) => ({ title: String(t.title ?? "Task"), status: String(t.status ?? ""), reason: typeof t.output === "string" ? t.output.slice(0, 500) : null }));
+  const lastTimes = [controller?.last_tick_at, ...((workPackages ?? []).map((w) => w.updated_at)), ...((handoffs ?? []).map((h) => h.updated_at)), ...jobs.map((j) => j.created_at)].filter(Boolean).map((x) => new Date(String(x)).getTime()).filter(Number.isFinite);
+  const lastActivityAt = lastTimes.length ? new Date(Math.max(...lastTimes)).toISOString() : null;
+  const { data: contractRow } = await admin.from("objective_contracts").select("status").eq("objective_id", objectiveId).maybeSingle();
+  const cs = String(contractRow?.status ?? "");
+  let stage = "Accepted";
+  if (cs === "draft") stage = "Contracting";
+  else if (!workPackages?.length) stage = "Planning";
+  else if (activeTask || activeJob || activeWp?.status === "running") stage = "Executing";
+  else if ((workPackages ?? []).some((w) => String(w.status ?? "") === "handoff")) stage = "Handing off";
+  else if ((workPackages ?? []).some((w) => String(w.status ?? "") === "blocked") || Number(controller?.human_blocked_count ?? 0) > 0) stage = "Blocked";
+  else if ((workPackages ?? []).length && (workPackages ?? []).every((w) => ["completed","failed"].includes(String(w.status ?? "")))) stage = "Verifying";
+  else if ((workPackages ?? []).length) stage = "Planning";
+  const currentAction = activeJob?.status === "running" ? "Executing " + String(activeTask?.title ?? activeWp?.task_type ?? "work") :
+    activeJob?.status === "retry" ? "Retrying " + String(activeTask?.title ?? activeWp?.task_type ?? "work") :
+    activeTask ? "Working on " + String(activeTask.title ?? "current task") :
+    activeWp?.status === "handoff" ? "Handing off " + String(activeWp.task_type ?? "work") :
+    activeWp?.status === "blocked" ? "Blocked on " + String(activeWp.task_type ?? "work") :
+    pendingTask ? "Queued: " + String(pendingTask.title ?? "next task") :
+    String(controller?.next_action ?? "Evaluating objective against the contract");
+  const nextAction = pendingTask ? "Execute next: " + String(pendingTask.title ?? "pending task") : String(controller?.next_action ?? "Verify the completed work against the objective contract");
+  return {
+    stage, current_action: currentAction, next_action: nextAction,
+    current_task: activeTask ? String(activeTask.title ?? "") : activeWp ? String(activeWp.task_type ?? "") : null,
+    current_provider: activeWp?.selected_provider ? String(activeWp.selected_provider) : null,
+    last_activity_at: lastActivityAt, controller: controller ?? null,
+    work_packages: (workPackages ?? []).map((w) => ({ id: String(w.id), sequence: Number(w.sequence ?? 0), task_type: String(w.task_type ?? ""), status: String(w.status ?? ""), selected_provider: w.selected_provider ? String(w.selected_provider) : null, updated_at: w.updated_at ?? null })),
+    handoffs: (handoffs ?? []).map((h) => ({ id: String(h.id), from_provider: h.from_provider ?? null, to_provider: h.to_provider ?? null, reason: String(h.reason ?? ""), status: String(h.status ?? ""), attempt: Number(h.attempt ?? 1), created_at: h.created_at ?? null, updated_at: h.updated_at ?? null })),
+    solution_options: (solutions ?? []).map((s) => ({ source_type: String(s.source_type ?? ""), name: String(s.name ?? ""), score: Number(s.score ?? 0), selected: Boolean(s.selected), recommendation: s.recommendation ?? null })),
+    blockers: failedTasks.concat((workPackages ?? []).filter((w) => String(w.status ?? "") === "blocked").map((w) => ({ title: String(w.task_type ?? "Work package"), status: "blocked", reason: String(w.handoff_notes ?? "Work package is blocked") }))),
+  };
+}
+
 // Lists only objectives submitted here (classification marks them); the
 // Founder Brain also creates requested_by='founder-brain' rows every tick,
 // which would otherwise push the founder's own objectives off the list.
@@ -90,7 +134,7 @@ async function readObjectiveStatus(objectiveId: string | null) {
       const taskIds = tasks.map((t) => String(t.id));
       if (taskIds.length > 0) {
         const { data: jobRows } = await admin.from("ai_jobs")
-          .select("status, retry_count, payload").eq("type", "work_engine_task").in("payload->>task_id", taskIds);
+          .select("status, retry_count, payload, created_at").eq("type", "work_engine_task").in("payload->>task_id", taskIds);
         jobs = jobRows ?? [];
       }
     }
@@ -105,13 +149,14 @@ async function readObjectiveStatus(objectiveId: string | null) {
     // include the already-recorded task output so the founder can inspect the
     // finished result without leaving the objective record.
     if (objectiveStatus === "completed") {
-      progress.tasks = tasks.map((task) => ({
-        title: String(task.title ?? "Completed task"),
-        status: String(task.status ?? ""),
-        verdict: "verified",
-        output: typeof task.output === "string" ? task.output : undefined,
-      }));
+      // Keep the evidence assessor authoritative. A terminal objective must
+      // never manufacture "verified" task verdicts in the UI.
+      progress.tasks = tasks.map((task) => {
+        const existing = (progress.tasks as Array<Record<string, unknown>> | undefined)?.find((t) => String(t.title ?? "") === String(task.title ?? ""));
+        return existing ?? { title: String(task.title ?? "Completed task"), status: String(task.status ?? ""), verdict: "incomplete" };
+      });
     }
+    progress.live = await readLiveExecution(admin, String(objective.id), tasks, jobs);
     return { ...objective, progress };
   }));
 }
@@ -166,48 +211,26 @@ Deno.serve(async (req: Request) => {
     let body: { objective?: unknown; action?: unknown; objectiveId?: unknown };
     try { body = await req.json(); } catch { return json({ ok: false, error: "Body must be JSON" }, 400); }
 
-    if (body.action === "status") {
+    if (body.action === "status" || body.action === "refresh") {
       const objectiveId = typeof body.objectiveId === "string" ? body.objectiveId : null;
-      // A status read is also a safe continuation signal: if the founder is
-      // actively watching an objective, reconcile and advance the existing
-      // pipeline before reporting its state. This does not create new work;
-      // runObjectiveLoop only processes already-recorded processing objectives.
-      try {
-        await runObjectiveLoop(correlationId);
-
-        // A founder status refresh is an active continuation signal: drain
-        // the single existing ai-engine worker after the loop creates or
-        // reopens work, then reconcile once more in the same request.
-        const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-        if (supabaseUrl && serviceRoleKey) {
-          const workerResponse = await fetch(
-            `${supabaseUrl}/functions/v1/ai-engine/run_jobs`,
-            {
+      // status performs one immediate reconciliation; refresh is read-only
+      // so the Console can poll without repeatedly running the worker pipeline.
+      if (body.action === "status") {
+        try {
+          await runObjectiveLoop(correlationId);
+          const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+          if (supabaseUrl && serviceRoleKey) {
+            const workerResponse = await fetch(`${supabaseUrl}/functions/v1/ai-engine/run_jobs`, {
               method: "POST",
-              headers: {
-                "Authorization": `Bearer ${serviceRoleKey}`,
-                "apikey": serviceRoleKey,
-                "Content-Type": "application/json",
-                "X-Correlation-ID": crypto.randomUUID().slice(0, 8),
-              },
+              headers: { "Authorization": `Bearer ${serviceRoleKey}`, "apikey": serviceRoleKey, "Content-Type": "application/json", "X-Correlation-ID": crypto.randomUUID().slice(0, 8) },
               body: JSON.stringify({}),
-            },
-          );
-          if (!workerResponse.ok) {
-            console.error("founder-objective: ai-engine worker drain returned HTTP error", workerResponse.status);
+            });
+            if (!workerResponse.ok) console.error("founder-objective: ai-engine worker drain returned HTTP error", workerResponse.status);
           }
+          await runObjectiveLoop(correlationId);
+        } catch (err) {
+          console.error(JSON.stringify({ level: "WARN", message: "objective status continuation failed", source: "founder-objective", correlationId, objectiveId, error: err instanceof Error ? err.message : String(err) }));
         }
-
-        await runObjectiveLoop(correlationId);
-      } catch (err) {
-        console.error(JSON.stringify({
-          level: "WARN",
-          message: "objective status continuation failed",
-          source: "founder-objective",
-          correlationId,
-          objectiveId,
-          error: err instanceof Error ? err.message : String(err),
-        }));
       }
       return json({ ok: true, objectives: await readObjectiveStatus(objectiveId) });
     }
