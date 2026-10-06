@@ -26,6 +26,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { reason, getGoals, founderMemory, type Goal, getImaginationHistory, type ImaginationEntry, FOUNDER_BRAIN_DEPARTMENT, getFounderIdentity, getFounderPrinciples, type FounderIdentitySnapshot, type FounderPrincipleSnapshot } from "./founder-brain.ts";
 import { CAPABILITY_REGISTRY } from "./company-os.ts";
+import { prepareObjectiveContract } from "./objective-discovery.ts";
 
 function getClient() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
@@ -90,6 +91,7 @@ export async function planObjective(objective: Objective, correlationId?: string
   const client = getClient();
   const goals = await getGoals("founder");
   const contract = completionContract(objective.raw_request);
+  const discoveryContract = await prepareObjectiveContract(objective, correlationId);
 
   // Product objectives have a machine-checkable execution contract. Do not
   // make creation of the executable project depend on an LLM formatting
@@ -102,8 +104,12 @@ export async function planObjective(objective: Objective, correlationId?: string
   if (contract.objectiveType === "product_creation") {
     taskDrafts = [
       {
+        title: "Reuse and solution discovery",
+        description: `Use the persisted FKAIOS Objective Contract before implementation. Existing-work matches, GitHub candidates, capabilities, reuse/adaptation decisions and quality requirements are recorded in the contract for objective ${objective.id}. Do not rebuild something already suitable; adapt or compose the best verified match.`,
+      },
+      {
         title: "Build the requested product",
-        description: `Create the usable product described by the objective. Generate the required application artifact, not merely a plan or source-code explanation. Objective: ${objective.raw_request}`,
+        description: `Create the usable product described by the objective. Generate the required application artifact, not merely a plan or source-code explanation. Objective: ${objective.raw_request}\nOBJECTIVE CONTRACT: ${JSON.stringify(discoveryContract).slice(0,7000)}`,
       },
       {
         title: "Deploy the product",
@@ -121,7 +127,7 @@ export async function planObjective(objective: Objective, correlationId?: string
   } else {
     const decomposition = await reason(
       "You are the Executive Planner. Break this objective into 2-4 concrete, executable tasks. The objective is NOT complete merely because code or analysis was generated. Plan through the required outcome contract. For information objectives, require source-backed verification. Return ONLY a JSON array of {title, description}, nothing else.",
-      `OBJECTIVE: ${objective.raw_request}\n\nCOMPLETION CONTRACT: ${JSON.stringify(contract)}\n\nDEPARTMENT: ${objective.department_code ?? "unassigned"}\n\nGOAL HIERARCHY:\n${JSON.stringify(goals)}`,
+      `OBJECTIVE: ${objective.raw_request}\n\nCOMPLETION CONTRACT: ${JSON.stringify(contract)}\n\nFKAIOS OBJECTIVE CONTRACT: ${JSON.stringify(discoveryContract)}\n\nDEPARTMENT: ${objective.department_code ?? "unassigned"}\n\nGOAL HIERARCHY:\n${JSON.stringify(goals)}`,
       900,
       correlationId,
     );
