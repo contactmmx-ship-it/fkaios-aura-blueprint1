@@ -1,5 +1,6 @@
 // ============================================================================
 // founder-brain-tick — SPRINT 2b (M1-S2b), extended SPRINT 6 (M1-S6)
+// CLAIM-GROUNDING-2026-10-06: source-linked factual claims are enforced downstream.
 // ============================================================================
 // NOT a second brain. Supabase can only schedule (cron) an HTTP endpoint —
 // it cannot invoke a function inside a _shared/ library file directly. This
