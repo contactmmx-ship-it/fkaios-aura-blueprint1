@@ -228,7 +228,7 @@ export async function autoDispatchAiModelWork(): Promise<AutoDispatchSummary> {
       let result: Record<string, unknown>;
       try {
         const rawReply = (workerReply.text ?? "").trim();
-        const normalizedReply = rawReply.replace(/^\`\`\`(?:json)?\\s*/i, "").replace(/\\s*\`\`\`$/i, "").trim();
+        const normalizedReply = rawReply.replace(/^\`\`\`(?:json)?\s*/i, "").replace(/\s*\`\`\`$/i, "").trim();
         const parsed = JSON.parse(normalizedReply);
         result = (parsed && typeof parsed === "object") ? parsed as Record<string, unknown> : { status: "failed_to_parse", evidence: [] };
       } catch {
