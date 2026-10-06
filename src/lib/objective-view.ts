@@ -36,6 +36,19 @@ export interface ObjectiveProgressData {
   jobsRunning: number;
   tasks?: ObjectiveTaskData[];
   contract?: ObjectiveContractData | null;
+  live?: {
+    stage: string;
+    current_action: string;
+    next_action: string;
+    current_task: string | null;
+    current_provider: string | null;
+    last_activity_at: string | null;
+    controller?: Record<string, unknown> | null;
+    work_packages?: Array<{ id: string; sequence: number; task_type: string; status: string; selected_provider: string | null; updated_at: string | null }>;
+    handoffs?: Array<{ id: string; from_provider: string | null; to_provider: string | null; reason: string; status: string; attempt: number; created_at: string | null; updated_at: string | null }>;
+    solution_options?: Array<{ source_type: string; name: string; score: number; selected: boolean; recommendation: string | null }>;
+    blockers?: Array<{ title: string; status: string; reason: string | null }>;
+  } | null;
 }
 
 export interface ObjectiveStatusRow {
