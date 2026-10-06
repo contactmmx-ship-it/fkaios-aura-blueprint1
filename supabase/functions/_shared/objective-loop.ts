@@ -170,6 +170,124 @@ function extractDeterministicEvidence(
   return evidence;
 }
 
+async function syncDeterministicVerificationEvidence(
+  objectiveId: string,
+  projects: Record<string, unknown>[],
+  tasks: Record<string, unknown>[],
+): Promise<{ passed: number; required: number }> {
+  const supabase = getSupabaseAdmin();
+  const { data: contract } = await supabase
+    .from("objective_contracts")
+    .select("evidence_requirements")
+    .eq("objective_id", objectiveId)
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const requirements = Array.isArray(contract?.evidence_requirements)
+    ? contract.evidence_requirements.map(String)
+    : [];
+  if (!requirements.length) return { passed: 0, required: 0 };
+
+  const outputs = tasks
+    .filter((t) => typeof t.output === "string")
+    .map((t) => ({ task: t, output: String(t.output) }));
+
+  const hasLiveUrl = projects.some((p) =>
+    /https?:\/\//.test(String(p.final_output ?? "")) &&
+    /live|deploy|url|production|vercel|netlify/i.test(String(p.final_output ?? ""))
+  ) || outputs.some(({ output }) =>
+    /https?:\/\//.test(output) &&
+    /live|deploy|url|production|vercel|netlify/i.test(output)
+  );
+
+  const hasSource = outputs.some(({ output }) =>
+    /github\.com|gitlab\.com|repository|source code|commit/i.test(output)
+  );
+
+  const hasMeasuredBuild = outputs.some(({ output }) =>
+    /build|deploy|deployment/i.test(output) &&
+    /success|passed|live|production/i.test(output)
+  );
+
+  const hasMeasuredFunctionalVerification = outputs.some(({ output }) =>
+    /product\.verify/i.test(output) &&
+    /"live"\s*:\s*true|"product_status"\s*:\s*"live"/i.test(output)
+  );
+
+  const allTasksTerminalVerified = tasks.length > 0 && tasks.every((t) =>
+    ["completed", "done", "verified"].includes(String(t.status ?? "").toLowerCase())
+  );
+
+  let passed = 0;
+  for (const requirement of requirements) {
+    const key = requirement.toLowerCase();
+    let ok = false;
+    let evidenceType = "";
+    let notes = "";
+
+    // Only deterministic observations are admitted here. We deliberately do
+    // NOT convert an LLM assertion such as "visual verification passed" into
+    // evidence.
+    if (/source|repository/.test(key) && hasSource) {
+      ok = true; evidenceType = "repository_observation";
+      notes = "Observed repository/source evidence in persisted task output.";
+    } else if (/live.*url/.test(key) && hasLiveUrl) {
+      ok = true; evidenceType = "live_url_observation";
+      notes = "Observed a live/deployment URL in persisted execution output.";
+    } else if (/build|deployment/.test(key) && hasMeasuredBuild) {
+      ok = true; evidenceType = "deployment_observation";
+      notes = "Observed completed build/deployment evidence with a success/live signal.";
+    } else if (/functional/.test(key) && hasMeasuredFunctionalVerification) {
+      ok = true; evidenceType = "functional_capability_verification";
+      notes = "Observed measured product.verify output indicating live product state.";
+    } else if (/verification|tests/.test(key) && allTasksTerminalVerified && hasMeasuredFunctionalVerification) {
+      ok = true; evidenceType = "deterministic_task_verification";
+      notes = "All persisted objective tasks are terminal-success and measured product verification exists.";
+    }
+
+    if (!ok) continue;
+
+    const { data: existing } = await supabase
+      .from("fkaios_verification_evidence")
+      .select("id")
+      .eq("objective_id", objectiveId)
+      .eq("requirement_key", requirement)
+      .eq("status", "passed")
+      .limit(1)
+      .maybeSingle();
+
+    if (existing?.id) {
+      passed++;
+      continue;
+    }
+
+    const { error } = await supabase
+      .from("fkaios_verification_evidence")
+      .insert({
+        objective_id: objectiveId,
+        requirement_key: requirement,
+        evidence_type: evidenceType,
+        observed_result: {
+          objective_id: objectiveId,
+          live_url_observed: hasLiveUrl,
+          source_observed: hasSource,
+          measured_build_observed: hasMeasuredBuild,
+          measured_functional_verification: hasMeasuredFunctionalVerification,
+          all_tasks_terminal_verified: allTasksTerminalVerified,
+        },
+        verifier: "objective-loop-deterministic-verifier",
+        status: "passed",
+        verification_notes: notes,
+        verified_at: new Date().toISOString(),
+      });
+
+    if (!error) passed++;
+  }
+
+  return { passed, required: requirements.length };
+}
+
 async function evaluateObjective(
   objective: Record<string, unknown>,
   projects: Record<string, unknown>[],
@@ -344,6 +462,31 @@ Schema:
       reason: `Not achieved: ${taskGate.reason}. Evaluator's own reasoning: ${evaluation.reason || "(none given)"}`,
       next_action: "Complete and verify every task in the objective before re-evaluating.",
     };
+  }
+
+  if (evaluation.achieved) {
+    const evidenceState = await syncDeterministicVerificationEvidence(
+      String(objective.id),
+      projects,
+      tasks,
+    );
+    if (evidenceState.required > 0) {
+      const { data: completionAllowed } = await getSupabaseAdmin()
+        .rpc("fkaios_objective_completion_allowed", {
+          p_objective_id: String(objective.id),
+        });
+
+      if (completionAllowed !== true) {
+        return {
+          achieved: false,
+          blocked: false,
+          failed: false,
+          verificationUnavailable: true,
+          reason: `Evaluator proposed completion, but independent verification is incomplete: ${evidenceState.passed}/${evidenceState.required} evidence requirements passed.`,
+          next_action: "Create the missing independent evidence (including visual/functional/acceptance checks where required) before completion.",
+        };
+      }
+    }
   }
 
   return evaluation;
