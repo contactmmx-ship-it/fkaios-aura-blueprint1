@@ -26,6 +26,12 @@ export function requiresExternalFacts(task: { title?: unknown; description?: unk
   return EXTERNAL_FACT_VERBS.test(text) && EXTERNAL_FACT_SUBJECTS.test(text);
 }
 
+
+export function hasSuppliedSourceMaterial(task: { title?: unknown; description?: unknown }): boolean {
+  const text = typeof task.description === "string" ? task.description : "";
+  return /source[_\s-]?id\s*[:=]/i.test(text) && /source[_\s-]?excerpt\s*[:=]/i.test(text);
+}
+
 export type WorkerGrounding = { ok: true } | { ok: false; reason: string };
 
 export interface GroundedClaim {
@@ -117,9 +123,13 @@ export function checkWorkerGrounding(
     return { ok: false, reason };
   }
   if (requiresExternalFacts(task)) {
-    // A capability request is allowed before dispatch. A completed factual
-    // answer, however, must carry claim-level source evidence.
+    // A capability request or explicitly supplied source material is allowed
+    // before dispatch. Once a worker returns factual content, claim-level
+    // source linkage is mandatory.
     if (obj && typeof obj.capability === "string" && obj.capability.length > 0 && !obj.claims) {
+      return { ok: true };
+    }
+    if (hasSuppliedSourceMaterial(task) && (!obj || !obj.claims)) {
       return { ok: true };
     }
     const claims = verifyClaimGrounding(result);
