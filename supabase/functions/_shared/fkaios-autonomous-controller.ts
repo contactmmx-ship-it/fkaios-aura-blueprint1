@@ -216,8 +216,9 @@ export async function autoDispatchAiModelWork(): Promise<AutoDispatchSummary> {
       const workerReply = await reason(
         "You are an FKAIOS worker executing one assigned task end-to-end. You have been given the full objective, milestone, task, prior work already done in this project, and relevant Brain context as JSON below. " +
           "Produce the actual work product yourself (analysis, content, plan, decision — whatever the task genuinely calls for); do not describe what you WOULD do. " +
-          "Reply with ONLY a JSON object: {\"status\": \"completed\"|\"partial_success\"|\"blocked\", \"summary\": string, \"evidence\": [string, ...], \"next_action\": string}. " +
+          "Reply with ONLY a JSON object: {\"status\": \"completed\"|\"partial_success\"|\"blocked\", \"summary\": string, \"evidence\": [string, ...], \"claims\": [{\"claim\": string, \"source_id\": string, \"source_excerpt\": string}], \"next_action\": string}. " +
           "\"evidence\" must contain the actual produced content/findings, not a claim that work happened — an empty evidence array can never be verified. " +
+          "For any task requiring real-world facts, every factual claim in your answer MUST appear in claims with the exact source_id and supporting source_excerpt from the supplied source material; do not invent sources, IDs, excerpts, names, numbers, or contacts. If the task has no source material, return status=\"blocked\" with next_action explaining that a verified source is required. " +
           "Use status=\"blocked\" ONLY if this genuinely requires a human action (e.g. an external account, a payment, a real-world confirmation) that no AI call can perform — name the exact action in next_action.",
         JSON.stringify(instruction).slice(0, 12000),
         2000,
