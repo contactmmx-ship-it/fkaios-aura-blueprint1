@@ -1357,6 +1357,37 @@ async function fetchJobBatch(cid: string): Promise<AIJob[]> {
   return combined;
 }
 
+async function startAgentRun(job: AIJob, cid: string): Promise<string | null> {
+  if (!job.agent_id) return null;
+  try {
+    const { data, error } = await supabase.from("agent_runs").insert({
+      agent_id: job.agent_id,
+      user_id: typeof job.payload?.user_id === "string" ? job.payload.user_id : null,
+      input: JSON.stringify({ job_id: job.id, type: job.type, payload: job.payload }),
+      output: "", status: "running",
+      metadata: { job_id: job.id, correlation_id: cid, execution_source: "ai-engine" },
+    }).select("id").single();
+    if (error) throw error;
+    return data?.id ?? null;
+  } catch (err) {
+    structuredLog("WARN", "Failed to create agent_run lifecycle record", { jobId: job.id, agentId: job.agent_id, error: err instanceof Error ? err.message : String(err) }, cid);
+    return null;
+  }
+}
+
+async function finishAgentRun(runId: string | null, status: "completed" | "failed", output: unknown, startedAtMs: number, cid: string): Promise<void> {
+  if (!runId) return;
+  try {
+    const { error } = await supabase.from("agent_runs").update({
+      status, output: typeof output === "string" ? output : JSON.stringify(output ?? {}),
+      completed_at: new Date().toISOString(), duration_ms: Math.max(0, Date.now() - startedAtMs),
+    }).eq("id", runId);
+    if (error) throw error;
+  } catch (err) {
+    structuredLog("WARN", "Failed to finalize agent_run lifecycle record", { runId, status, error: err instanceof Error ? err.message : String(err) }, cid);
+  }
+}
+
 async function runJobs(cid: string) {
   structuredLog("INFO", "Running pending jobs", {}, cid);
   const jobs: AIJob[] = await fetchJobBatch(cid);
@@ -1394,6 +1425,8 @@ async function runJobs(cid: string) {
       continue;
     }
 
+    const agentRunStartedAt = Date.now();
+    const agentRunId = await startAgentRun(job, cid);
     try {
       let result: Record<string, unknown>;
       // GENERATE_PROPOSAL / SCHEDULE_MEETING (items 4/5): real capability
@@ -1441,6 +1474,7 @@ async function runJobs(cid: string) {
       const { error: completeError } = await supabase.from("ai_jobs").update({ status: "completed", result, updated_at: new Date().toISOString(), error: null }).eq("id", job.id);
       if (completeError) throw new Error(completeError.message);
       await recordOutcome(job, "completed", result, `${job.type} completed.`, cid);
+      await finishAgentRun(agentRunId, "completed", result, agentRunStartedAt, cid);
       results.push({ job_id: job.id, status: "completed", result });
     } catch (err) {
       // HONEST FAILURE PATH. The job is marked retry/failed with the REAL
@@ -1489,6 +1523,7 @@ async function runJobs(cid: string) {
       if (newStatus === "failed") {
         await recordOutcome(job, "failed", { error: errorMessage, kernel_disposition: disposition }, `${job.type} failed after ${newRetryCount} attempt(s), disposition ${disposition}: ${errorMessage}`, cid);
       }
+      if (newStatus === "failed") await finishAgentRun(agentRunId, "failed", { error: errorMessage, kernel_disposition: disposition }, agentRunStartedAt, cid);
       results.push({ job_id: job.id, status: newStatus, error: errorMessage });
     }
   }
