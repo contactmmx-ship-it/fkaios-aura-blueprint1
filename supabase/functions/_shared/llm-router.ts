@@ -11,7 +11,7 @@
 // functions (e.g. ai-engine) never construct or hold adapters themselves —
 // they import buildDefaultRouterConfig() and callLLM(), nothing else.
 
-export type ProviderName = "anthropic" | "gemini" | "openai" | "deepseek" | "glm";
+export type ProviderName = "anthropic" | "gemini" | "openai" | "deepseek" | "glm" | "openrouter" | "groq" | "mistral" | "huggingface";
 
 export type FunctionClass =
   | "founder_intelligence" // quality priority
@@ -178,6 +178,10 @@ function getGeminiApiKey(): string {
 function getOpenAIApiKey(): string {
   return Deno.env.get("OPENAI_API_KEY") ?? "";
 }
+function getOpenRouterApiKey(): string { return Deno.env.get("OPENROUTER_API_KEY") ?? ""; }
+function getGroqApiKey(): string { return Deno.env.get("GROQ_API_KEY") ?? ""; }
+function getMistralApiKey(): string { return Deno.env.get("MISTRAL_API_KEY") ?? ""; }
+function getHuggingFaceApiKey(): string { return Deno.env.get("HUGGINGFACE_API_KEY") ?? ""; }
 
 // ---------------------------------------------------------------------------
 // Model identity — SINGLE SOURCE OF TRUTH. Every model string this module (or
@@ -255,6 +259,10 @@ function getGeminiModel(functionClass?: FunctionClass): string {
 function getOpenAIModel(functionClass?: FunctionClass): string {
   return resolveModel("OPENAI_MODEL", "gpt-5.6-luna", OPENAI_CLASS_DEFAULTS, functionClass);
 }
+function getOpenRouterModel(functionClass?: FunctionClass): string { return resolveModel("OPENROUTER_MODEL", "openrouter/free", {}, functionClass); }
+function getGroqModel(functionClass?: FunctionClass): string { return resolveModel("GROQ_MODEL", "openai/gpt-oss-120b", {}, functionClass); }
+function getMistralModel(functionClass?: FunctionClass): string { return resolveModel("MISTRAL_MODEL", "mistral-small-latest", {}, functionClass); }
+function getHuggingFaceModel(functionClass?: FunctionClass): string { return resolveModel("HUGGINGFACE_MODEL", "meta-llama/Llama-3.1-8B-Instruct", {}, functionClass); }
 
 // Pricing reflects each adapter's current model (see getXModel() above) —
 // current as of the last model migration, per-provider published pricing,
@@ -387,6 +395,46 @@ export const openaiAdapter: ProviderAdapter = {
   },
 };
 
+
+// OpenAI-compatible resilience adapters: each provider is optional and is
+// automatically skipped when its key is absent or explicitly disabled.
+function buildOpenAICompatibleAdapter(
+  name: ProviderName,
+  envKey: () => string,
+  modelResolver: (fc?: FunctionClass) => string,
+  baseUrl: string,
+  extraHeaders: Record<string,string> = {},
+): ProviderAdapter {
+  return {
+    name,
+    getModel: modelResolver,
+    async call(request) {
+      const apiKey = envKey();
+      const model = modelResolver(request.functionClass);
+      if (!apiKey) return {ok:false,httpStatus:401,rawBody:{error:"API key not configured"},latencyMs:0,model};
+      const start=Date.now();
+      const response=await fetch(baseUrl+"/chat/completions",{
+        method:"POST",
+        headers:{Authorization:"Bearer "+apiKey,"Content-Type":"application/json",...extraHeaders},
+        body:JSON.stringify({model,max_tokens:request.maxTokens??4096,messages:[{role:"system",content:request.systemPrompt},{role:"user",content:request.userContent}],temperature:request.temperature}),
+      });
+      const latencyMs=Date.now()-start;
+      if(!response.ok){
+        const text=await response.text(); let parsed:unknown=text; try{parsed=JSON.parse(text)}catch{}
+        return {ok:false,httpStatus:response.status,rawBody:parsed,latencyMs,model};
+      }
+      const data=await response.json();
+      return {ok:true,httpStatus:response.status,content:data?.choices?.[0]?.message?.content??"",rawBody:data,inputTokens:data?.usage?.prompt_tokens??0,outputTokens:data?.usage?.completion_tokens??0,latencyMs,model};
+    },
+    estimateCost(_request,response){ return 0; },
+    health(){ return {provider:name,successRate:null,failureCount:0,fallbackFrequency:null,avgLatencyMs:null,timeoutRate:null,costPerSuccessUsd:null,sampleSize:0}; },
+  };
+}
+export const openRouterAdapter=buildOpenAICompatibleAdapter("openrouter",getOpenRouterApiKey,getOpenRouterModel,"https://openrouter.ai/api/v1",{"HTTP-Referer":"https://fkaios.app","X-Title":"FKAIOS"});
+export const groqAdapter=buildOpenAICompatibleAdapter("groq",getGroqApiKey,getGroqModel,"https://api.groq.com/openai/v1");
+export const mistralAdapter=buildOpenAICompatibleAdapter("mistral",getMistralApiKey,getMistralModel,"https://api.mistral.ai/v1");
+export const huggingFaceAdapter=buildOpenAICompatibleAdapter("huggingface",getHuggingFaceApiKey,getHuggingFaceModel,"https://router.huggingface.co/v1");
+
 export const geminiAdapter: ProviderAdapter = {
   name: "gemini",
   getModel: getGeminiModel,
@@ -454,6 +502,10 @@ export function getConfiguredDefaultProviders(): ProviderAdapter[] {
   if (getAnthropicApiKey() && isProviderEnabled("PROVIDER_ANTHROPIC_ENABLED")) providers.push(anthropicAdapter);
   if (getGeminiApiKey() && isProviderEnabled("PROVIDER_GEMINI_ENABLED")) providers.push(geminiAdapter);
   if (getOpenAIApiKey() && isProviderEnabled("PROVIDER_OPENAI_ENABLED")) providers.push(openaiAdapter);
+  if (getOpenRouterApiKey() && isProviderEnabled("PROVIDER_OPENROUTER_ENABLED")) providers.push(openRouterAdapter);
+  if (getGroqApiKey() && isProviderEnabled("PROVIDER_GROQ_ENABLED")) providers.push(groqAdapter);
+  if (getMistralApiKey() && isProviderEnabled("PROVIDER_MISTRAL_ENABLED")) providers.push(mistralAdapter);
+  if (getHuggingFaceApiKey() && isProviderEnabled("PROVIDER_HUGGINGFACE_ENABLED")) providers.push(huggingFaceAdapter);
   return providers;
 }
 
