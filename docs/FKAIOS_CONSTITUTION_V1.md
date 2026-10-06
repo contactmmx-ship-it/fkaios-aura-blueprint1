@@ -60,5 +60,28 @@ When blocked, FKAIOS must persist the blocker, identify the exact missing capabi
 - retry_requires: bounded_retry_count AND changed_approach_or_input
 - status_must_be_truthful: configured != working != verified != completed
 
+## Provider Resilience — Mandatory Continuity Rule
+FKAIOS must not become operationally dependent on one inference provider, API key, paid credit balance, quota, model, or vendor.
+
+When an inference provider reports authentication failure, expired/invalid credentials, credit exhaustion, quota exhaustion, rate limiting, model retirement/unavailability, timeout, or provider outage, FKAIOS must automatically quarantine that provider for an evidence-based cooldown and attempt the next viable provider/model that satisfies the task requirements.
+
+Fallback priority is capability-based, not vendor-based:
+1. configured premium provider;
+2. configured free-tier provider with remaining capacity;
+3. configured open-model cloud endpoint;
+4. configured reachable self-hosted/open-source model endpoint;
+5. truthful blocked state with persisted blocker and next action when no viable inference capacity exists.
+
+Free access is never assumed to be unlimited. FKAIOS must treat quota/credit status as runtime evidence, not as a promise. Provider selection must prefer a provider with current health/capacity evidence and must not retry a known-exhausted provider inside its cooldown window.
+
+A fallback attempt is not a success. The resulting work must still pass the normal execution, verification, evidence, quality, and completion gates. If every available provider fails, FKAIOS must remain truthful and block/retry according to policy; it must never fabricate output or mark the objective completed merely because a fallback chain was attempted.
+
+Provider continuity therefore becomes part of the machine contract:
+- provider_failure_requires: classify + persist failure + bounded cooldown + next viable provider
+- provider_success_requires: real response + normal verification/evidence gates
+- provider_exhaustion_requires: automatic failover before objective-level blocking
+- all_providers_exhausted_requires: persisted blocker + next_action + truthful blocked state
+- fallback_must_preserve: task acceptance criteria + authority + verification requirements
+
 ## Version
 v1 — initial FKAIOS constitutional contract.
