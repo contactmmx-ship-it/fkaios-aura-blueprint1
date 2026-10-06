@@ -87,6 +87,57 @@ Deno.test("A6: legitimate internal tasks are not classified as external research
   }
 });
 
+Deno.test("A7: factual synthesis without claim-level sources is rejected", () => {
+  const task = {
+    title: "Assemble prospect observations and system readiness",
+    description: "Combine current prospect observations and system readiness into a founder-facing recommendation.",
+  };
+  assert(requiresExternalFacts(task), "prospect observations/readiness must require grounding");
+  const verdict = checkWorkerGrounding(task, {
+    status: "completed",
+    summary: "Acme has 42 outlets and is ready for expansion.",
+    evidence: ["Acme is ready for expansion."],
+  });
+  assert(!verdict.ok && verdict.reason.includes("claim-level source"), "ungrounded factual synthesis must be rejected");
+});
+
+Deno.test("A8: properly source-grounded factual claims pass", () => {
+  const task = {
+    title: "Assess current distributor performance",
+    description: "Assess the distributor's current sales and operating metrics from supplied source material.",
+  };
+  const verdict = checkWorkerGrounding(task, {
+    status: "completed",
+    claims: [
+      {
+        claim: "Acme Paints operates 42 outlets in Punjab.",
+        source_id: "doc-123",
+        source_excerpt: "Acme Paints operates 42 outlets in Punjab and serves the region through its dealer network.",
+      },
+    ],
+  });
+  assert(verdict.ok, verdict.ok ? "" : verdict.reason);
+});
+
+Deno.test("A9: claim-level verifier rejects a source that does not support the factual number", () => {
+  const task = {
+    title: "Assess current distributor performance",
+    description: "Assess the distributor's current sales and operating metrics from supplied source material.",
+  };
+  const verdict = checkWorkerGrounding(task, {
+    status: "completed",
+    claims: [
+      {
+        claim: "Acme Paints operates 42 outlets in Punjab.",
+        source_id: "doc-123",
+        source_excerpt: "Acme Paints operates 12 outlets in Punjab.",
+      },
+    ],
+  });
+  assert(!verdict.ok && verdict.reason.includes("numeric fact"), "unsupported numeric claim must be rejected");
+});
+
+
 // ── B / C: objective verification over the full task set ─────────────────
 const doneInternal = (id: string, title: string) => ({ id, title, description: "Write a structured entry into fleet_memory.", status: "done", output: JSON.stringify({ status: "completed", entry: "ok" }) });
 const doneDispatch = (id: string, status: string) => ({ id, title: "Search knowledge vault", description: "Search the knowledge vault.", status: "done", output: JSON.stringify({ llmResult: {}, companyOsDispatch: { capability: "knowledge.search", status } }) });
