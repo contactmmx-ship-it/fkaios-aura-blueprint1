@@ -129,7 +129,7 @@ export async function prepareObjectiveContract(objective:{id:string;raw_request:
     fit_score:0, quality_score:Math.min(100,Math.round(Math.min(100,Number(r.stars||0)/100))), continuity_score:0,
     availability_score:100, cost_score:100, risk_score:r.license ? 0 : 25
   }));
-  const context={objective:objective.raw_request,objectiveType:type,existingWork:existing,githubCandidates:githubOptions.slice(0,8),capabilities:scoredCapabilities.slice(0,12)};
+  const context={objective:objective.raw_request,objectiveType:type,existingWork:existing,githubQueries:github.queries ?? [],githubCandidates:githubOptions.slice(0,20),capabilities:scoredCapabilities.slice(0,12)};
   const response=await reason(
     "You are the FKAIOS Solution Architect. Convert the founder objective into a precise execution contract. Preserve the founder's intent; do not invent facts. Reuse existing work before new work. If a repository/capability is only a partial match, explicitly describe what must be adapted. Translate vague quality language such as premium or enterprise into measurable acceptance criteria. Return ONLY JSON.",
     JSON.stringify(context),
