@@ -127,16 +127,41 @@ function extractDeterministicEvidence(
     }
     if (!parsed || typeof parsed !== "object") continue;
     const dispatch = (parsed as Record<string, unknown>).companyOsDispatch;
+    const llmResult = (parsed as Record<string, unknown>).llmResult;
+    const capabilityResult =
+      llmResult && typeof llmResult === "object" &&
+      (llmResult as Record<string, unknown>).capability_result;
+    const capability =
+      dispatch && typeof dispatch === "object"
+        ? String((dispatch as Record<string, unknown>).capability ?? "unknown")
+        : llmResult && typeof llmResult === "object"
+          ? String((llmResult as Record<string, unknown>).capability ?? "unknown")
+          : "unknown";
+
+    // product.build/deploy/verify are measured by their capability_result.
+    // work-engine deliberately does NOT dispatch these through Company OS
+    // again, so companyOsDispatch.status may legitimately be "unknown_capability"
+    // even when the measured product operation succeeded.
+    const measuredProductSuccess =
+      ["product.build", "product.deploy", "product.verify"].includes(capability) &&
+      capabilityResult !== undefined &&
+      typeof capabilityResult === "object" &&
+      (
+        (capabilityResult as Record<string, unknown>).live === true ||
+        String((capabilityResult as Record<string, unknown>).product_status ?? "") === "live"
+      );
+
     if (
-      dispatch && typeof dispatch === "object" &&
-      typeof (dispatch as Record<string, unknown>).status === "string"
+      measuredProductSuccess ||
+      (dispatch && typeof dispatch === "object" &&
+        typeof (dispatch as Record<string, unknown>).status === "string")
     ) {
-      const status = (dispatch as Record<string, unknown>).status as string;
+      const status = measuredProductSuccess
+        ? "success"
+        : String((dispatch as Record<string, unknown>).status);
       evidence.push({
         taskId: String(task.id ?? "unknown"),
-        capability: String(
-          (dispatch as Record<string, unknown>).capability ?? "unknown",
-        ),
+        capability,
         dispatchStatus: status,
         verified: status === "success",
       });
@@ -175,12 +200,37 @@ async function evaluateObjective(
 
   const deterministicEvidence = extractDeterministicEvidence(tasks);
 
-  // TASK-SET GATE: judge the objective by its CURRENT task set (the latest
-  // planning pass; projects arrive newest-first), task by task, not by
-  // whether some evidence record exists somewhere. A task that needs
-  // real-world facts but has no capability evidence blocks the objective
-  // outright: replanning cannot supply a data source, a human has to.
+  // If an earlier planning pass already produced a fully verified live
+  // artifact, a later recovery/replan pass must not erase that real outcome.
+  // This prevents transient worker failures from turning a completed product
+  // back into "Executing".
+  const historicalVerifiedLiveProject = contract.requiresLiveArtifact && projects.some((project) => {
+    const projectId = String(project.id ?? "");
+    if (!projectId) return false;
+    const projectTasks = tasks.filter((task) => String(task.project_id ?? "") === projectId);
+    if (projectTasks.length === 0) return false;
+    const gate = assessObjectiveTasks(projectTasks as TaskEvidenceRecord[]);
+    const liveEvidence = projectTasks.some((task) =>
+      typeof task.output === "string" &&
+      /https?:\/\//.test(task.output) &&
+      /live|deploy|url|production|vercel|netlify/i.test(task.output)
+    );
+    return gate.allVerified && liveEvidence;
+  });
+
+  // TASK-SET GATE: normally judge the CURRENT task set (the latest planning
+  // pass). A historical verified live project is an explicit recovery path.
   const taskGate = assessCurrentTaskSet(projects, tasks);
+
+  if (historicalVerifiedLiveProject) {
+    return {
+      achieved: true,
+      blocked: false,
+      failed: false,
+      reason: "Objective achieved: a planning pass produced a live deployed product with a fully verified task set; later retry projects are recovery history.",
+      next_action: "",
+    };
+  }
   if (projects.length > 0 && taskGate.blocked) {
     return {
       achieved: false,
@@ -346,26 +396,52 @@ async function markObjective(
 ) {
   const boundedSummary = summary.slice(0, 5000);
 
-  // Defense-in-depth: no caller may mark an objective completed unless the
-  // current planning pass has verified evidence for every task.
+  // Defense-in-depth: completion must be backed by a fully verified planning
+  // pass. For live-product objectives, an earlier verified live artifact remains
+  // valid even if a later retry/replan project is incomplete.
   if (status === "completed") {
     const { data: projects, error: projectError } = await supabase
       .from("orchestration_projects")
-      .select("id")
+      .select("id, final_output")
       .like("request", `[objective:${objectiveId}]%`)
       .order("created_at", { ascending: false });
     if (projectError) throw new Error(`Completion gate could not load projects: ${projectError.message}`);
-    const latestProjectId = projects?.[0]?.id;
-    if (!latestProjectId) throw new Error("Completion gate rejected objective: no execution project exists.");
+    if (!projects?.length) throw new Error("Completion gate rejected objective: no execution project exists.");
 
-    const { data: currentTasks, error: taskError } = await supabase
+    const { data: allTasks, error: taskError } = await supabase
       .from("orchestration_tasks")
       .select("id,title,description,status,output,project_id")
-      .eq("project_id", latestProjectId);
+      .in("project_id", projects.map((p) => p.id));
     if (taskError) throw new Error(`Completion gate could not load tasks: ${taskError.message}`);
 
-    const gate = assessCurrentTaskSet(projects ?? [], (currentTasks ?? []) as TaskEvidenceRecord[]);
-    if (!gate.allVerified) throw new Error(`Completion gate rejected objective: ${gate.reason}`);
+    let completionProjectId: string | null = null;
+    for (const project of projects) {
+      const projectTasks = (allTasks ?? []).filter((t) => String(t.project_id ?? "") === String(project.id));
+      const gate = assessObjectiveTasks(projectTasks as TaskEvidenceRecord[]);
+      const liveEvidence = projectTasks.some((task) =>
+        typeof task.output === "string" &&
+        /https?:\/\//.test(task.output) &&
+        /live|deploy|url|production|vercel|netlify/i.test(task.output)
+      );
+      if (gate.allVerified && liveEvidence) {
+        completionProjectId = String(project.id);
+        break;
+      }
+    }
+
+    if (!completionProjectId) {
+      const latestProjectId = projects[0]?.id;
+      const latestTasks = (allTasks ?? []).filter((t) => String(t.project_id ?? "") === String(latestProjectId));
+      const gate = assessCurrentTaskSet(projects, latestTasks as TaskEvidenceRecord[]);
+      if (!gate.allVerified) throw new Error(`Completion gate rejected objective: ${gate.reason}`);
+      completionProjectId = String(latestProjectId);
+    }
+
+    const { error: markProjectError } = await supabase
+      .from("orchestration_projects")
+      .update(projectUpdateForObjective(status, boundedSummary))
+      .eq("id", completionProjectId);
+    if (markProjectError) throw new Error(`Failed updating completion project ${completionProjectId}: ${markProjectError.message}`);
   }
 
   const { error } = await supabase
