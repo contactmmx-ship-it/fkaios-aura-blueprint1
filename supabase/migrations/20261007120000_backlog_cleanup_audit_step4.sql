@@ -22,6 +22,12 @@
 --    what the Console shows. Projects are never set to 'complete' here
 --    (trg_fkaios_task_terminal_guard would then mark their tasks done).
 
+-- Applied to production on 2026-10-07 in parts: A as
+-- backlog_cleanup_audit_step4_a_duplicate_approvals, C as
+-- backlog_cleanup_audit_step4_c_archive_stale_projects. B was not applied yet:
+-- every write to orchestrator_requests through the Supabase connector timed
+-- out. A and C are idempotent; re-run C after B.
+
 set local lock_timeout = '5s';
 
 -- A ─────────────────────────────────────────────────────────────────────────
