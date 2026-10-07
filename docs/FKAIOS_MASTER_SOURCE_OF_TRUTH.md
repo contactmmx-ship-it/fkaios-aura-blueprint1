@@ -14,6 +14,8 @@
 
 > **Raw layer:** the full conversations and records this document is built from are in [`docs/fkaios-archive/`](fkaios-archive/00_INDEX.md). Everything in one file: `docs/fkaios-archive/FKAIOS_ALL_CHATS_MERGED.md`.
 
+> **Latest audit (strengths and weaknesses):** [`docs/FKAIOS_AUDIT_2026-10-07.md`](FKAIOS_AUDIT_2026-10-07.md)
+
 ## 0. Read this first (rules for any person or AI tool)
 
 This is the reference document for FKAIOS. Before changing anything:
