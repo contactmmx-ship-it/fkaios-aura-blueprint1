@@ -243,10 +243,14 @@ async function persistRuntimeProviderSuccess(provider: ProviderName): Promise<vo
   const db = healthDb();
   if (!db) return;
   try {
-    await db.from("provider_health_state").update({
-      status: "healthy", failure_category: null, reason: null, unavailable_until: null,
+    // provider_health_state_status_check allows only available/degraded/
+    // unavailable. "healthy" was rejected (400) and the error was never read,
+    // so a recovered provider was never marked available again.
+    const { error } = await db.from("provider_health_state").update({
+      status: "available", failure_category: null, reason: null, unavailable_until: null,
       consecutive_failures: 0, last_success_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     }).eq("provider", provider);
+    if (error) console.warn(JSON.stringify({ level: "WARN", message: "provider health success write failed", provider, error: error.message }));
   } catch { /* telemetry must never break execution */ }
 }
 
