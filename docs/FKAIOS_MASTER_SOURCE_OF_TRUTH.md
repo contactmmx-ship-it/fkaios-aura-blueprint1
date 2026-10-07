@@ -50,6 +50,26 @@ This is the reference document for FKAIOS. Before changing anything:
 
 ---
 
+## Objective loop proven end to end (7 Oct 2026, 15:04–15:18 UTC)
+
+Rajeev ran this through the Console. Each line below is a persisted production row.
+
+| Stage | Evidence |
+|---|---|
+| Founder decision | Approval `66413f30` `rejected` by `founder` at 15:04:52. Request `a44e6eac` → `failed`, "Founder rejected via Decision Center". The rejection path works |
+| Objective | `4e50bb9a-25a0-4fcc-adbc-f224635714f3`, created 15:08:15 from the Console (`classification=founder_objective`, risk `low`, dept `EXECUTIVE`) |
+| Contract | `objective_contracts`: `business_execution`, status `verified` |
+| Plan | Project `7f1300fb`, 3 tasks |
+| Jobs | 3 `work_engine_task` jobs, all `completed`, 0 retries |
+| Workers | 3 `agent_runs` `completed` (1.9 s, 59.7 s, 42.6 s); none left `running` |
+| Grounding | 2 tasks carry a successful `knowledge.search` dispatch to the System Charter (similarity 0.896–0.927) |
+| Verification evidence | **First-ever `fkaios_verification_evidence` row**: `completion_gate:all_tasks_verified`, `deterministic_task_gate`, `passed`, 15:17:53, with each task's status and dispatch |
+| Deliverable | `final_output` (5,196 chars) begins `# Result` and contains every task's work product, not only the summary |
+| Verdict | Objective `completed` by `objective_loop`; shown COMPLETED with all 3 deliverables in the Console |
+| Provider | Gemini; `provider_health_state.last_success_at` now updates (15:45:15) after the router fix in #43 |
+
+**Quality gap found (next fix):** the answer listed three rules, but only two are real limits: Level 3 auto-executes only low-risk actions, and Level 4 executes only after MD approval. The third, "Organizational Foundation & Leadership", is not a limit on AI agents. The vault excerpts handed to workers are cut at about 250 characters; the Level 4 passage stops at "…ALL", so the charter's next rule never reached the worker. The completion gate checks that work is sourced and complete; it does not check whether the answer is correct. Fix next: pass full matched chunk text, not truncated excerpts, to workers; then add an answer-quality check to evaluation.
+
 ## Latest checkpoint (7 Oct 2026, 11:10 UTC). Read this before §1
 
 Verified live. It supersedes the provider and backlog figures in §1, which date from 05:41 UTC.
