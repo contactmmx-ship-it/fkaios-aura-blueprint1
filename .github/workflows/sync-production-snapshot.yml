@@ -1,0 +1,126 @@
+name: Snapshot FKAIOS production state
+# Read-only export of what is actually running in Supabase production, so the
+# repository can hold an exact record of it (audit 2026-10-07, weakness 3:
+# 113 live migrations vs 36 in the repo; most edge functions hand-deployed).
+#
+# - Reads every applied migration (version, name, SQL) through the Supabase
+#   Management API and every edge function's deployed source via the CLI.
+# - Writes them under supabase/live-snapshot/ (NOT supabase/migrations or
+#   supabase/functions, so nothing here is ever deployed or re-applied).
+# - Redacts JWTs, API keys and secret= query values before committing.
+# - Pushes to a new branch snapshot/production-<timestamp>; never to main.
+# Production is not modified by this workflow.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: nrlsqshkjuuwiovthrnb
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.67.1
+
+      - name: Export applied migrations
+        run: |
+          set -euo pipefail
+          mkdir -p supabase/live-snapshot/migrations
+          curl -sS --fail -X POST \
+            "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/database/query" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{"query":"select version, name, array_to_string(statements, E'\'';\\n\\n'\'') as sql from supabase_migrations.schema_migrations order by version"}' \
+            > /tmp/migrations.json
+          python3 - <<'PY'
+          import json, os, re
+          rows = json.load(open('/tmp/migrations.json'))
+          out = 'supabase/live-snapshot/migrations'
+          for r in rows:
+              name = re.sub(r'[^a-z0-9_]+', '_', (r['name'] or 'unnamed').lower())
+              with open(os.path.join(out, f"{r['version']}_{name}.sql"), 'w') as f:
+                  f.write(f"-- Applied in production as version {r['version']} ({r['name']}).\n")
+                  f.write("-- Exported read-only by sync-production-snapshot.yml. Do not apply from here.\n\n")
+                  f.write((r['sql'] or '').rstrip() + '\n')
+          print(f"exported {len(rows)} migrations")
+          PY
+
+      - name: Export deployed edge function sources
+        run: |
+          set -uo pipefail
+          mkdir -p supabase/live-snapshot/functions /tmp/fnsnap
+          supabase functions list --project-ref "$SUPABASE_PROJECT_REF" -o json > /tmp/functions.json
+          python3 - <<'PY' > /tmp/slugs.txt
+          import json
+          for f in json.load(open('/tmp/functions.json')):
+              print(f['slug'])
+          PY
+          : > supabase/live-snapshot/functions/_download_failures.txt
+          while read -r slug; do
+            rm -rf /tmp/fnsnap/supabase
+            if supabase functions download "$slug" --project-ref "$SUPABASE_PROJECT_REF" --workdir /tmp/fnsnap >/dev/null 2>&1; then
+              mkdir -p "supabase/live-snapshot/functions/$slug"
+              cp -R /tmp/fnsnap/supabase/functions/. "supabase/live-snapshot/functions/$slug/"
+            else
+              echo "$slug" >> supabase/live-snapshot/functions/_download_failures.txt
+            fi
+          done < /tmp/slugs.txt
+          python3 - <<'PY'
+          import json
+          fns = json.load(open('/tmp/functions.json'))
+          keep = ['slug', 'version', 'status', 'verify_jwt', 'entrypoint_path', 'updated_at', 'ezbr_sha256']
+          rows = [{k: f.get(k) for k in keep} for f in fns]
+          for r in rows:
+              ep = r.get('entrypoint_path') or ''
+              r['deployed_via'] = 'github_ci' if '/home/runner/work/' in ep else 'manual'
+          json.dump(sorted(rows, key=lambda r: r['slug']), open('supabase/live-snapshot/functions/_manifest.json', 'w'), indent=2)
+          print(f"manifest: {len(rows)} functions")
+          PY
+
+      - name: Redact secrets
+        run: |
+          python3 - <<'PY'
+          import os, re
+          pats = [
+            (re.compile(r'eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}'), '<REDACTED_JWT>'),
+            (re.compile(r'(secret=)[A-Za-z0-9]{8,}'), r'\1<REDACTED>'),
+            (re.compile(r'(sk-[A-Za-z0-9_\-]{4})[A-Za-z0-9_\-]{16,}'), r'\1<REDACTED>'),
+            (re.compile(r'(ghp_|github_pat_)[A-Za-z0-9_]{10,}'), r'\1<REDACTED>'),
+            (re.compile(r"(['\"]x-(?:vault|heartbeat)-secret['\"]\s*[:,]\s*['\"])[^'\"]{6,}(['\"])", re.I), r'\1<REDACTED>\2'),
+          ]
+          n = 0
+          for root, _, files in os.walk('supabase/live-snapshot'):
+              for fn in files:
+                  p = os.path.join(root, fn)
+                  try:
+                      s = open(p, encoding='utf-8').read()
+                  except UnicodeDecodeError:
+                      continue
+                  t = s
+                  for rx, rep in pats:
+                      t = rx.sub(rep, t)
+                  if t != s:
+                      open(p, 'w', encoding='utf-8').write(t); n += 1
+          print(f"redacted secrets in {n} files")
+          PY
+
+      - name: Push snapshot branch
+        run: |
+          set -euo pipefail
+          branch="snapshot/production-$(date -u +%Y%m%d-%H%M%S)"
+          git config user.name "fkaios-snapshot-bot"
+          git config user.email "fkaios-snapshot-bot@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add supabase/live-snapshot
+          git commit -m "snapshot: export production migrations and edge function sources (read-only)" || { echo "nothing to snapshot"; exit 0; }
+          git push origin "$branch"
+          echo "Pushed $branch"
