@@ -3,7 +3,7 @@ import { reason } from "./founder-brain.ts";
 import { planObjective } from "./executive-planner.ts";
 import { allocateProjectWork, returnCompletedWork } from "./work-engine.ts";
 import { assessCurrentTaskSet, assessObjectiveTasks, formatBlockedSummary, type TaskEvidenceRecord } from "./fact-grounding.ts";
-import { isRerunRequested, OBJECTIVE_LOOP, projectUpdateForObjective } from "./objective-rerun.ts";
+import { buildObjectiveDeliverable, isRerunRequested, OBJECTIVE_LOOP, projectUpdateForObjective } from "./objective-rerun.ts";
 import { completionContract } from "./objective-contract.ts";
 
 type ObjectiveLoopResult = {
@@ -531,6 +531,60 @@ async function loadObjectiveState(
   };
 }
 
+// Independent, deterministic record that the completion gate passed: which
+// tasks were verified, with what status and capability evidence. Written
+// before anything is marked complete, and a failed write blocks completion,
+// so no objective can be COMPLETED without a fkaios_verification_evidence row.
+async function recordCompletionEvidence(
+  supabase: ReturnType<typeof createClient>,
+  objectiveId: string,
+  projectId: string,
+  tasks: Record<string, unknown>[],
+) {
+  const requirementKey = "completion_gate:all_tasks_verified";
+  const { data: existing, error: readError } = await supabase
+    .from("fkaios_verification_evidence")
+    .select("id")
+    .eq("objective_id", objectiveId)
+    .eq("requirement_key", requirementKey)
+    .eq("status", "passed")
+    .limit(1)
+    .maybeSingle();
+  if (readError) throw new Error(`Completion evidence could not be checked: ${readError.message}`);
+  if ((existing as { id?: string } | null)?.id) return;
+
+  const taskEvidence = tasks.map((t) => {
+    let dispatch: Record<string, unknown> | null = null;
+    try {
+      const parsed = JSON.parse(String(t.output ?? ""));
+      const d = parsed?.companyOsDispatch;
+      if (d && typeof d === "object") dispatch = { capability: d.capability ?? null, status: d.status ?? null };
+    } catch {
+      // plain-text output: no capability dispatch recorded
+    }
+    return {
+      task_id: String(t.id ?? ""),
+      title: String(t.title ?? "").slice(0, 200),
+      status: String(t.status ?? ""),
+      output_chars: typeof t.output === "string" ? t.output.length : 0,
+      capability_dispatch: dispatch,
+    };
+  });
+
+  const { error } = await (supabase.from("fkaios_verification_evidence") as ReturnType<typeof supabase.from>).insert({
+    objective_id: objectiveId,
+    project_id: projectId,
+    requirement_key: requirementKey,
+    evidence_type: "deterministic_task_gate",
+    observed_result: { project_id: projectId, task_count: tasks.length, tasks: taskEvidence },
+    verifier: "objective-loop-completion-gate",
+    status: "passed",
+    verification_notes: "Every task in the completing project is terminal-success with persisted output, and fact-dependent tasks carry a successful capability dispatch (assessObjectiveTasks/assessCurrentTaskSet).",
+    verified_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(`Completion evidence could not be recorded: ${error.message}`);
+}
+
 async function markObjective(
   supabase: ReturnType<typeof createClient>,
   objectiveId: string,
@@ -538,6 +592,8 @@ async function markObjective(
   summary: string,
 ) {
   const boundedSummary = summary.slice(0, 5000);
+  let completionProjectId: string | null = null;
+  let deliverable: string | undefined;
 
   // Defense-in-depth: completion must be backed by a fully verified planning
   // pass. For live-product objectives, an earlier verified live artifact remains
@@ -545,7 +601,7 @@ async function markObjective(
   if (status === "completed") {
     const { data: projects, error: projectError } = await supabase
       .from("orchestration_projects")
-      .select("id, final_output")
+      .select("id, final_output, output_type")
       .like("request", `[objective:${objectiveId}]%`)
       .order("created_at", { ascending: false });
     if (projectError) throw new Error(`Completion gate could not load projects: ${projectError.message}`);
@@ -553,11 +609,10 @@ async function markObjective(
 
     const { data: allTasks, error: taskError } = await supabase
       .from("orchestration_tasks")
-      .select("id,title,description,status,output,project_id")
+      .select("id,title,description,status,output,project_id,created_at")
       .in("project_id", projects.map((p) => p.id));
     if (taskError) throw new Error(`Completion gate could not load tasks: ${taskError.message}`);
 
-    let completionProjectId: string | null = null;
     for (const project of projects) {
       const projectTasks = (allTasks ?? []).filter((t) => String(t.project_id ?? "") === String(project.id));
       const gate = assessObjectiveTasks(projectTasks as TaskEvidenceRecord[]);
@@ -580,9 +635,18 @@ async function markObjective(
       completionProjectId = String(latestProjectId);
     }
 
+    const completionTasks = ((allTasks ?? []) as Record<string, unknown>[]).filter((t) => String(t.project_id ?? "") === completionProjectId);
+    await recordCompletionEvidence(supabase, objectiveId, completionProjectId, completionTasks);
+    // HTML products are previewed and downloaded as-is by the Console, so
+    // they keep their own final_output; everything else gets the real work.
+    const completionProject = (projects as Record<string, unknown>[]).find((p) => String(p.id) === completionProjectId);
+    deliverable = completionProject?.output_type === "html"
+      ? undefined
+      : buildObjectiveDeliverable(boundedSummary, completionTasks);
+
     const { error: markProjectError } = await supabase
       .from("orchestration_projects")
-      .update(projectUpdateForObjective(status, boundedSummary))
+      .update(projectUpdateForObjective(status, boundedSummary, deliverable))
       .eq("id", completionProjectId);
     if (markProjectError) throw new Error(`Failed updating completion project ${completionProjectId}: ${markProjectError.message}`);
   }
@@ -627,7 +691,7 @@ async function markObjective(
 
   const { error: projectUpdateError } = await supabase
     .from("orchestration_projects")
-    .update(projectUpdateForObjective(status, boundedSummary))
+    .update(projectUpdateForObjective(status, boundedSummary, String(projectId) === completionProjectId ? deliverable : undefined))
     .eq("id", projectId);
 
   if (projectUpdateError) {

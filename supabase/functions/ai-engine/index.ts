@@ -1388,8 +1388,49 @@ async function finishAgentRun(runId: string | null, status: "completed" | "faile
   }
 }
 
+// Closes agent_runs left in 'running' by an invocation that died mid-job (or
+// by the pre-2026-10-07 retry path), matching each to its job's real outcome.
+// A run whose job is still running is left alone. Non-blocking.
+const STALE_AGENT_RUN_MS = 30 * 60 * 1000;
+async function reapStaleAgentRuns(cid: string): Promise<void> {
+  try {
+    const cutoff = new Date(Date.now() - STALE_AGENT_RUN_MS).toISOString();
+    const { data: runs, error } = await supabase.from("agent_runs")
+      .select("id, metadata, created_at")
+      .eq("status", "running")
+      .lt("created_at", cutoff)
+      .limit(200);
+    if (error) throw error;
+    if (!runs?.length) return;
+    const jobIds = [...new Set(runs.map((r) => (r.metadata as Record<string, unknown> | null)?.job_id).filter((id): id is string => typeof id === "string"))];
+    const jobStatus = new Map<string, string>();
+    if (jobIds.length) {
+      const { data: jobs, error: jobError } = await supabase.from("ai_jobs").select("id, status").in("id", jobIds);
+      if (jobError) throw jobError;
+      for (const j of jobs ?? []) jobStatus.set(String(j.id), String(j.status));
+    }
+    let closed = 0;
+    for (const run of runs) {
+      const jobId = (run.metadata as Record<string, unknown> | null)?.job_id;
+      const status = typeof jobId === "string" ? jobStatus.get(jobId) : undefined;
+      if (status === "running") continue;
+      const runStatus = status === "completed" ? "completed" : "failed";
+      const { error: updateError } = await supabase.from("agent_runs").update({
+        status: runStatus,
+        output: JSON.stringify({ reaped: true, reason: "agent_run was never closed by its invocation", job_status: status ?? "missing" }),
+        completed_at: new Date().toISOString(),
+      }).eq("id", run.id).eq("status", "running");
+      if (!updateError) closed++;
+    }
+    if (closed) structuredLog("INFO", "Closed stale agent_runs", { closed, examined: runs.length }, cid);
+  } catch (err) {
+    structuredLog("WARN", "Stale agent_run reaper failed (non-blocking)", { error: err instanceof Error ? err.message : String(err) }, cid);
+  }
+}
+
 async function runJobs(cid: string) {
   structuredLog("INFO", "Running pending jobs", {}, cid);
+  await reapStaleAgentRuns(cid);
   const jobs: AIJob[] = await fetchJobBatch(cid);
   const results: Array<{ job_id: string; status: string; result?: Record<string, unknown>; error?: string }> = [];
   for (const job of jobs) {
@@ -1523,7 +1564,10 @@ async function runJobs(cid: string) {
       if (newStatus === "failed") {
         await recordOutcome(job, "failed", { error: errorMessage, kernel_disposition: disposition }, `${job.type} failed after ${newRetryCount} attempt(s), disposition ${disposition}: ${errorMessage}`, cid);
       }
-      if (newStatus === "failed") await finishAgentRun(agentRunId, "failed", { error: errorMessage, kernel_disposition: disposition }, agentRunStartedAt, cid);
+      // Every attempt closes its own agent_run: a retried job gets a fresh run
+      // on its next attempt, so leaving this one open would strand it in
+      // 'running' forever (66 such rows were found on 2026-10-07).
+      await finishAgentRun(agentRunId, "failed", { error: errorMessage, kernel_disposition: disposition, will_retry: newStatus === "retry" }, agentRunStartedAt, cid);
       results.push({ job_id: job.id, status: newStatus, error: errorMessage });
     }
   }

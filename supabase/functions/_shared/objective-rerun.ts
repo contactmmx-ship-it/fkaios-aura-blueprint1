@@ -50,14 +50,61 @@ export const PROJECT_STATUSES = ["planning", "working", "reviewing", "reworking"
 export type ObjectiveDecision = "completed" | "failed" | "awaiting_approval";
 
 // The project projection of an objective decision. A completed objective
-// completes its project with the summary as final_output; a failed one fails
+// completes its project with the deliverable (or, failing that, the summary)
+// as final_output; a failed one fails
 // it. A blocked objective (awaiting_approval) is not finished and can be
 // re-run, so the project keeps its current non-terminal status and only
 // records the blocker.
-export function projectUpdateForObjective(status: ObjectiveDecision, summary: string): Record<string, unknown> {
+export function projectUpdateForObjective(status: ObjectiveDecision, summary: string, deliverable?: string): Record<string, unknown> {
   if (status === "completed") {
-    return { status: "complete", final_output: summary, draft_final_output: null, error_message: null };
+    return { status: "complete", final_output: deliverable || summary, draft_final_output: null, error_message: null };
   }
   if (status === "failed") return { status: "failed", error_message: summary };
   return { error_message: summary };
+}
+
+export const MAX_DELIVERABLE_CHARS = 60000;
+
+export interface DeliverableTask {
+  title?: unknown;
+  status?: unknown;
+  output?: unknown;
+  created_at?: unknown;
+}
+
+// Pull the human-readable part out of a persisted task output. Worker results
+// are JSON envelopes; when one carries an explicit deliverable, that is the
+// work product. Otherwise the output is kept as written (pretty-printed when
+// it is JSON) so nothing the worker produced is hidden or reworded.
+function taskWorkProduct(output: string): string {
+  const trimmed = output.trim();
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object") {
+      const obj = parsed as Record<string, unknown>;
+      const product = obj.deliverable ?? obj.content ?? obj.result;
+      if (typeof product === "string" && product.trim()) return product.trim();
+      if (product && typeof product === "object") return JSON.stringify(product, null, 2);
+      return JSON.stringify(parsed, null, 2);
+    }
+  } catch {
+    // not JSON: plain text output
+  }
+  return trimmed;
+}
+
+// The final_output of a completed objective: the verdict followed by every
+// completed task's actual work product, in execution order. Built only from
+// persisted task outputs, never generated, so it is exactly what was verified.
+export function buildObjectiveDeliverable(summary: string, tasks: DeliverableTask[]): string {
+  const done = tasks
+    .filter((t) => typeof t.output === "string" && String(t.output).trim() &&
+      ["completed", "done", "verified"].includes(String(t.status ?? "").toLowerCase()))
+    .sort((a, b) => String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")));
+  if (!done.length) return summary;
+  const sections = done.map((t, i) => `## ${i + 1}. ${String(t.title ?? "Task").trim()}\n\n${taskWorkProduct(String(t.output))}`);
+  const text = `# Result\n\n${summary.trim()}\n\n${sections.join("\n\n")}\n`;
+  return text.length > MAX_DELIVERABLE_CHARS
+    ? `${text.slice(0, MAX_DELIVERABLE_CHARS)}\n\n…(truncated at ${MAX_DELIVERABLE_CHARS} characters; full task outputs remain in orchestration_tasks)\n`
+    : text;
 }

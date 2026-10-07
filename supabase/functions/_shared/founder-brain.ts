@@ -729,6 +729,7 @@ export const founderAgent: FounderAgent = {
       description: String(task.description ?? task.content ?? "unlabeled task"),
       department_code: task.department_code as string | undefined,
       risk_level: task.risk_level as TaskCandidate["risk_level"],
+      autonomous: true,
     });
     const row = result.data as { id?: string } | null;
     if (result.status !== "success" || !row?.id) throw new Error(`assignTask failed: ${result.error ?? "no id returned"}`);
@@ -1016,23 +1017,34 @@ export interface TaskCandidate {
   description: string;
   department_code?: string;
   risk_level?: "low" | "medium" | "high" | "critical";
+  // True when the Founder Brain proposed this itself (cognitiveTick,
+  // founderAgent) rather than the founder submitting it. Self-generated
+  // objectives never start on their own, whatever their assessed risk: the
+  // audit of 2026-10-07 found the Brain auto-starting strategies such as
+  // "kill the cron loops" and "inject personal capital".
+  autonomous?: boolean;
 }
 
 export async function createTask(userId: string, task: TaskCandidate, correlationId: string = cid()): Promise<DataSourceResult> {
   const client = getFounderBrainClient();
-  const needsApproval = task.risk_level === "high" || task.risk_level === "critical";
+  const needsApproval = task.autonomous === true || task.risk_level === "high" || task.risk_level === "critical";
   try {
     // GOVERNANCE SINGLE-ACTIVE GATE: Founder Brain must not accumulate a
     // queue of unresolved high/critical actions. One unresolved Founder Brain
     // approval is the active decision. Later cognitive ticks are blocked until
     // that decision is resolved. This preserves every historical row for audit
     // while preventing the Brain from generating a new approval every cycle.
-    if (needsApproval) {
+    // Scoped to the Brain's own proposals: a founder-submitted objective is
+    // never swallowed by an unrelated pending proposal, and objectives the
+    // objective loop BLOCKED (action_taken set) are not proposals.
+    if (needsApproval && task.autonomous === true) {
       const { data: existingRequests } = await client
         .from("orchestrator_requests")
         .select("id, status, raw_request, department_code, risk_level, approval_id")
         .eq("requested_by", "founder-brain")
         .eq("status", "awaiting_approval")
+        .not("approval_id", "is", null)
+        .is("action_taken", null)
         .order("created_at", { ascending: false })
         .limit(1);
       if (existingRequests && existingRequests.length > 0) {
@@ -1077,7 +1089,9 @@ export async function createTask(userId: string, task: TaskCandidate, correlatio
           action_type: "founder_brain_task",
           payload: { orchestrator_request_id: data.id, description: task.description },
           risk_level: task.risk_level,
-          reason: `Founder Brain assessed this task as ${task.risk_level} risk before assignment`,
+          reason: task.autonomous === true
+            ? `Founder Brain proposed this objective itself (assessed ${task.risk_level ?? "low"} risk); it starts only if the founder approves`
+            : `Founder Brain assessed this task as ${task.risk_level} risk before assignment`,
         }).select("id").single();
 
         if (approvalInsertError) throw approvalInsertError;
@@ -1562,7 +1576,7 @@ export async function cognitiveTick(userId: string): Promise<TickResult> {
         departmentCode: assignedDepartment,
         riskLevel: assessedRisk,
       }, correlationId);
-      const result = await createTask(userId, { description: strategySelected.description.slice(0, 500), department_code: assignedDepartment, risk_level: assessedRisk }, correlationId);
+      const result = await createTask(userId, { description: strategySelected.description.slice(0, 500), department_code: assignedDepartment, risk_level: assessedRisk, autonomous: true }, correlationId);
       const row = result.data as { id?: string } | null;
       if (result.status === "success" && row?.id) assigned = { taskId: row.id };
     } catch (err) {

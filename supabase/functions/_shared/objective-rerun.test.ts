@@ -1,7 +1,7 @@
 /// <reference lib="deno.ns" />
 // Regression tests for the research-evidence rules and the BLOCKED -> re-run
 // path, using the live Bharat Paints task set (objective 79ef3604).
-import { canRerun, isRerunRequested, PROJECT_STATUSES, projectUpdateForObjective, rerunUpdate } from "./objective-rerun.ts";
+import { buildObjectiveDeliverable, canRerun, isRerunRequested, MAX_DELIVERABLE_CHARS, PROJECT_STATUSES, projectUpdateForObjective, rerunUpdate } from "./objective-rerun.ts";
 import {
   assessCurrentTaskSet,
   assessTaskEvidence,
@@ -134,4 +134,46 @@ Deno.test("P4: a genuinely completed objective persists final_output and clears 
   const update = projectUpdateForObjective("completed", "Verified report: 3 risks, 3 actions, P1/P2/P3 plan.");
   assert(update.final_output === "Verified report: 3 risks, 3 actions, P1/P2/P3 plan.", "final_output must be the objective summary");
   assert(update.draft_final_output === null && update.error_message === null, "draft and error must be cleared on completion");
+});
+
+// Shapes taken from the live charter objective 78f7828e (project 5258374c).
+const CHARTER_TASKS = [
+  {
+    title: "Develop Prioritized Execution Plan",
+    status: "done",
+    created_at: "2026-10-04 14:46:17.973715+00",
+    output: JSON.stringify({ status: "completed", task_id: "fc7446eb", deliverable: { title: "Prioritized Execution Plan: Path to ₹5 Crore Gate", phases: [{ phase_name: "Foundation (Months 1-3)" }] } }),
+  },
+  {
+    title: "Identify Strategic Priorities and Source Evidence",
+    status: "done",
+    created_at: "2026-10-04 14:44:00+00",
+    output: JSON.stringify({ companyOsDispatch: { capability: "knowledge.search", status: "success", evidence: { matches: [{ similarity: 0.902 }] } } }),
+  },
+  { title: "Never ran", status: "assigned", created_at: "2026-10-04 14:40:00+00", output: null },
+];
+
+Deno.test("V1: completed objective final_output carries the real work product, in execution order", () => {
+  const text = buildObjectiveDeliverable("Charter analysed; plan produced.", CHARTER_TASKS);
+  assert(text.startsWith("# Result\n\nCharter analysed; plan produced."), "the verdict leads the deliverable");
+  assert(text.includes("Prioritized Execution Plan: Path to ₹5 Crore Gate"), "the task's explicit deliverable must be included");
+  assert(text.includes("knowledge.search") && text.includes("0.902"), "evidence-bearing task output is kept as written");
+  assert(text.indexOf("Identify Strategic Priorities") < text.indexOf("Develop Prioritized Execution Plan"), "tasks appear in execution order");
+  assert(!text.includes("Never ran"), "unfinished tasks are not presented as delivered work");
+});
+
+Deno.test("V2: no completed task output -> the summary stands alone (nothing invented)", () => {
+  assert(buildObjectiveDeliverable("Summary only.", [{ title: "x", status: "assigned", output: null }]) === "Summary only.", "no output means summary only");
+});
+
+Deno.test("V3: deliverable is bounded and says so when truncated", () => {
+  const big = buildObjectiveDeliverable("S", [{ title: "Big", status: "completed", output: "y".repeat(MAX_DELIVERABLE_CHARS * 2) }]);
+  assert(big.length < MAX_DELIVERABLE_CHARS + 300, "deliverable must be bounded");
+  assert(big.includes("truncated at"), "truncation must be stated, not silent");
+});
+
+Deno.test("V4: projectUpdateForObjective stores the deliverable when given, the summary otherwise", () => {
+  assert(projectUpdateForObjective("completed", "sum", "# Result\n\nwork").final_output === "# Result\n\nwork", "deliverable wins");
+  assert(projectUpdateForObjective("completed", "sum").final_output === "sum", "summary fallback");
+  assert(projectUpdateForObjective("failed", "why", "ignored").final_output === undefined, "a failed objective never gets a final_output");
 });
