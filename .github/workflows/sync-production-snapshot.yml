@@ -32,15 +32,21 @@ jobs:
           version: 2.67.1
 
       - name: Export applied migrations
+        # The CI access token may be scoped to function deploys only (the
+        # database query API then answers 403). Record that and keep going so
+        # the function-source export below still runs.
         run: |
-          set -euo pipefail
+          set -uo pipefail
           mkdir -p supabase/live-snapshot/migrations
-          curl -sS --fail -X POST \
+          if ! curl -sS --fail -X POST \
             "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/database/query" \
             -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
             -H "Content-Type: application/json" \
             -d '{"query":"select version, name, array_to_string(statements, E'\'';\\n\\n'\'') as sql from supabase_migrations.schema_migrations order by version"}' \
-            > /tmp/migrations.json
+            > /tmp/migrations.json; then
+            echo "Migration export unavailable with this token (database query API refused)." > supabase/live-snapshot/migrations/_EXPORT_UNAVAILABLE.txt
+            exit 0
+          fi
           python3 - <<'PY'
           import json, os, re
           rows = json.load(open('/tmp/migrations.json'))
