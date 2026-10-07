@@ -1,0 +1,5 @@
+-- Applied in production as version 20261006151939 (objective_contracts_governance_guard_v1).
+-- Exported read-only from supabase_migrations.schema_migrations on 2026-10-07 (md5 of statements: 7db3299e597b7180a719108a8eec868c).
+-- Record only: do not apply from this folder.
+
+create or replace function public.fkaios_objective_completion_allowed(p_objective_id uuid) returns boolean language plpgsql security definer set search_path=public as $$ declare c record; begin select status,acceptance_criteria,evidence_requirements,risk_level,founder_approval_required into c from public.objective_contracts where objective_id=p_objective_id order by version desc limit 1; if not found then return false; end if; if c.status <> 'verified' then return false; end if; if coalesce(jsonb_array_length(c.acceptance_criteria),0)=0 then return false; end if; if coalesce(jsonb_array_length(c.evidence_requirements),0)=0 then return false; end if; if c.risk_level in ('high','critical') and coalesce(c.founder_approval_required,true) then return false; end if; return true; end; $$;
