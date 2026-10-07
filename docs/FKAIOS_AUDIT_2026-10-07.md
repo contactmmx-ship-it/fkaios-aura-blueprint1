@@ -5,7 +5,7 @@
 - the repository (`main` at `07762b5`);
 - the history in `docs/fkaios-archive/`.
 
-**Nothing was changed during this audit.**
+**Audit note:** production cleanup and gating changes described below were applied after the initial read-only audit.
 
 ## Verdict in one paragraph
 
@@ -115,15 +115,16 @@ FKAIOS's **core engine is real and honest**. It takes an objective, plans it, ru
    - The engine is proven on internal and research tasks, not on revenue work.
 
 5. **Noise is drowning the signal.**
-   - 173 objectives failed in 14 days. 118 were the Founder Brain's *own* auto-generated objectives, superseded by the one-active-gate rule.
-   - 232 projects are stuck in `working`; 764 open tasks (585 `rework`).
-   - **337 approvals have waited since 4 July**, so the approval queue is effectively unusable.
-   - The Founder Brain still generates risky "strategies" on its own (e.g. "kill cron loops", "inject personal capital"). Two such objectives are stuck.
+   - The backlog cleanup audit has now expired 264 duplicate pricing-proposal approvals, leaving the newest proposal per lead pending.
+   - 190 stale projects whose objectives had already ended have been archived as `failed`; a small set of projects tied to the superseded Founder Brain requests was also archived after the gate cleanup.
+   - All 68 agent runs previously stuck in `running` have been closed against their real job outcomes (67 failed, 1 completed).
+   - The Founder Brain's five self-started objectives from 6–7 Oct are now gated: four were superseded/failed and the newest (`a44e6eac`) is `awaiting_approval` with approval `66413f30-d1a5-4228-b635-ee1e9d59089e`.
+   - The approval queue still needs founder triage; the cleanup did not make business decisions on the remaining approvals.
 
 6. **Verification and observability aren't finished.**
    - `fkaios_verification_evidence` has **0 rows** even though objectives completed.
    - `final_output` holds the evaluator's one-line summary, not the actual deliverable.
-   - 66 `agent_runs` never closed.
+   - The previously observed stuck `agent_runs` were cleaned up: 68 runs were closed (67 failed, 1 completed).
    - The `ai-engine-run-jobs-5min` cron gets 401 every 5 minutes (72 × 401 in 24 h).
 
 7. **No learning.** `ai_outcomes` has 7,266 rows, but `ai_evolution` = 0: results are recorded and never used to improve routing, prompts or plans.
@@ -138,6 +139,14 @@ FKAIOS's **core engine is real and honest**. It takes an objective, plans it, ru
 
 ---
 
+## Backlog cleanup execution checkpoint — 7 Oct 2026
+
+- **Part A applied:** 264 duplicate `price_and_send_proposal` approvals expired; the newest per lead remains pending.
+- **Part B applied:** the existing stale `founder_brain_task` gate was expired/superseded, four of the five 6–7 Oct self-started requests were marked failed/superseded, and the newest request `a44e6eac-da1e-4cb3-a55b-e3a7e644b789` is now `awaiting_approval` with approval `66413f30-d1a5-4228-b635-ee1e9d59089e`.
+- **Part C applied:** the stale-project sweep was re-run after Part B and archived the projects attached to the superseded objectives.
+- **Agent-run cleanup applied:** all 68 previously stuck `running` runs are closed against their actual job outcome.
+- **Deploy status:** ai-engine v115, founder-brain-tick v99 and founder-objective v69 are live; PR #41 contains the documentation update and no runtime code change.
+
 ## What to do, in order
 
 | # | Action | Who | Effort |
@@ -145,7 +154,7 @@ FKAIOS's **core engine is real and honest**. It takes an objective, plans it, ru
 | 1 | Restore one LLM provider (top up, or add a fallback key) | Rajeev | Minutes |
 | 2 | Close the security holes: revoke anon `EXECUTE` on the 31 functions, RLS on 2 tables, rotate the heartbeat secret, turn on leaked-password protection | Engineering + Rajeev (secret) | ~1 day |
 | 3 | Make the repo match production: pull 72 missing migrations and hand-deployed function sources; CI as the only deploy path | Engineering | 1–2 days |
-| 4 | Clean the backlog safely: archive superseded objectives and stuck projects; triage the 337 approvals; require approval for Founder-Brain-generated objectives | Engineering + Rajeev decisions | ~1 day |
+| 4 | Clean the backlog safely: archive superseded objectives and stuck projects; triage the remaining approvals; require approval for Founder-Brain-generated objectives | Engineering + Rajeev decisions | ~1 day |
 | 5 | Finish verification: write `fkaios_verification_evidence` on completion, store the real deliverable in `final_output`, close `agent_runs` | Engineering | 1–2 days |
 | 6 | Point the proven engine at one revenue workflow with real data (one brand's data connector, or lead contact → meeting) | Rajeev chooses; engineering builds | 1–2 weeks |
 | 7 | Only then: learning from outcomes, self-improvement, wider autonomy | Later | — |
