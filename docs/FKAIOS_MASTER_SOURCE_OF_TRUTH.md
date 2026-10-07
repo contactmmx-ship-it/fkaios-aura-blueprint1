@@ -50,6 +50,22 @@ This is the reference document for FKAIOS. Before changing anything:
 
 ---
 
+## Latest checkpoint (7 Oct 2026, 11:10 UTC). Read this before §1
+
+Verified live. It supersedes the provider and backlog figures in §1, which date from 05:41 UTC.
+
+| Area | State | Evidence |
+|---|---|---|
+| Backlog cleanup (audit steps 2 and 4) | Done | 264 duplicate approvals expired; the 5 Brain objectives that started themselves have been reconciled (`a44e6eac` awaits approval `66413f30`, the other 4 are superseded); stale projects archived; 73 approvals pending |
+| Founder Brain gate | Code live (founder-brain-tick v99, founder-objective v69) | Exactly 1 pending `founder_brain_task` approval; 0 self-started requests in `processing`; no Brain request created since the 10:45 deploy |
+| `agent_runs` | Fixed (ai-engine v115) | 0 `running`; 68 stale runs closed to match their jobs' real outcomes |
+| LLM providers | **Gemini works but is rate-limited**; Anthropic and OpenAI have no credit | `provider_health_state`: gemini `available`, last success 09:37 today, and the 10:35 Brain cycle produced a full analysis. Anthropic: "credit balance is too low". OpenAI: "no credits remaining". Gemini 429 "exceeded your current quota" at 14:30 and 19:30 on 6 Oct, and again before 07:00 UTC; it works after about 07:00 UTC, which fits a daily free-tier quota. `provider_connections` = 0, so no fallback provider (OpenRouter, Groq, Mistral, HF, self-hosted) is configured |
+| Who uses the Gemini quota | Background agent jobs | 33 generic jobs (CREATE_CONTENT, MAKE_DECISIONS, BUILD_SOFTWARE…) ran 09:00–09:11 today. The Brain's thinking cycle is capped at once per 60 minutes "to keep LLM quota for objectives" |
+| Verification evidence | Code live, **not yet proven** | `fkaios_verification_evidence` = 0, because no objective has completed since the 10:45 deploy |
+| Ticks | `fkaios-founder-brain-tick` runs **every minute** (`* * * * *`), not every 15 minutes as Appendix A says; `job-scheduler-drain` every 10 minutes; `ai-engine-run-jobs-5min` every 5 minutes | `cron.job` and `net._http_response` |
+
+**Next execution step:** one controlled test objective through the Console, while Gemini has quota. Rajeev has to submit it, because `founder-objective` only accepts a signed-in founder and engineering must not bypass that path. See §6.
+
 ## 1. Current truth (verified live on 7 Oct 2026, 05:41 UTC)
 
 ### 1.1 One-paragraph status
@@ -438,11 +454,21 @@ The Console renders from `orchestrator_requests.status` + `action_taken`, via `s
 
 ## 6. Next execution checkpoint — start here
 
-1. **Blocker:** LLM providers (§5 item 1). Ask Rajeev; don't work around it.
-2. Once one provider responds, re-check: do the stalled objectives (or a new safe, non-financial test objective) produce `ai_jobs`? Does `ai-engine` run them? Do `agent_runs` go `running → completed`?
-3. Then verify that `fkaios_verification_evidence` gets a record on completion, and that completion is refused without one.
-4. Then run failure tests: provider down → truthful BLOCKED; bad output → rework; missing data → `no_data_source`.
-5. Only after that, move on to real-world acceptance and the Stage 3 business autopilot.
+1. **LLM:** Gemini answers but runs out of free daily quota. For reliable execution Rajeev must add credit to Anthropic or OpenAI, or set one fallback key (`OPENROUTER_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`) as an Edge Function secret. Until then, run tests early in the UTC day.
+2. **Controlled test (Rajeev submits it in the Console, Command Center → New objective).** Low risk, internal facts only:
+   > Using only the FKAIOS System Charter in the knowledge vault, list the three governance rules that limit what AI agents may do on their own, and quote the charter passage that supports each rule. Do not use outside facts.
+3. Engineering then traces every stage from persisted rows:
+   - `orchestrator_requests`;
+   - `objective_contracts`;
+   - `orchestration_projects` and `orchestration_tasks`;
+   - `ai_jobs`;
+   - `agent_runs` (`running → completed`);
+   - task output;
+   - the `fkaios_verification_evidence` row (`completion_gate:all_tasks_verified`);
+   - `final_output`, which holds the real deliverable;
+   - the COMPLETED or BLOCKED verdict, and its display in the Console.
+4. Then the failure tests: provider down → truthful BLOCKED; bad output → rework; missing data → `no_data_source`.
+5. Then repo↔production reconciliation, function by function, from snapshot `snapshot/production-20261007-104144`: 69 functions differ, 7 exist only live. See `docs/FKAIOS_AUDIT_STEPS_2-5_PROGRESS_2026-10-07.md`.
 
 **Do not:**
 - insert fake jobs or evidence;
@@ -463,7 +489,7 @@ The Console renders from `orchestrator_requests.status` + `action_taken`, via `s
   - FK website `e35ecfd5`
 - **System Charter document:** `1f2f8a3b-be05-4427-a754-828d78a9ea39` (2 chunks)
 - **GoMax brand row:** `a27d9e4c-61a6-4baf-b079-96e938e03b9d` (no data linked)
-- **Cron:** `fkaios-founder-brain-tick` (*/15), `job-scheduler-drain` (*/10), `ai-engine-run-jobs-5min` (*/5, returns 401)
+- **Cron:** `fkaios-founder-brain-tick` (every minute; cognitive cycle at most hourly), `job-scheduler-drain` (*/10), `ai-engine-run-jobs-5min` (*/5, returns 401)
 
 ## Appendix B: document index (in this repo)
 
