@@ -12,6 +12,8 @@
 
 ---
 
+> **Raw layer:** the full conversations and records this document is built from are in [`docs/fkaios-archive/`](fkaios-archive/00_INDEX.md). Everything in one file: `docs/fkaios-archive/FKAIOS_ALL_CHATS_MERGED.md`.
+
 ## 0. Read this first (rules for any person or AI tool)
 
 This is the reference document for FKAIOS. Before changing anything:
@@ -182,7 +184,7 @@ Each chapter lists its source. "Repo" means the commit or document in this repos
   - ⌘K command palette.
   - ₹0 revenue shown truthfully.
   - GO/NO-GO department consoles and a silence monitor (3 true alerts, 0 false).
-- **Security:** removed the hard-coded secret `kjhgfdsa` from 3 functions; one of them had shipped it to the browser.
+- **Security:** removed the hard-coded secret `<REDACTED_OLD_HEARTBEAT_SECRET>` from 3 functions; one of them had shipped it to the browser.
 - **Progress and spend engines:**
   - ₹1,100 Cr progress engine: 0.0000% achieved, forecast "never".
   - Economics: ≥ $5.49 spent → ₹0 earned.
