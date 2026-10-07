@@ -50,6 +50,45 @@ This is the reference document for FKAIOS. Before changing anything:
 
 ---
 
+## Latest checkpoint (7 Oct 2026, 11:10 UTC). Read this before §1
+
+Verified live. It supersedes the provider and backlog figures in §1, which date from 05:41 UTC.
+
+| Area | State | Evidence |
+|---|---|---|
+| Backlog cleanup (audit steps 2 and 4) | Done | 264 duplicate approvals expired; the 5 Brain objectives that started themselves have been reconciled (`a44e6eac` awaits approval `66413f30`, the other 4 are superseded); stale projects archived; 73 approvals pending |
+| Founder Brain gate | **GATE VERIFIED live, 11:36 UTC** | The first Brain cycle under v99 decided `act` on a new strategy ("Top up the Anthropic API with ₹2,500…"). `createTask` returned the existing pending proposal (`assigned: a44e6eac`, `planned.projectId: null`, `tasksCreated: 0`). After 11:35:30: 0 new requests, approvals, projects, tasks, `ai_jobs` or `agent_runs`. `a44e6eac` is still `awaiting_approval`; approval `66413f30` is still `pending` (not decided). Execution log: `cognitive_cycle`, `simulate_strategies` and `capture_decision` all succeeded |
+| `agent_runs` | Fixed (ai-engine v115) | 0 `running`; 68 stale runs closed to match their jobs' real outcomes |
+| LLM providers | **Gemini works but is rate-limited**; Anthropic and OpenAI have no credit | `provider_health_state`: gemini `available`, last success 09:37 today, and the 10:35 Brain cycle produced a full analysis. Anthropic: "credit balance is too low". OpenAI: "no credits remaining". Gemini 429 "exceeded your current quota" at 14:30 and 19:30 on 6 Oct, and again before 07:00 UTC; it works after about 07:00 UTC, which fits a daily free-tier quota. `provider_connections` = 0, so no fallback provider (OpenRouter, Groq, Mistral, HF, self-hosted) is configured |
+| Who uses the Gemini quota | Background agent jobs | 33 generic jobs (CREATE_CONTENT, MAKE_DECISIONS, BUILD_SOFTWARE…) ran 09:00–09:11 today. The Brain's thinking cycle is capped at once per 60 minutes "to keep LLM quota for objectives" |
+| Verification evidence | Code live, **not yet proven** | `fkaios_verification_evidence` = 0, because no objective has completed since the 10:45 deploy |
+| Ticks | `fkaios-founder-brain-tick` runs **every minute** (`* * * * *`), not every 15 minutes as Appendix A says; `job-scheduler-drain` every 10 minutes; `ai-engine-run-jobs-5min` every 5 minutes | `cron.job` and `net._http_response` |
+
+**Workstreams after the gate check (11:15–11:40 UTC):**
+- **Security:** verified unchanged. There are 0 anon-executable SECURITY DEFINER functions, no public table without RLS, no anon access to the 9 views, and 0 mutable search paths.
+  - Caller map for the 31 secured functions:
+    - 4 are called from the browser (`compute_enterprise_economics`, `compute_revenue_blockers`, `compute_workforce_truth`, `record_enterprise_memory`). All are rendered only inside `AppShell`, which shows `LoginPage` to anyone not signed in, and signed-in users keep EXECUTE.
+    - 3 are called from Edge Functions using the service role.
+    - The rest are called only from SQL or triggers.
+  - The unlinked `/cockpit-preview` route renders the Decision Center without login. Its anonymous reads already returned nothing (row policies cover signed-in users only), so this is not a regression.
+  - Still Rajeev's to do: rotate the heartbeat and cron secrets; enable leaked-password protection.
+- **Repo↔prod:** see `docs/FKAIOS_LIVE_REPO_RECONCILIATION_2026-10-07.md`.
+  - The 14 old repo migration files with no matching live version or name: every object they create exists live.
+  - The 7 functions that existed only live now have their exact source recorded in `supabase/live-snapshot/functions/`.
+  - The 69 drifted functions need a per-function review before any deploy.
+- **Backlog:** nothing changed, and nothing is left to clean up safely without a founder decision.
+  - **Founder decisions:**
+    - 73 approvals;
+    - `a44e6eac`;
+    - two July requests (`75a9d61b` "payment link Rs 50,000", `c59ff0bc`);
+    - `9dde50d3`, the 24 Sep build objective, still `processing`.
+  - **Inert history:** 730 open tasks inside `failed` projects. No code path picks them up: allocation runs only for new plans, completed-work return covers only active objectives, and `founder-reassignment-cell` has never been deployed.
+  - **Kept on purpose:** 14 projects in `working` under 4 completed objectives (the Console shows them).
+  - 0 non-terminal `ai_jobs`.
+- **Verification:** the completion path writes `fkaios_verification_evidence` in `markObjective` → `recordCompletionEvidence`, before any status change; a failed write blocks completion. It is unproven in production because no objective has completed since the deploy (0 rows).
+
+**Next execution step:** one controlled test objective through the Console, while Gemini has quota. Rajeev has to submit it, because `founder-objective` only accepts a signed-in founder and engineering must not bypass that path. See §6.
+
 ## 1. Current truth (verified live on 7 Oct 2026, 05:41 UTC)
 
 ### 1.1 One-paragraph status
@@ -438,11 +477,21 @@ The Console renders from `orchestrator_requests.status` + `action_taken`, via `s
 
 ## 6. Next execution checkpoint — start here
 
-1. **Blocker:** LLM providers (§5 item 1). Ask Rajeev; don't work around it.
-2. Once one provider responds, re-check: do the stalled objectives (or a new safe, non-financial test objective) produce `ai_jobs`? Does `ai-engine` run them? Do `agent_runs` go `running → completed`?
-3. Then verify that `fkaios_verification_evidence` gets a record on completion, and that completion is refused without one.
-4. Then run failure tests: provider down → truthful BLOCKED; bad output → rework; missing data → `no_data_source`.
-5. Only after that, move on to real-world acceptance and the Stage 3 business autopilot.
+1. **LLM:** Gemini answers but runs out of free daily quota. For reliable execution Rajeev must add credit to Anthropic or OpenAI, or set one fallback key (`OPENROUTER_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`) as an Edge Function secret. Until then, run tests early in the UTC day.
+2. **Controlled test (Rajeev submits it in the Console, Command Center → New objective).** Low risk, internal facts only:
+   > Using only the FKAIOS System Charter in the knowledge vault, list the three governance rules that limit what AI agents may do on their own, and quote the charter passage that supports each rule. Do not use outside facts.
+3. Engineering then traces every stage from persisted rows:
+   - `orchestrator_requests`;
+   - `objective_contracts`;
+   - `orchestration_projects` and `orchestration_tasks`;
+   - `ai_jobs`;
+   - `agent_runs` (`running → completed`);
+   - task output;
+   - the `fkaios_verification_evidence` row (`completion_gate:all_tasks_verified`);
+   - `final_output`, which holds the real deliverable;
+   - the COMPLETED or BLOCKED verdict, and its display in the Console.
+4. Then the failure tests: provider down → truthful BLOCKED; bad output → rework; missing data → `no_data_source`.
+5. Then repo↔production reconciliation, function by function, from snapshot `snapshot/production-20261007-104144`: 69 functions differ, 7 exist only live. See `docs/FKAIOS_AUDIT_STEPS_2-5_PROGRESS_2026-10-07.md`.
 
 **Do not:**
 - insert fake jobs or evidence;
@@ -463,7 +512,7 @@ The Console renders from `orchestrator_requests.status` + `action_taken`, via `s
   - FK website `e35ecfd5`
 - **System Charter document:** `1f2f8a3b-be05-4427-a754-828d78a9ea39` (2 chunks)
 - **GoMax brand row:** `a27d9e4c-61a6-4baf-b079-96e938e03b9d` (no data linked)
-- **Cron:** `fkaios-founder-brain-tick` (*/15), `job-scheduler-drain` (*/10), `ai-engine-run-jobs-5min` (*/5, returns 401)
+- **Cron:** `fkaios-founder-brain-tick` (every minute; cognitive cycle at most hourly), `job-scheduler-drain` (*/10), `ai-engine-run-jobs-5min` (*/5, returns 401)
 
 ## Appendix B: document index (in this repo)
 
