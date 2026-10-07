@@ -1,6 +1,6 @@
 # FKAIOS archive: every available FKAIOS conversation and record, in one place
 
-**Built:** 7 Oct 2026 · **Read order:** oldest first · **Summary of all of this:** `../FKAIOS_MASTER_SOURCE_OF_TRUTH.md`
+**Built:** 7 Oct 2026 · **Read order:** oldest first (merged file order: 01 → 02b → 02a → 02 → 03) · **Summary of all of this:** `../FKAIOS_MASTER_SOURCE_OF_TRUTH.md`
 
 This folder is the **raw layer**: the conversations and records themselves, verbatim.
 The master source of truth is the **reconciled layer** built from it.
@@ -9,7 +9,8 @@ The master source of truth is the **reconciled layer** built from it.
 | # | File | What it is | Dates | Source |
 |---|---|---|---|---|
 | 01 | `01_repo_history_documents_2026-06-29_to_10-06.md` | 41 FKAIOS status, handoff, checkpoint, audit, plan and constitution documents, written into the repo by Claude, Claude Code and other tools, full text in date order | 29 Jun → 6 Oct | GitHub repo |
-| 02 | `02_chatgpt_conversations_pasted.md` | The two ChatGPT FKAIOS conversations Rajeev pasted on 7 Oct, verbatim | → 7 Oct | ChatGPT |
+| 02a | `02a_chatgpt_ai_learning_and_fkaios_lite_2026-10-05_to_07.md` | ChatGPT conversation: how LLMs, agents, AGI and ASI work → why work gets lost across tools → single source of truth, handover packets, FKAIOS-Lite work orchestrator, Minimum Work Principle, alignment engine → "use new agent infrastructure under FKAIOS" → ChatGPT's FKAIOS status estimate (~25–30%), verbatim | ~5 → 7 Oct | ChatGPT (`fkaios_chat_2.txt`) |
+| 02 | `02_chatgpt_conversations_pasted.md` | The two ChatGPT FKAIOS conversations Rajeev pasted on 7 Oct, verbatim. (`fkaios_chats.txt`, uploaded later, is the same text and was not duplicated.) | → 7 Oct | ChatGPT |
 | 02b | `02b_gomax_brief_uploaded_2026-10-04.md` | The GoMax recovery brief and patch Rajeev uploaded (prepared in ChatGPT) | 4 Oct | ChatGPT → Claude Code |
 | 03 | `03_claude_code_session_2026-10-04_to_07.md` | Full transcript of Claude Code session 210c0e58: GoMax recovery, PRs #25–#28, and building this archive (the latest chat) | 4 → 7 Oct | Claude Code |
 

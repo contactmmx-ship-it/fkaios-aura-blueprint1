@@ -40,6 +40,7 @@ This is the reference document for FKAIOS. Before changing anything:
 | Live Supabase production, 7 Oct 05:41 UTC | ✅ Snapshot | Read-only SQL and function list |
 | Claude Code session on 4 Oct (GoMax recovery, PRs #25–#28) | ✅ Complete | Written by the same session |
 | Two ChatGPT conversations pasted by Rajeev on 7 Oct | ✅ As pasted | Included and reconciled |
+| ChatGPT conversation ~5–7 Oct: AI learning → FKAIOS-Lite work continuity (`fkaios_chat_2.txt`) | ✅ Complete | Included verbatim in the archive; chapter 13A |
 | Other ChatGPT conversations not pasted (e.g. 28 Aug AURA recovery) | ⚠️ Partial | Only what the pasted ChatGPT summary and the repo docs say |
 | Other Claude / Claude Code chats | ⚠️ Partial | Only through their commits and the docs they wrote into the repo |
 
@@ -329,6 +330,32 @@ Each chapter lists its source. "Repo" means the commit or document in this repos
 - **Duplicate-project guard:** migration `prevent_duplicate_active_orchestration_projects` (live; not in the repo).
 - **Side effect:** later the same day, the founder brain generated strategy objectives `352317c0` and `39dd2cf8`. These replanned 6–7 times and then stalled when the providers ran out.
 
+### Chapter 13A: ~5–7 Oct 2026, ChatGPT conversation: AI learning → FKAIOS-Lite work continuity
+*Source: `docs/fkaios-archive/02a_chatgpt_ai_learning_and_fkaios_lite_2026-10-05_to_07.md` (verbatim)*
+
+- **AI foundations explained:**
+  - What an LLM is (token prediction, weights), tokens vs credits, context vs memory vs retrieval (RAG), and why AI sounds human.
+  - The agent loop (goal → plan → tool → result → evaluate).
+  - AGI and ASI as concepts, not products.
+  - A proposed "Rajeev AI Mastery Program" curriculum and an "AI radar" for verifying new tools.
+- **The real problem identified:** work scattered across many AI tools gets lost when limits run out or work pauses. The example that triggered this was the SYROS OPD EMR project, idle for 10 days.
+- **Ideas agreed in this chat:**
+  - One project hub as the single source of truth; AI tools are replaceable workers.
+  - A "Project Brain" record per project.
+  - An automatic handover packet after each meaningful step.
+  - Checkpoint the project state, not the AI's thinking.
+  - Small, controlled work units.
+  - A **Minimum Work Principle**: don't let an AI take more steps than needed.
+  - A FKAIOS-Lite Work Orchestrator, to be proven first on one project.
+  - An alignment / re-alignment engine.
+  - FKAIOS as a "self-realigning AI operating system": Rajeev gives the destination once.
+- **Proposed (not yet decided or built):**
+  - Use the new agent infrastructure (e.g. OpenAI Agents API: sessions, sandboxes, handoffs) *underneath* FKAIOS rather than replacing it.
+  - Start with one FKAIOS CEO agent, not 41.
+  - Keep task-specific context packets.
+- **ChatGPT's status estimate:** "~25–30%, architecture/discovery stage, autonomous execution not yet". ChatGPT could not see the repo or live system; see §3.
+- **Ending:** how to export or share the chat from the iPhone; Data Export recommended. This led to the archive in Chapter 15.
+
 ### Chapter 14: 7 Oct 2026, ChatGPT conversation #2: the merge request
 *Source: ChatGPT conversation (pasted)*
 
@@ -358,6 +385,7 @@ Each chapter lists its source. "Repo" means the commit or document in this repos
 | "Planner/dispatch link broken" is the next problem | ChatGPT §28 | Planner calls fail: all LLM providers exhausted | Root cause is providers, not a code link (re-check once providers are back) |
 | founder-brain-tick v98, ai-engine v113 | ChatGPT | v98 (manual deploy), ai-engine v114 | Close; note the manual deploy |
 | GoMax "stuck/replanning" | ChatGPT | Blocked `no_data_source` on 4 Oct, then `failed` ("superseded by newer active gate") | Resolved as a data-source blocker |
+| FKAIOS is "~25–30%, architecture/discovery stage; autonomous execution, verification and project-state management not yet working" | ChatGPT chat ~6 Oct (13A) | 11 objectives completed end to end through the live loop, with evidence gates, `no_data_source` blocking and Console rendering. Project state is persisted in Supabase. Still missing: provider continuity in practice, independent evidence records, learning, and work continuity across AI tools | Partly wrong: execution is further along than that chat knew. Its continuity and orchestration concerns remain valid |
 | "First acceptance execution should be safe and non-financial" | ChatGPT | Already done: charter objective `78f7828e` completed 4 Oct | Done |
 | Roadmap phases 0–23 | ChatGPT | Phase status is an assessment, not acceptance | Keep as a guide only |
 
