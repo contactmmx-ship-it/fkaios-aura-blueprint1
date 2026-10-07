@@ -1,0 +1,942 @@
+[
+  {
+    "slug": "accounting-engine",
+    "version": 45,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_36687b67-5fe3-4666-8c1d-5f45492b7980_1/source/supabase/functions/accounting-engine/index.ts",
+    "updated_at": 1782115558327,
+    "ezbr_sha256": null,
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "actors",
+    "version": 42,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_d00a5810-b7a2-420d-bc33-7391477ed0c1_1/source/supabase/functions/actors/index.ts",
+    "updated_at": 1782213103978,
+    "ezbr_sha256": "8101d219367ad9e84b08bff5b46a25ced0af5c19e3a88a60c5ad7c0ca775ddad",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "agent-engine",
+    "version": 45,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_100e26a2-95d1-447a-a4e4-493241283bd9_35/source/index.ts",
+    "updated_at": 1783414038559,
+    "ezbr_sha256": "515376b2f1cc09bc510d685da5ac6ed42040d56ce66dfa7814adf7c94ff7f65f",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "agent-scheduler",
+    "version": 48,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_4a65a508-eda3-4afe-85df-5618883cdb16_38/source/functions/agent-scheduler/index.ts",
+    "updated_at": 1783485933163,
+    "ezbr_sha256": "82abd2b7c0ad61b4708a9a2d6a36daf1f5ee3f2bd1fb452f41c1bf9348cb4b79",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "ai-engine",
+    "version": 114,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///home/runner/work/fkaios-aura-blueprint1/fkaios-aura-blueprint1/supabase/functions/ai-engine/index.ts",
+    "updated_at": 1791306743596,
+    "ezbr_sha256": "207b8abb6aa492e5f9895e0de641983018e3dd6f66bfeb7b31f99666d2b65590",
+    "deployed_via": "github_ci"
+  },
+  {
+    "slug": "apify-settings",
+    "version": 46,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_8de19f43-123b-4d8e-b732-228e3eb3999b_23/source/index.ts",
+    "updated_at": 1783074746229,
+    "ezbr_sha256": "c38ef80522dd31bb64ab4a7217b659138afdca32a5884f772906aeba265dcdf1",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "approval-engine",
+    "version": 45,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_111fcecf-5433-4cc1-894a-43938e591c18_1/source/supabase/functions/approval-engine/index.ts",
+    "updated_at": 1782115558327,
+    "ezbr_sha256": null,
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "auto-agents-engine",
+    "version": 25,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_b28f0c77-3069-4bc5-bae6-0315cdd8a098_17/source/index.ts",
+    "updated_at": 1783902519292,
+    "ezbr_sha256": "5229930573e1e0fe9cdcb797d0f20f2f4f60b22879f439915216864b22e5bd35",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "auto-pilot",
+    "version": 57,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_aef75683-312d-45f6-8bc5-b0097795ff04_47/source/functions/auto-pilot/index.ts",
+    "updated_at": 1783484508387,
+    "ezbr_sha256": "ea655e0cfac441fd592e52cd890cb9cc484ee61b78be89157ac025598edf4110",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "avatar-debug-llm",
+    "version": 13,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_446ccd96-33e2-4ae4-927f-11cd2c097c8f_5/source/index.ts",
+    "updated_at": 1783880044027,
+    "ezbr_sha256": "06805dad0fa1950c3ec396a2ed403aa58578ea33415f90edf63897a48268d177",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "avatar-orchestrator",
+    "version": 17,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_da4d98cd-a05d-43f2-b401-0307d53d8498_9/source/index.ts",
+    "updated_at": 1783908139842,
+    "ezbr_sha256": "cd4f570e9bbba5d68b0ee09933786b7dffe1a322fd7d8a225acd1d39241c5d1c",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "brain-chat",
+    "version": 68,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_772ef5d1-6c3b-4bc4-aaa3-0a5e2de6bf74_58/source/index.ts",
+    "updated_at": 1783415097862,
+    "ezbr_sha256": "2d336ca3644d8d9521bc0e7062e935b76395550255460ed87a163c43f1ac5e4f",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "brain-engine",
+    "version": 50,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_7000e8a2-5cf7-46a3-8f42-43a9d38cdafb_40/source/index.ts",
+    "updated_at": 1783414687565,
+    "ezbr_sha256": "17ad4d0c63de1122e4e30de164ab0775a3d3eb8037c8c6082af591b9f9081766",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "brands-public",
+    "version": 9,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_23c6e7e9-4176-4638-9561-56c604659d0e_1/source/index.ts",
+    "updated_at": 1783918321683,
+    "ezbr_sha256": "ebba6d83615d9bd4f1f1eed5a5e722700f471f4a22f0bd563ee0338673a64580",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "builder-engine",
+    "version": 50,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///home/runner/work/fkaios-aura-blueprint1/fkaios-aura-blueprint1/supabase/functions/builder-engine/index.ts",
+    "updated_at": 1791276028090,
+    "ezbr_sha256": "cd5ffbe8493e38f65a36fc55e8e8f44f4cce01bb01975bd45095d81e4a4172d4",
+    "deployed_via": "github_ci"
+  },
+  {
+    "slug": "business-engine",
+    "version": 48,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_7fcb3a42-b2bb-4015-b7a5-b1b9f885d346_38/source/index.ts",
+    "updated_at": 1783433272655,
+    "ezbr_sha256": "512e850e614c2b5000303608efff671a74dcd82220e72e47973bb126af3d821a",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "calendar-sync",
+    "version": 45,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_014d6ee7-4e9b-4d35-b116-ea643a174b24_1/source/supabase/functions/calendar-sync/index.ts",
+    "updated_at": 1782115558327,
+    "ezbr_sha256": null,
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "closer-engine",
+    "version": 48,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_bdb93ee4-3748-47c9-8fb5-c597cdc58290_38/source/functions/closer-engine/index.ts",
+    "updated_at": 1783433093559,
+    "ezbr_sha256": "eb90508040e1873deca98ff34e520201091f3522f5294b17e57d19711c06d765",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "company-admin-engine",
+    "version": 19,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_36ebc0b2-9f05-4fe0-8590-2d5fe3c400ca_1/source/index.ts",
+    "updated_at": 1783341007401,
+    "ezbr_sha256": "139e23aa8528b64793032cbeaf3d5dc37b573fb07c00729b7a6455beab4d35d2",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "crm-webhook",
+    "version": 45,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_73509d3a-a745-425e-b8f3-6646421be6ff_1/source/supabase/functions/crm-webhook/index.ts",
+    "updated_at": 1782115558327,
+    "ezbr_sha256": null,
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "customer-assistant",
+    "version": 45,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_a487e72e-0364-45c4-b14b-bd5529b41358_1/source/supabase/functions/customer-assistant/index.ts",
+    "updated_at": 1782115558327,
+    "ezbr_sha256": null,
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "dashboard-engine",
+    "version": 12,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_de1595e2-4b79-4e34-91ff-608948caf2dd_2/source/index.ts",
+    "updated_at": 1783433972481,
+    "ezbr_sha256": "f61f11fb75553bd4f4bf5463871e3c29877e94daea55117404e9bc27e51a191d",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "decision-engine",
+    "version": 48,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_d75d3c19-cde3-44f6-adf1-31546c701b6e_48/source/decision-engine/index.ts",
+    "updated_at": 1790060987692,
+    "ezbr_sha256": "6f1b6b3680ff8a4107e538ceb5b7cbf984d3b7195ea732ccd5a067abb8d150bc",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "diagnostic-secrets-check",
+    "version": 12,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_876f7922-02e7-4086-be76-d795c6c0f4c8_4/source/index.ts",
+    "updated_at": 1783880024385,
+    "ezbr_sha256": "364d1347dd2545559dcff0baaaa9a78633c52c7ba4cfc751d50c4dd874d18887",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "document-engine",
+    "version": 45,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_e9b07e4e-c1f6-4b5e-8c28-cfa2f2fe261e_1/source/supabase/functions/document-engine/index.ts",
+    "updated_at": 1782115558327,
+    "ezbr_sha256": null,
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "document-ingest",
+    "version": 45,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_ef5979fc-f374-4a38-856e-5f1734ce957f_1/source/supabase/functions/document-ingest/index.ts",
+    "updated_at": 1782115558327,
+    "ezbr_sha256": null,
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "enrichment",
+    "version": 43,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_a63e77ae-c51a-4ee5-b8ff-f1b7271cc059_35/source/index.ts",
+    "updated_at": 1783789210469,
+    "ezbr_sha256": "00e3d19ad9a3ea0a3cfc01c8f6f4ec47f09eb0b6024711bb20b58ac41dbbbe1d",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "evolution-engine",
+    "version": 9,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_ffbd54c6-69e0-47ae-bf49-57760ce9b3c9_1/source/index.ts",
+    "updated_at": 1784022037134,
+    "ezbr_sha256": "da3e20f758ae162f1af54da4f9e9e2fe97d35bcb2ad5890c1705e2fe13c8493a",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "executive-brain",
+    "version": 9,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_276f1183-dca7-495f-8fe3-00c78f0500e5_1/source/index.ts",
+    "updated_at": 1784022790319,
+    "ezbr_sha256": "30c4eceafd5858c652f85c455724381b7de0d392d2e4dcc57e0f2bdaf5e3bcba",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "executive-intelligence",
+    "version": 19,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_530d0a01-3fd4-4102-95d4-153cf7b23069_14/source/functions/executive-intelligence/index.ts",
+    "updated_at": 1784867359743,
+    "ezbr_sha256": "6081e57a20e8471b4515e827f2bfe5af2fdd6903370202f558f6c9216cfaed3e",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "factory-intake",
+    "version": 10,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_cbc7265e-f099-4a62-a21b-2edc804eec70_2/source/index.ts",
+    "updated_at": 1784023651144,
+    "ezbr_sha256": "b23a480aed8d6cfd65b1a915c0042c5ff56107f568a7e35ef2d9b64712a80128",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "factory-planner",
+    "version": 9,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_4d0b8a4e-9bc5-49d7-b867-a91b681d1475_1/source/index.ts",
+    "updated_at": 1784042337380,
+    "ezbr_sha256": "63e446aea8b011f165a7e1dc2eff3f241e791f85f4d5248ef6f99625c30bbccd",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "finance-engine",
+    "version": 12,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_fdabc51a-68b2-4ebe-8981-c1d97a01bf30_2/source/index.ts",
+    "updated_at": 1783473538696,
+    "ezbr_sha256": "95ffe5c8f5e76101b141611537954dc0472833ad4793af0d28b631a224f4d90a",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "founder-brain-state",
+    "version": 9,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_c79e4981-ad22-4295-85e6-973786f6bb7d_3/source/founder-brain-state/index.ts",
+    "updated_at": 1784715067632,
+    "ezbr_sha256": "df63993e69068269d641d92e8bdb092a79057afcf7bdfa4c162319b8a6ef32bc",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "founder-brain-tick",
+    "version": 98,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_6ecb84ff-ab81-46fc-8c2a-029b213dc23b_98/source/founder-brain-tick/index.ts",
+    "updated_at": 1791307052947,
+    "ezbr_sha256": "506cf0e5493bebb0a9fa5fcde32afd3cc3bc71e96681777c175bb875ad0a4e04",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "founder-executive",
+    "version": 53,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_c0f5400f-2248-442d-85e9-26601fe93d47_53/source/supabase/functions/founder-executive/index.ts",
+    "updated_at": 1790338291217,
+    "ezbr_sha256": "3f82363e4eae0e7bcab32c31ada632557513f0f66690ef67158ec0c04fe02927",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "founder-objective",
+    "version": 68,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///home/runner/work/fkaios-aura-blueprint1/fkaios-aura-blueprint1/supabase/functions/founder-objective/index.ts",
+    "updated_at": 1791306747808,
+    "ezbr_sha256": "74ee00613534047a103fe5f5aa8fb1611efa83ff92a24cb2a56f9cbcd79e314c",
+    "deployed_via": "github_ci"
+  },
+  {
+    "slug": "governance-dashboard",
+    "version": 14,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_dfd0dff6-6cb1-4ef8-abf1-7c88db2156a4_6/source/index.ts",
+    "updated_at": 1783901548758,
+    "ezbr_sha256": "81cf2b5d0d175ac57b61148f40a76d698c5f72b2097d8cf5b6dca18ae7108821",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "governance-engine",
+    "version": 13,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_29e05a07-2ab1-4c7f-b4b2-0f109c6e6fcb_5/source/index.ts",
+    "updated_at": 1783861438417,
+    "ezbr_sha256": "aad50998d991daf29d709b6b6b8ce087e946445b6cd5e0975cc47d549b270f13",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "heartbeat-engine",
+    "version": 29,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_d59c77fe-bc3e-4f35-9552-d67a44d70618_10/source/index.ts",
+    "updated_at": 1783143365904,
+    "ezbr_sha256": "9a44f5544c788b8865afe9d6dc5fbcdf823617bd66828f44c121d9be6b73bb69",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "invoice-engine",
+    "version": 11,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_7db913f1-a754-4664-b331-a6f9f8a44723_1/source/index.ts",
+    "updated_at": 1783399191556,
+    "ezbr_sha256": "ec1efc60db1093a75893932d788f78ef7f6eb5398df787e6b819d254c228dc46",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "invoice-pdf",
+    "version": 46,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_119abbc5-6061-48be-a948-af288d936f6b_27/source/index.ts",
+    "updated_at": 1783255719967,
+    "ezbr_sha256": "10101185fd6f7ef891c95a5747d27f7f4ffadb06c1ce004e541528058df6a133",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "job-scheduler",
+    "version": 47,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_5ce23e00-d0e4-415c-ae24-dba56e64fc82_47/source/index.ts",
+    "updated_at": 1789994665083,
+    "ezbr_sha256": "52c589400f8f53aa3820c7d2072ad5aa96e59efb7d217648e9e5bc0810754216",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "knowledge",
+    "version": 42,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_0aa7557f-c8b3-4fee-b359-b19c489534a8_1/source/supabase/functions/knowledge/index.ts",
+    "updated_at": 1782213122492,
+    "ezbr_sha256": "95096c4f95b897fb060fe8dc0064dc7f1a86058470c86846615d4874fc437d3d",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "knowledge-engine",
+    "version": 42,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_16b44f03-5790-4bad-a11e-411820eddc8f_14/source/index.ts",
+    "updated_at": 1782699758586,
+    "ezbr_sha256": "3b87d07d47074e92fd1c99e1b20a88e855fcc90b8da4a3f4808b7c4a3421e389",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "knowledge-search",
+    "version": 45,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_d6524820-2ea4-4e4a-a3c7-f0a6dde68429_1/source/supabase/functions/knowledge-search/index.ts",
+    "updated_at": 1782115558327,
+    "ezbr_sha256": null,
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "lead-capture",
+    "version": 10,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_2a89c98d-e20b-4b47-9943-1c19ea27385e_2/source/index.ts",
+    "updated_at": 1783917714278,
+    "ezbr_sha256": "43b0088e3f36e451c326b64fae5f71d745b096fb9ccbed3a235b6e6b1cd60765",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "lead-discovery",
+    "version": 21,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_cfebba73-793e-4ea2-ae70-e9696e42dfe8_11/source/index.ts",
+    "updated_at": 1783474249836,
+    "ezbr_sha256": "79a1e67e4e847d6791098574ca95e58e7e997f383d88202e96d30836ded96093",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "lead-email-send",
+    "version": 6,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_8eb52dae-d9ea-4dcb-8692-3918fd33db57_1/source/index.ts",
+    "updated_at": 1787649975942,
+    "ezbr_sha256": "da829c84f530b82a7a638a635f54cadd7931e03b4338c09c86ecf43534cc08ef",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "lead-ingestion-engine",
+    "version": 11,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_162b266a-90a5-49c5-829c-e06a95f7263d_1/source/index.ts",
+    "updated_at": 1783466779948,
+    "ezbr_sha256": "7d3964b95373e96c611be2877f76f4b27eba8f9fe1b89bece6a5883c00b00829",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "lead-intake",
+    "version": 45,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_b35337fc-534f-4130-850a-8df20a1b790e_26/source/index.ts",
+    "updated_at": 1783254901809,
+    "ezbr_sha256": "d30b3fc56a9a89c3ff3a6d957dc95262c2caba9598744505fdadfb5187270641",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "learning-engine",
+    "version": 47,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_00ad7271-2d8f-42d1-be15-19d0cb0b3fc8_37/source/index.ts",
+    "updated_at": 1783414729434,
+    "ezbr_sha256": "c862676597f15e15ebcf50f3a2e290337da4872911fefd79c7fa1a44773f577b",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "legal-engine",
+    "version": 12,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_ca3761fa-1c98-45c5-b4fc-893089d0b655_2/source/index.ts",
+    "updated_at": 1783488147331,
+    "ezbr_sha256": "fcf88bd89359ba8e8a46fa71591bce723937de2124dc51cbe5d68fcd88cf9de3",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "linkedin-outbound",
+    "version": 45,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_31a5c9fe-46d4-4779-b795-0d8a92882f3d_1/source/supabase/functions/linkedin-outbound/index.ts",
+    "updated_at": 1782115558327,
+    "ezbr_sha256": null,
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "linkedin-webhook",
+    "version": 45,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_ac3c46b8-bdab-4981-a3e3-fd02a6b27349_1/source/supabase/functions/linkedin-webhook/index.ts",
+    "updated_at": 1782115558327,
+    "ezbr_sha256": null,
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "maps-engine",
+    "version": 62,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_4eeb514d-61de-4fe1-870d-52105568f52c_22/source/supabase/functions/maps-engine/index.ts",
+    "updated_at": 1782301656061,
+    "ezbr_sha256": "8683b8c4db4cbb31a94c36a2715f919fe795323783c1f237cddf46dd29d53b4a",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "market-intelligence",
+    "version": 10,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_9389afe2-30e8-40db-be1c-93d95b734d0b_2/source/index.ts",
+    "updated_at": 1783879982325,
+    "ezbr_sha256": "1085bacab2491c7703913a2d6c2d004fe46f99499ab0f526d08eb51e9cb61802",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "meeting-reminders",
+    "version": 45,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_8f34f326-db9d-4b01-9b5b-6f745306650d_1/source/supabase/functions/meeting-reminders/index.ts",
+    "updated_at": 1782115558327,
+    "ezbr_sha256": null,
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "meeting-scheduler",
+    "version": 47,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_b69a5550-f93b-494b-829a-606aabbf0927_47/source/functions/meeting-scheduler/index.ts",
+    "updated_at": 1789994942669,
+    "ezbr_sha256": "931d412ed7ce47dc7b2cf4d60d57d277dea0299df58b45dea25b9e0e258657f7",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "meta-linkedin-webhook",
+    "version": 45,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_5cbf967f-7891-410a-a7e7-b91ad6e4a8e9_1/source/index.ts",
+    "updated_at": 1781923671190,
+    "ezbr_sha256": "dee43fc57aab53d4cf2309c28d37fce4d3fb9b1e19d3ab6e116b2c30ecb8b162",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "meta-webhook",
+    "version": 45,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_e4d1943f-8970-45f9-bea6-026566acc522_1/source/supabase/functions/meta-webhook/index.ts",
+    "updated_at": 1782115558327,
+    "ezbr_sha256": null,
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "mis-engine",
+    "version": 47,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_312b7eb6-977f-45cb-bd88-3f780ea42135_37/source/functions/mis-engine/index.ts",
+    "updated_at": 1783414780263,
+    "ezbr_sha256": "fdf974675eefd9f75acdcbc9e9b9f842e4c4b2791c2cb10fbd5a0e3af4bb6585",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "my-brain-engine",
+    "version": 14,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_19d9d50f-89d7-42d4-8060-21f22969b5f8_14/source/my-brain-engine/index.ts",
+    "updated_at": 1790058938892,
+    "ezbr_sha256": "f51e3001da47b2a6eab18c08099e95dd47866e4cb145d43a64b4eccd377078a7",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "opportunity-engine",
+    "version": 9,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_336eb099-fb6a-4561-81f1-bdcddbc12fb6_1/source/index.ts",
+    "updated_at": 1783918863625,
+    "ezbr_sha256": "815a276acad571f6c1d5c12bdc3bfdb6c58b5e2aa2f99c7f479dc543f4da55b4",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "ops-intelligence",
+    "version": 46,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_cbb49a2f-5f31-43d2-a580-f6db676498e7_2/source/supabase/functions/ops-intelligence/index.ts",
+    "updated_at": 1782115558327,
+    "ezbr_sha256": "8471c98637742ecf1c7952ebe784d734311b44eb02c92be8de5b693ba4dc6cba",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "orchestrator",
+    "version": 45,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_165cedba-3df9-4c37-8131-8c4be897d7bc_1/source/supabase/functions/orchestrator/index.ts",
+    "updated_at": 1782115558327,
+    "ezbr_sha256": null,
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "orchestrator-brain",
+    "version": 27,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_010d8494-6f6c-4959-a212-a424a1df3918_17/source/index.ts",
+    "updated_at": 1783432500829,
+    "ezbr_sha256": "4b4bda8ec7dc542baa40afddd7004c23ce5b8e30599712a8fc81b422ff411856",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "orchestrator-engine",
+    "version": 34,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_5596e5da-8623-4458-b6ab-7baccb87324c_24/source/index.ts",
+    "updated_at": 1783401761527,
+    "ezbr_sha256": "9260cb3649b626115aea1da08b06e967a55fc951372a6e4c9157c90ba8630c58",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "orchestrator-ui",
+    "version": 22,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_16f0b724-4c38-42eb-aba0-22c8b65198cf_3/source/index.ts",
+    "updated_at": 1783209229550,
+    "ezbr_sha256": "04bb75644fec218351d32d67ddea010e7ae6197dbf64357e219919edf3d7ee0f",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "payment-engine",
+    "version": 46,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_a7e79da7-5190-4b68-ada7-631427bc1a94_2/source/supabase/functions/payment-engine/index.ts",
+    "updated_at": 1782115558327,
+    "ezbr_sha256": "64faf5ef9a13be18dc5696aa470ffcb50754ca9d51edef6da31ca71d4d3095f4",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "payment-link",
+    "version": 45,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_0a388826-68d0-45f8-ae27-ba419adab8cf_1/source/supabase/functions/payment-link/index.ts",
+    "updated_at": 1782115558327,
+    "ezbr_sha256": null,
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "pr-engine",
+    "version": 12,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_b0391d34-0784-4e6c-aa02-efba0b675dd6_2/source/index.ts",
+    "updated_at": 1783488120700,
+    "ezbr_sha256": "6459f6c2f26cafa343ca1a0f3e1c423307696856bc33459f1bf374b9cbd18ec7",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "product-video-engine",
+    "version": 13,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_3ec0a74d-83ce-477f-b077-0c7a24e8f25c_4/source/index.ts",
+    "updated_at": 1783514728691,
+    "ezbr_sha256": "349048c3e9bfd48a9d3e7651c1d57839afb549dafaf298f1809014dce263c89d",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "products-public",
+    "version": 10,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_1dc28639-d0ee-48c4-a781-917da0e6c941_10/source/index.ts",
+    "updated_at": 1791220017651,
+    "ezbr_sha256": "401632ce1c43d42ad749af344d0f0b25d91d315291758d453b52dbae5d3510ab",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "project-review-engine",
+    "version": 11,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_9fa475f5-ef12-40d5-a3e5-8fc4f001829b_1/source/index.ts",
+    "updated_at": 1783486774842,
+    "ezbr_sha256": "76a9b58fec8810b8e32cf59bf8e9a46c5655b89d362749a887d2643e0c368032",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "proposal-engine",
+    "version": 11,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_042c3b29-370c-4029-8ecc-a0d0089539af_11/source/index.ts",
+    "updated_at": 1789994595372,
+    "ezbr_sha256": "856a3bd4fb8081126592a05a30b5c7f158564397a12009b5d829e55e6517e6bf",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "reporting-engine",
+    "version": 45,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_340cb90b-3794-4f55-8b91-d8b3e4fac237_1/source/supabase/functions/reporting-engine/index.ts",
+    "updated_at": 1782115558327,
+    "ezbr_sha256": null,
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "reports",
+    "version": 42,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_df459c68-5f63-44d2-86f8-80a6f23179e1_1/source/supabase/functions/reports/index.ts",
+    "updated_at": 1782213126666,
+    "ezbr_sha256": "61879f6dbd140274807afcbdf177f9cb4a3d49891d0500be4960b409a0125b0e",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "research-engine",
+    "version": 21,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///home/runner/work/fkaios-aura-blueprint1/fkaios-aura-blueprint1/supabase/functions/research-engine/index.ts",
+    "updated_at": 1791089399164,
+    "ezbr_sha256": "142ec4bcb3bc56cedfaa4b5562faa9d1ae661b7bb895429d8ec76a9f19eb2c96",
+    "deployed_via": "github_ci"
+  },
+  {
+    "slug": "sales-engine",
+    "version": 36,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_a2b54a49-b6e2-477d-b041-8982f44a4093_36/source/sales-engine/index.ts",
+    "updated_at": 1790061474557,
+    "ezbr_sha256": "6dcb799b977b0be85e05fd59ba75f8a78acd22e67770498b553916d638822b2a",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "scheduler",
+    "version": 42,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_c2f2fdaf-0190-4550-a53e-f9df571037f4_1/source/supabase/functions/scheduler/index.ts",
+    "updated_at": 1782213131514,
+    "ezbr_sha256": "ceef6579bf5fff44da5891b3c90ad636b627508b19052643ac8051a59e744e7b",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "staff-engine",
+    "version": 49,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_88182d7c-6826-4a2a-b944-af2808deb399_49/source/staff-engine/index.ts",
+    "updated_at": 1790060561728,
+    "ezbr_sha256": "a09228d2968706ba79a46582944d99c569ba46ea7859c756072731c788a3d194",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "temp-key-check",
+    "version": 18,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_6988f8f9-225a-43e5-80d9-8d7b2c29b995_10/source/index.ts",
+    "updated_at": 1783880034713,
+    "ezbr_sha256": "28b6c041860d60c90f4a76b288d32797d4c587ae0141c6488dbb1febd73fa049",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "training-engine",
+    "version": 12,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_fb94043d-9e6f-445d-9266-0ce1e15a44e4_2/source/index.ts",
+    "updated_at": 1783488093995,
+    "ezbr_sha256": "155ea8d76e64573fd2d729e330f8128726210c1d806f8cfa5c24c1efb336a9a8",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "vault-engine",
+    "version": 22,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_016f781e-eba0-447f-a1dc-124799ffdf93_3/source/index.ts",
+    "updated_at": 1783143667861,
+    "ezbr_sha256": "10450bfaf7ac8da9e9336fbceeb0001a772cd4aea86a4bab33bbf903d58ce3f7",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "verify-voice",
+    "version": 11,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_024f2a80-0407-4632-a1de-77760bc7c542_3/source/index.ts",
+    "updated_at": 1783880311429,
+    "ezbr_sha256": "14154b7f7785fc950ce825f37ef9612beadeca921bd93583767af3b51c25f663",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "web-crawler",
+    "version": 42,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_b988153c-b70f-476e-813a-e8b2359d55c8_1/source/supabase/functions/web-crawler/index.ts",
+    "updated_at": 1782213112569,
+    "ezbr_sha256": "40a0c77da6e9ae343ca4d79b28b2cb6509d2296133a1b0f970abe6e7c081be6a",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "whatsapp-engine",
+    "version": 11,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_43924286-4b06-4b49-99c2-1789740804e3_1/source/index.ts",
+    "updated_at": 1783467119943,
+    "ezbr_sha256": "5f78c164c2305dd6ea23565110a71ed0cd181393ec90f6b0e340ce4e3c7ae0d9",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "whatsapp-outbound",
+    "version": 45,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_b340b586-c6ba-488c-99db-2f0abcddb5be_1/source/supabase/functions/whatsapp-outbound/index.ts",
+    "updated_at": 1782115558327,
+    "ezbr_sha256": null,
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "whatsapp-send",
+    "version": 46,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_4e838ba6-3cbd-4437-bf7b-f75048452b3e_41/source/index.ts",
+    "updated_at": 1787648700414,
+    "ezbr_sha256": "61402694bf3ce50aaa375c175af730a526f3efd0f39f16fa69e01ba4205386f6",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "whatsapp-template-manager",
+    "version": 45,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_9227c445-b950-4f81-aae6-49c2414304b5_1/source/supabase/functions/whatsapp-template-manager/index.ts",
+    "updated_at": 1782115558327,
+    "ezbr_sha256": null,
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "whatsapp-webhook",
+    "version": 46,
+    "status": "ACTIVE",
+    "verify_jwt": true,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_03b64ccb-6ffe-4d78-82a0-1386a545d761_2/source/supabase/functions/whatsapp-webhook/index.ts",
+    "updated_at": 1782115558327,
+    "ezbr_sha256": "f3c5e9b1d0408214e4592f1c31e11d91774e83c5d1d60f37c4467b9d3afe5569",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "whatsapp-webhook-v2",
+    "version": 29,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_2899d572-bb41-428f-ad6f-e5c25e291572_10/source/index.ts",
+    "updated_at": 1783080605443,
+    "ezbr_sha256": "fc2196b08e21f358d96499f6f4fe37d55b7655d0f3b52c3868ce7c6dd858f2be",
+    "deployed_via": "manual"
+  },
+  {
+    "slug": "workday-engine",
+    "version": 22,
+    "status": "ACTIVE",
+    "verify_jwt": false,
+    "entrypoint_path": "file:///tmp/user_fn_nrlsqshkjuuwiovthrnb_b8a91000-3fda-427b-a620-c144d2e031c5_12/source/index.ts",
+    "updated_at": 1783432558737,
+    "ezbr_sha256": "9c758509142198512e5daaa321f4d50f2c6452d9932d6e238947ca251e300109",
+    "deployed_via": "manual"
+  }
+]
