@@ -79,13 +79,19 @@ jobs:
           drift = {"identical": [], "differs": [], "not_in_repo": [], "export_failed": []}
 
           def rel_path(name, slug):
+              # The API reports paths relative to the deploy root, e.g.
+              # "source/<slug>/index.ts" (dashboard/CLI deploys) or
+              # "functions/<slug>/index.ts" (CI deploys); normalise both to
+              # "<slug>/index.ts" / "_shared/x.ts" as in supabase/functions.
               name = name.replace("\\", "/")
-              for marker in ("/source/", "/supabase/functions/"):
+              if name.startswith("file:"):
+                  name = name.split("://", 1)[-1]
+              name = "/" + name.lstrip("/")
+              for marker in ("/supabase/functions/", "/source/", "/functions/"):
                   if marker in name:
                       name = name.rsplit(marker, 1)[1]
+                      break
               name = name.lstrip("/")
-              if name.startswith("file:"):
-                  name = name.split("/", 3)[-1]
               return name if "/" in name else f"{slug}/{name}"
 
           for f in fns:
