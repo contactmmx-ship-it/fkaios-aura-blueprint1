@@ -61,37 +61,84 @@ jobs:
           PY
 
       - name: Export deployed edge function sources
+        # Original source files (entrypoint + every imported module) from the
+        # Management API function-body endpoint. _shared modules are stored
+        # once per distinct content under live-snapshot/shared/, and each file
+        # is compared byte-for-byte with the repo checkout (main) to report
+        # exact drift.
         run: |
-          set -uo pipefail
-          mkdir -p supabase/live-snapshot/functions
+          set -euo pipefail
+          mkdir -p supabase/live-snapshot/functions supabase/live-snapshot/shared
           supabase functions list --project-ref "$SUPABASE_PROJECT_REF" -o json > /tmp/functions.json
-          python3 - <<'PY' > /tmp/slugs.txt
-          import json
-          for f in json.load(open('/tmp/functions.json')):
-              print(f['slug'])
-          PY
-          : > supabase/live-snapshot/functions/_download_failures.txt
-          while read -r slug; do
-            # Fresh workdir per function: the CLI's bundler container leaves
-            # root-owned files that cannot be removed between downloads.
-            wd="$(mktemp -d /tmp/fnsnap.XXXXXX)"
-            if supabase functions download "$slug" --project-ref "$SUPABASE_PROJECT_REF" --workdir "$wd" >/dev/null 2>&1; then
-              mkdir -p "supabase/live-snapshot/functions/$slug"
-              cp -R "$wd/supabase/functions/." "supabase/live-snapshot/functions/$slug/"
-            else
-              echo "$slug" >> supabase/live-snapshot/functions/_download_failures.txt
-            fi
-          done < /tmp/slugs.txt
           python3 - <<'PY'
-          import json
-          fns = json.load(open('/tmp/functions.json'))
-          keep = ['slug', 'version', 'status', 'verify_jwt', 'entrypoint_path', 'updated_at', 'ezbr_sha256']
-          rows = [{k: f.get(k) for k in keep} for f in fns]
-          for r in rows:
-              ep = r.get('entrypoint_path') or ''
-              r['deployed_via'] = 'github_ci' if '/home/runner/work/' in ep else 'manual'
-          json.dump(sorted(rows, key=lambda r: r['slug']), open('supabase/live-snapshot/functions/_manifest.json', 'w'), indent=2)
-          print(f"manifest: {len(rows)} functions")
+          import email.parser, email.policy, hashlib, json, os, re, urllib.request
+          ref = os.environ["SUPABASE_PROJECT_REF"]; token = os.environ["SUPABASE_ACCESS_TOKEN"]
+          root = "supabase/live-snapshot"
+          fns = sorted(json.load(open("/tmp/functions.json")), key=lambda f: f["slug"])
+          manifest, failures = [], []
+          drift = {"identical": [], "differs": [], "not_in_repo": [], "export_failed": []}
+
+          def rel_path(name, slug):
+              name = name.replace("\\", "/")
+              for marker in ("/source/", "/supabase/functions/"):
+                  if marker in name:
+                      name = name.rsplit(marker, 1)[1]
+              name = name.lstrip("/")
+              if name.startswith("file:"):
+                  name = name.split("/", 3)[-1]
+              return name if "/" in name else f"{slug}/{name}"
+
+          for f in fns:
+              slug = f["slug"]
+              entry = {k: f.get(k) for k in ("slug", "version", "status", "verify_jwt", "entrypoint_path", "updated_at", "ezbr_sha256")}
+              entry["deployed_via"] = "github_ci" if "/home/runner/work/" in (entry.get("entrypoint_path") or "") else "manual"
+              req = urllib.request.Request(
+                  f"https://api.supabase.com/v1/projects/{ref}/functions/{slug}/body",
+                  headers={"Authorization": f"Bearer {token}", "Accept": "multipart/form-data"})
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as resp:
+                      ctype = resp.headers.get("Content-Type", ""); body = resp.read()
+                  if "multipart" not in ctype:
+                      raise ValueError(f"unexpected content type {ctype!r}")
+                  msg = email.parser.BytesParser(policy=email.policy.default).parsebytes(
+                      b"Content-Type: " + ctype.encode() + b"\r\n\r\n" + body)
+                  files = []
+                  for part in msg.iter_parts():
+                      fname = part.get_filename()
+                      if not fname or fname.endswith(".json") and "metadata" in fname:
+                          continue
+                      content = part.get_payload(decode=True) or b""
+                      rel = rel_path(fname, slug)
+                      sha = hashlib.sha256(content).hexdigest()
+                      if rel.startswith("_shared/"):
+                          stem, ext = os.path.splitext(rel[len("_shared/"):])
+                          out = f"{root}/shared/{stem}@{sha[:10]}{ext}"
+                      else:
+                          out = f"{root}/functions/{rel}"
+                      os.makedirs(os.path.dirname(out), exist_ok=True)
+                      open(out, "wb").write(content)
+                      repo = f"supabase/functions/{rel}"
+                      same = os.path.exists(repo) and open(repo, "rb").read() == content
+                      files.append({"path": rel, "sha256": sha, "stored_at": out,
+                                    "repo_status": "identical" if same else ("differs" if os.path.exists(repo) else "not_in_repo")})
+                  if not files:
+                      raise ValueError("no source files in response")
+                  entry["files"] = files
+                  statuses = {x["repo_status"] for x in files}
+                  bucket = "identical" if statuses == {"identical"} else ("not_in_repo" if not os.path.exists(f"supabase/functions/{slug}") else "differs")
+                  drift[bucket].append(slug)
+              except Exception as e:  # noqa: BLE001 - record and keep exporting
+                  failures.append(f"{slug}: {e}")
+                  drift["export_failed"].append(slug)
+              manifest.append(entry)
+
+          repo_only = sorted(d for d in os.listdir("supabase/functions")
+                             if not d.startswith("_") and os.path.isdir(f"supabase/functions/{d}") and d not in {f["slug"] for f in fns})
+          drift["repo_only"] = repo_only
+          json.dump(manifest, open(f"{root}/functions/_manifest.json", "w"), indent=2)
+          json.dump(drift, open(f"{root}/functions/_drift.json", "w"), indent=2)
+          open(f"{root}/functions/_download_failures.txt", "w").write("\n".join(failures) + ("\n" if failures else ""))
+          print({k: len(v) for k, v in drift.items()}, "failures:", len(failures))
           PY
 
       - name: Redact secrets
