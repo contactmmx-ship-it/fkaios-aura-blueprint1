@@ -63,7 +63,7 @@ jobs:
       - name: Export deployed edge function sources
         run: |
           set -uo pipefail
-          mkdir -p supabase/live-snapshot/functions /tmp/fnsnap
+          mkdir -p supabase/live-snapshot/functions
           supabase functions list --project-ref "$SUPABASE_PROJECT_REF" -o json > /tmp/functions.json
           python3 - <<'PY' > /tmp/slugs.txt
           import json
@@ -72,10 +72,12 @@ jobs:
           PY
           : > supabase/live-snapshot/functions/_download_failures.txt
           while read -r slug; do
-            rm -rf /tmp/fnsnap/supabase
-            if supabase functions download "$slug" --project-ref "$SUPABASE_PROJECT_REF" --workdir /tmp/fnsnap >/dev/null 2>&1; then
+            # Fresh workdir per function: the CLI's bundler container leaves
+            # root-owned files that cannot be removed between downloads.
+            wd="$(mktemp -d /tmp/fnsnap.XXXXXX)"
+            if supabase functions download "$slug" --project-ref "$SUPABASE_PROJECT_REF" --workdir "$wd" >/dev/null 2>&1; then
               mkdir -p "supabase/live-snapshot/functions/$slug"
-              cp -R /tmp/fnsnap/supabase/functions/. "supabase/live-snapshot/functions/$slug/"
+              cp -R "$wd/supabase/functions/." "supabase/live-snapshot/functions/$slug/"
             else
               echo "$slug" >> supabase/live-snapshot/functions/_download_failures.txt
             fi
