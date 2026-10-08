@@ -23,6 +23,36 @@ import { assessRisk, createTask, routeToDepartment } from "../_shared/founder-br
 import { summarizeObjectiveProgress } from "../_shared/objective-progress.ts";
 import { canRerun, FOUNDER_OBJECTIVE_CLASSIFICATION, rerunUpdate } from "../_shared/objective-rerun.ts";
 import { runObjectiveLoop } from "../_shared/objective-loop.ts";
+import { base64ToBytes, bytesToBase64, synthesize, transcribe } from "../_shared/speech.ts";
+import { voiceTurn } from "../_shared/voice.ts";
+import { requestCommunication, type CommunicationCapability } from "../_shared/communications.ts";
+import { buildDefaultRouterConfig, callLLMOnResources } from "../_shared/llm-router.ts";
+import { selectResources } from "../_shared/resource-selection.ts";
+import { recordLLMAttempts } from "../_shared/execution-evidence.ts";
+
+const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
+const COMMUNICATION_CAPABILITIES = new Set(["send_whatsapp_message", "send_email", "send_sms", "make_voice_call"]);
+
+function audioFromBody(body: Record<string, unknown>): { bytes: Uint8Array; mimeType: string; languageHint?: string } | string {
+  if (typeof body.audioBase64 !== "string" || !body.audioBase64) return "audioBase64 required";
+  const bytes = base64ToBytes(body.audioBase64);
+  if (bytes.length > MAX_AUDIO_BYTES) return "audio larger than 10 MB";
+  return { bytes, mimeType: typeof body.mimeType === "string" ? body.mimeType : "audio/webm", languageHint: typeof body.language === "string" ? body.language : undefined };
+}
+
+/** The conversational responder behind a voice turn: the same router, selection and evidence as every other FKAIOS call. */
+async function conversationalReply(text: string, language: string | null): Promise<{ text: string; meta: Record<string, unknown> }> {
+  const db = adminClient();
+  const sel = await selectResources(db, "general");
+  const started = new Date();
+  const r = await callLLMOnResources({
+    systemPrompt: `You are FKAIOS, the founder's operating system, answering a spoken question. Reply in two or three plain sentences suitable for speech${language ? ` in the language ${language}` : ""}. If the request needs work done (research, building, sending), say it should be submitted as an objective instead of claiming you did it.`,
+    userContent: text, functionName: "founder-objective:voice", functionClass: "background_agent", temperature: 0.2, maxTokens: 300,
+  }, buildDefaultRouterConfig(), sel.resources);
+  await recordLLMAttempts(db, { stepKind: "task_execution", taskClass: "general", capabilityRef: "capability:voice_conversation" }, r.log, sel, null, started);
+  if (r.status !== "success" || !r.content) throw new Error(r.log.failure_reason ?? "no model could answer");
+  return { text: r.content.trim(), meta: { resource: r.resource?.ref ?? null } };
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -236,6 +266,42 @@ Deno.serve(async (req: Request) => {
         }
       }
       return json({ ok: true, objectives: await readObjectiveStatus(objectiveId) });
+    }
+    const raw = body as Record<string, unknown>;
+    if (body.action === "transcribe") {
+      // Voice as an input modality: the text goes through the same objective path as typed text.
+      const audio = audioFromBody(raw);
+      if (typeof audio === "string") return json({ ok: false, error: audio }, 400);
+      const r = await transcribe(adminClient(), audio, { requirePrivacy: raw.localOnly === true ? "local" : undefined });
+      if (r.status !== "success" || !r.output) return json({ ok: false, error: r.failure, attempts: r.attempts }, 503);
+      return json({ ok: true, text: r.output.text, language: r.output.language, segments: r.output.segments, resource: r.resourceRef, attempts: r.attempts, evidence: r.stepIds });
+    }
+    if (body.action === "speak") {
+      const text = typeof raw.text === "string" ? raw.text.trim() : "";
+      if (!text || text.length > 4000) return json({ ok: false, error: "text (1-4000 chars) required" }, 400);
+      const r = await synthesize(adminClient(), text, typeof raw.voice === "string" ? raw.voice : null);
+      if (r.status !== "success" || !r.output) return json({ ok: false, error: r.failure, attempts: r.attempts }, 503);
+      return json({ ok: true, audioBase64: bytesToBase64(r.output.audio), mimeType: r.output.mimeType, resource: r.resourceRef, attempts: r.attempts, evidence: r.stepIds });
+    }
+    if (body.action === "voice_turn") {
+      const audio = audioFromBody(raw);
+      if (typeof audio === "string") return json({ ok: false, error: audio }, 400);
+      const turn = await voiceTurn(adminClient(), audio, conversationalReply);
+      if (turn.status !== "completed" || !turn.audio) return json({ ok: false, stage: turn.stage, error: turn.error, transcript: turn.transcript }, 503);
+      return json({ ok: true, transcript: turn.transcript, language: turn.language, reply: turn.reply?.text, audioBase64: bytesToBase64(turn.audio.bytes), mimeType: turn.audio.mimeType, resources: turn.resources, evidence: turn.stepIds });
+    }
+    if (body.action === "request_communication") {
+      // Plans the message and records it for the founder's decision; nothing is sent until that approval exists.
+      const capability = String(raw.capability ?? "");
+      if (!COMMUNICATION_CAPABILITIES.has(capability)) return json({ ok: false, error: "capability must be one of send_whatsapp_message, send_email, send_sms, make_voice_call" }, 400);
+      if (typeof raw.recipient !== "string" || typeof raw.content !== "string") return json({ ok: false, error: "recipient and content required" }, 400);
+      const tpl = raw.template as { name?: string; language?: string; params?: string[] } | undefined;
+      const result = await requestCommunication(adminClient(), {
+        capability: capability as CommunicationCapability, recipient: raw.recipient, content: raw.content.slice(0, 4000),
+        template: tpl?.name ? { name: tpl.name, language: tpl.language ?? "en", params: Array.isArray(tpl.params) ? tpl.params.map(String) : [] } : null,
+        purpose: typeof raw.purpose === "string" ? raw.purpose.slice(0, 300) : "founder request", objectiveId: null, requestedBy: user.email ?? user.id,
+      });
+      return json({ ok: result.status !== "blocked", ...result }, result.status === "blocked" ? 422 : 200);
     }
     if (body.action === "rerun") {
       if (typeof body.objectiveId !== "string" || !body.objectiveId) return json({ ok: false, error: "objectiveId required" }, 400);
