@@ -34,6 +34,7 @@ import { allocateProjectWork, returnCompletedWork } from "../_shared/work-engine
 import { runObjectiveLoop } from "../_shared/objective-loop.ts";
 import { COGNITIVE_CYCLE_ACTION, cognitiveIntervalMinutes, shouldRunCognitiveCycle } from "../_shared/cognitive-budget.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { runDiscoveryIfDue } from "../_shared/capability-discovery.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -128,6 +129,15 @@ Deno.serve(async (req: Request) => {
     // (default 60); the objective loop above still runs on every tick.
     // Its own execution_log row is the record of when it last ran.
     const serviceClient = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
+
+    // Continuous AI-world discovery (hourly): provider model catalogs ->
+    // registry + candidates + controlled evaluation queue. Never changes routing.
+    let discovery: unknown = null;
+    try {
+      discovery = await runDiscoveryIfDue(serviceClient);
+    } catch (err) {
+      console.error("founder-brain-tick: capability discovery failed (non-blocking)", err instanceof Error ? err.message : String(err));
+    }
     const { data: lastCycle } = await serviceClient.from("execution_log").select("created_at")
       .eq("function_name", "founder-brain-tick").eq("action", COGNITIVE_CYCLE_ACTION)
       .order("created_at", { ascending: false }).limit(1).maybeSingle();
@@ -199,7 +209,7 @@ Deno.serve(async (req: Request) => {
     if (returnResult.status === "fulfilled") { returned = returnResult.value.returned; dispatched = returnResult.value.dispatched; }
     else console.error("founder-brain-tick: returnCompletedWork failed", returnResult.reason instanceof Error ? returnResult.reason.message : String(returnResult.reason));
 
-    return new Response(JSON.stringify({ ...result, planned, allocated, escalated, returned, dispatched, objectiveLoop, parallelExecutionSummary }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ ...result, planned, allocated, escalated, returned, dispatched, objectiveLoop, discovery, parallelExecutionSummary }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("founder-brain-tick error:", msg);

@@ -27,7 +27,9 @@ export type FailureCategory =
   | "timeout"
   | "invalid_request"
   | "provider_outage"
-  | "invalid_response";
+  | "invalid_response"
+  /** The requested model does not exist or is not served for this key (404). Other models of the same provider may still work. */
+  | "model_unavailable";
 
 export interface LLMRequest {
   systemPrompt: string;
@@ -40,6 +42,8 @@ export interface LLMRequest {
   functionName: string;
   agentName?: string;
   functionClass: FunctionClass;
+  /** Exact model to use for this call. When absent, the adapter's own default resolution applies (unchanged behaviour). */
+  model?: string;
 }
 
 export interface RawProviderResponse {
@@ -53,6 +57,8 @@ export interface RawProviderResponse {
   latencyMs: number;
   /** The exact model identifier this attempt was made with — never inferred by a caller after the fact. */
   model: string;
+  /** True when the provider stopped because the output-token limit was reached (the content is a prefix). */
+  truncated?: boolean;
 }
 
 export interface ClassifiedFailure {
@@ -76,6 +82,8 @@ export interface ProviderHealthSnapshot {
 
 export interface CallAttempt {
   provider: ProviderName;
+  inputTokens?: number;
+  outputTokens?: number;
   /** The actual model identifier used for this attempt — resolved once, at call time, never re-derived from `provider` afterward. */
   model: string;
   outcome: "success" | "failure";
@@ -93,6 +101,11 @@ export interface AttemptRecord {
   outcome: "success" | "failure";
   wasFallback: boolean;
   failureCategory: FailureCategory | null;
+  latencyMs?: number;
+  estimatedCostUsd?: number | null;
+  failureDetail?: string | null;
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 export interface LLMCallLogEntry {
@@ -118,6 +131,8 @@ export interface LLMResult {
   toolCall?: unknown;
   /** The actual model that produced this result (successful attempt only). Null on failure — see log.attempts for what was actually tried. */
   model?: string;
+  /** The successful response stopped at the output-token limit; content is incomplete. */
+  truncated?: boolean;
   log: LLMCallLogEntry;
 }
 
@@ -195,6 +210,8 @@ const HEALTH_COOLDOWN_MS: Record<FailureCategory, number> = {
   invalid_request: 0,
   provider_outage: 5 * 60 * 1000,
   invalid_response: 10 * 60 * 1000,
+  // Model-scoped, recorded on the model's own registry row, not the provider.
+  model_unavailable: 0,
 };
 
 function healthDb() {
@@ -359,7 +376,7 @@ export const anthropicAdapter: ProviderAdapter = {
     // immediate failure rather than firing a request with a blank
     // Authorization header.
     const apiKey = getAnthropicApiKey();
-    const model = getAnthropicModel(request.functionClass);
+    const model = request.model ?? getAnthropicModel(request.functionClass);
     if (!apiKey) {
       return { ok: false, httpStatus: 401, rawBody: { error: "ANTHROPIC_API_KEY is not configured" }, latencyMs: 0, model };
     }
@@ -409,6 +426,7 @@ export const anthropicAdapter: ProviderAdapter = {
       outputTokens: data?.usage?.output_tokens ?? 0,
       latencyMs,
       model,
+      truncated: data?.stop_reason === "max_tokens",
     };
   },
   estimateCost(_request, response) {
@@ -427,7 +445,7 @@ export const openaiAdapter: ProviderAdapter = {
   getModel: getOpenAIModel,
   async call(request) {
     const apiKey = getOpenAIApiKey();
-    const model = getOpenAIModel(request.functionClass);
+    const model = request.model ?? getOpenAIModel(request.functionClass);
     if (!apiKey) {
       return { ok: false, httpStatus: 401, rawBody: { error: "OPENAI_API_KEY is not configured" }, latencyMs: 0, model };
     }
@@ -455,6 +473,7 @@ export const openaiAdapter: ProviderAdapter = {
       outputTokens: data?.usage?.completion_tokens ?? 0,
       latencyMs,
       model,
+      truncated: data?.choices?.[0]?.finish_reason === "length",
     };
   },
   estimateCost(_request, response) {
@@ -481,7 +500,7 @@ function buildOpenAICompatibleAdapter(
     getModel: modelResolver,
     async call(request) {
       const apiKey = envKey();
-      const model = modelResolver(request.functionClass);
+      const model = request.model ?? modelResolver(request.functionClass);
       if (!apiKey) return {ok:false,httpStatus:401,rawBody:{error:"API key not configured"},latencyMs:0,model};
       const start=Date.now();
       const response=await fetch(baseUrl+"/chat/completions",{
@@ -495,7 +514,7 @@ function buildOpenAICompatibleAdapter(
         return {ok:false,httpStatus:response.status,rawBody:parsed,latencyMs,model};
       }
       const data=await response.json();
-      return {ok:true,httpStatus:response.status,content:data?.choices?.[0]?.message?.content??"",rawBody:data,inputTokens:data?.usage?.prompt_tokens??0,outputTokens:data?.usage?.completion_tokens??0,latencyMs,model};
+      return {ok:true,httpStatus:response.status,content:data?.choices?.[0]?.message?.content??"",rawBody:data,inputTokens:data?.usage?.prompt_tokens??0,outputTokens:data?.usage?.completion_tokens??0,latencyMs,model,truncated:data?.choices?.[0]?.finish_reason==="length"};
     },
     estimateCost(_request,response){ return 0; },
     health(){ return {provider:name,successRate:null,failureCount:0,fallbackFrequency:null,avgLatencyMs:null,timeoutRate:null,costPerSuccessUsd:null,sampleSize:0}; },
@@ -511,7 +530,7 @@ export const geminiAdapter: ProviderAdapter = {
   getModel: getGeminiModel,
   async call(request) {
     const apiKey = getGeminiApiKey();
-    const model = getGeminiModel(request.functionClass);
+    const model = request.model ?? getGeminiModel(request.functionClass);
     if (!apiKey) {
       return { ok: false, httpStatus: 401, rawBody: { error: "GEMINI_API_KEY is not configured" }, latencyMs: 0, model };
     }
@@ -543,6 +562,7 @@ export const geminiAdapter: ProviderAdapter = {
       outputTokens: data?.usageMetadata?.candidatesTokenCount ?? 0,
       latencyMs,
       model,
+      truncated: data?.candidates?.[0]?.finishReason === "MAX_TOKENS",
     };
   },
   estimateCost(_request, response) {
@@ -618,6 +638,11 @@ const CREDIT_EXHAUSTION_PATTERNS = [
   /insufficient balance/i,
 ];
 
+const MODEL_UNAVAILABLE_PATTERNS = [
+  /model[^"]{0,40}(not found|does not exist|is not supported|not available|deprecated|decommissioned)/i,
+  /not_found_error/i,
+];
+
 const AUTH_FAILURE_STATUS = new Set([401, 403]);
 const OUTAGE_STATUS_MIN = 500;
 
@@ -655,6 +680,12 @@ export function classifyLLMFailure(response: RawProviderResponse | null, error?:
 
   if (response.httpStatus >= OUTAGE_STATUS_MIN) {
     return { category: "provider_outage", detail: bodyText.slice(0, 300), shouldFailover: true };
+  }
+
+  if (response.httpStatus === 404 || (response.httpStatus === 400 && MODEL_UNAVAILABLE_PATTERNS.some((p) => p.test(bodyText)))) {
+    // The model itself is missing/retired/not served for this key. Unlike a
+    // malformed request, another model or provider can still answer it.
+    return { category: "model_unavailable", detail: bodyText.slice(0, 300), shouldFailover: true };
   }
 
   if (!response.ok && response.httpStatus >= 400 && response.httpStatus < 500) {
@@ -871,6 +902,11 @@ export function buildLogEntry(
       outcome: a.outcome,
       wasFallback: a.wasFallback,
       failureCategory: a.failure?.category ?? null,
+      latencyMs: a.latencyMs,
+      estimatedCostUsd: a.estimatedCostUsd,
+      failureDetail: a.failure?.detail?.slice(0, 300) ?? null,
+      inputTokens: a.inputTokens,
+      outputTokens: a.outputTokens,
     })),
     latency_ms: totalLatency,
     token_usage: tokenUsage,
@@ -956,13 +992,14 @@ export async function callLLM(request: LLMRequest, config: RouterConfig): Promis
       // Real success — a genuine, usable response was received.
       tokenUsage = { input: response.inputTokens ?? 0, output: response.outputTokens ?? 0 };
       const cost = adapter.estimateCost(request, response);
-      attempts.push({ provider: providerName, model: attemptedModel, outcome: "success", latencyMs, estimatedCostUsd: cost, wasFallback, timedOut: false });
+      attempts.push({ provider: providerName, model: attemptedModel, outcome: "success", latencyMs, estimatedCostUsd: cost, wasFallback, timedOut: false, inputTokens: response.inputTokens ?? 0, outputTokens: response.outputTokens ?? 0 });
       await persistRuntimeProviderSuccess(providerName);
       return {
         status: "success",
         content: response.content,
         toolCall: response.toolCall,
         model: attemptedModel,
+        truncated: response.truncated === true,
         log: buildLogEntry(request, attempts, "success", tokenUsage),
       };
     }
@@ -999,6 +1036,92 @@ export async function callLLM(request: LLMRequest, config: RouterConfig): Promis
   // (invalid_response_received) are a different situation from every
   // provider being genuinely unavailable (failed_all_providers) — never
   // collapse the two into a generic success-adjacent status.
+  const anyInvalidResponse = attempts.some((a) => a.failure?.category === "invalid_response");
+  const finalStatus = anyInvalidResponse ? "invalid_response_received" : "failed_all_providers";
+  return { status: finalStatus, log: buildLogEntry(request, attempts, finalStatus, tokenUsage) };
+}
+
+// ---------------------------------------------------------------------------
+// Resource-level routing
+// ---------------------------------------------------------------------------
+
+/** One concrete execution resource: a specific model of a specific provider. */
+export interface ExecutionResource {
+  /** Canonical identity, model:<provider>:<model>. */
+  ref: string;
+  provider: ProviderName;
+  model: string;
+}
+
+/**
+ * Failures that say nothing about other models of the same provider. A quota
+ * hit or a missing model on one model leaves the provider's other models
+ * usable (free-tier quotas are per model); everything else (no credit, bad
+ * key, outage) makes the whole provider unusable for this call.
+ */
+const RESOURCE_SCOPED_FAILURES: ReadonlySet<FailureCategory> = new Set(["rate_limit", "model_unavailable", "invalid_response", "timeout"]);
+
+/**
+ * Calls an ordered list of resources (chosen by resource-selection.ts), trying
+ * the next one when an attempt fails. Same validation and honesty rules as
+ * callLLM: a 200 with no usable content is a failure, and every attempt is
+ * logged with its provider, exact model and failure category.
+ */
+export async function callLLMOnResources(
+  request: LLMRequest,
+  config: RouterConfig,
+  resources: ExecutionResource[],
+): Promise<LLMResult & { resource?: ExecutionResource }> {
+  const timeoutMs = config.timeoutMsByClass[request.functionClass];
+  const attempts: CallAttempt[] = [];
+  const deadProviders = new Set<ProviderName>();
+  let tokenUsage: { input: number; output: number } | null = null;
+
+  for (const resource of resources) {
+    if (deadProviders.has(resource.provider)) continue;
+    const adapter = config.providers.find((p) => p.name === resource.provider);
+    if (!adapter) continue; // provider not configured in this runtime
+    const start = Date.now();
+    let response: RawProviderResponse | null = null;
+    let thrown: unknown;
+    try {
+      response = await callWithTimeout(adapter, { ...request, model: resource.model }, timeoutMs);
+    } catch (err) {
+      thrown = err;
+    }
+    const latencyMs = Date.now() - start;
+    const timedOut = thrown instanceof TimeoutError;
+    const wasFallback = attempts.length > 0;
+
+    if (response && response.ok && !isEmptyOrInvalidContent(response)) {
+      tokenUsage = { input: response.inputTokens ?? 0, output: response.outputTokens ?? 0 };
+      const cost = adapter.estimateCost(request, response);
+      attempts.push({ provider: resource.provider, model: resource.model, outcome: "success", latencyMs, estimatedCostUsd: cost, wasFallback, timedOut: false, inputTokens: response.inputTokens ?? 0, outputTokens: response.outputTokens ?? 0 });
+      await persistRuntimeProviderSuccess(resource.provider);
+      return {
+        status: "success",
+        content: response.content,
+        toolCall: response.toolCall,
+        model: resource.model,
+        truncated: response.truncated === true,
+        resource,
+        log: buildLogEntry(request, attempts, "success", tokenUsage),
+      };
+    }
+
+    const failure = timedOut
+      ? { category: "timeout" as const, detail: `No response within ${timeoutMs}ms`, shouldFailover: true }
+      : classifyLLMFailure(response, thrown);
+    attempts.push({ provider: resource.provider, model: resource.model, outcome: "failure", failure, latencyMs, estimatedCostUsd: response ? adapter.estimateCost(request, response) : null, wasFallback, timedOut });
+    if (!RESOURCE_SCOPED_FAILURES.has(failure.category)) {
+      deadProviders.add(resource.provider);
+      await persistRuntimeProviderFailure(resource.provider, failure);
+    }
+    if (!failure.shouldFailover) {
+      return { status: "failed_all_providers", log: buildLogEntry(request, attempts, "failed_all_providers", tokenUsage) };
+    }
+  }
+
   const anyInvalidResponse = attempts.some((a) => a.failure?.category === "invalid_response");
   const finalStatus = anyInvalidResponse ? "invalid_response_received" : "failed_all_providers";
   return { status: finalStatus, log: buildLogEntry(request, attempts, finalStatus, tokenUsage) };
