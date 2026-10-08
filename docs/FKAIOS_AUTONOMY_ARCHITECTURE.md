@@ -56,3 +56,6 @@ objective ─► objective_contracts (understanding) ─► fkaios_objective_sta
 - **8 Oct, execution and evolution layers:** migrations `20261008153814` (eval suite) and `20261008153959` (adoption functions) are applied and byte-identical in the repo. Code is in PR-2.
 - **8 Oct, PR-2 deployed** (PR #49), plus the fix in PR #50: the evaluator selected the nonexistent column `model_registry.id`, so every candidate was cancelled as unregistered. The voided test was annotated and its candidate restored.
 - **8 Oct, evidence and self-test:** migration `20261008154853` (applied, byte-identical) lets eval and self-test evidence exist without an objective. Without it, benchmark evidence could not have been written, so no benchmark could have been verified. Also adds the `fkaios_self_tests` harness. Continuation logic moved into `_shared/continuation.ts`.
+- **8 Oct, production self-tests:**
+  - Run `ef65c13b` (15:53): model failover, verifier reject and verifier pass passed. Continuation completed, but a too-strict check failed it. The verifier also overstated independence when no producer was known. Both fixed in #52.
+  - Run `3e57e289` (15:57): **4/4 passed**. Its text exposed lost spaces at continuation seams. Fixed in #53 by stitching each continuation onto an anchor repeated from the end of the partial output.

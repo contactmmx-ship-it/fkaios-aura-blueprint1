@@ -55,6 +55,38 @@ This is the reference document for FKAIOS. Before changing anything:
 
 ---
 
+## Autonomy implementation (8 Oct 2026, PRs #48–#53). Read this first
+
+Design and component map: [`docs/FKAIOS_AUTONOMY_ARCHITECTURE.md`](FKAIOS_AUTONOMY_ARCHITECTURE.md).
+
+**Status vocabulary:** IMPLEMENTED = code on `main` · DEPLOYED = CI deploy succeeded · INVOKED = ran in production · VERIFIED = production rows prove the behaviour.
+
+| Capability | Status | Production evidence |
+|---|---|---|
+| Resource identity and registry lifecycle | VERIFIED | `model_registry.resource_ref`, check constraints, discovery writes lifecycle states |
+| Continuous discovery (Gemini, Anthropic and OpenAI APIs, OpenRouter catalog) | VERIFIED | hourly `discovery` steps (14:45, 15:46): 25 Gemini models (configured), 14 Anthropic and 48 OpenAI (no credit), 18 OpenRouter free models (no key). Discovery is not trust: discovered models are never routed |
+| Model-level failover | VERIFIED | self-test: a model the provider does not serve fails as `model_unavailable`, then `gemini-3.5-flash-lite` answers; both attempts are in `fkaios_execution_steps` |
+| Execution evidence (one row per attempt) | VERIFIED | `fkaios_execution_steps` rows for discovery, evaluation, continuation and verification |
+| Output-limit continuation | VERIFIED | self-test `3e57e289`: 3 continuations, all 5 sentences, no restart. A seam defect (lost spaces) was found there and fixed in #53 |
+| Independent verifier | VERIFIED (self-test) | rejects a wrong deliverable (quality 0) and passes a correct one (quality 1); evidence rows `e9747c7e`, `b0c8e66e`. It reports `producers_unknown` rather than overclaiming independence |
+| Canonical objective state, checkpoint resume, rectification | DEPLOYED, not yet INVOKED | needs a real objective (founder action 1 below) |
+| Golden evals, leased test executor, incumbent comparison | DEPLOYED, INVOKED | the executor claims and finishes tests. A lookup bug cancelled the first Gemini test (fixed in #50). Eval evidence was blocked by `objective_id NOT NULL` (fixed by migration `20261008154853`). A completed benchmark is still pending; Gemini candidates are queued at each hourly discovery |
+| Governed adoption and rollback (versioned routing) | DEPLOYED | SQL functions `fkaios_adopt_routing` and `fkaios_rollback_routing`; routing policy v1 active for 8 task classes |
+| Learning from verified outcomes | DEPLOYED | `v_fkaios_resource_performance` counts only verified or rejected steps; routing is reordered only after 5 or more samples |
+| Observability | VERIFIED | `v_fkaios_operations` |
+| Production self-test | VERIFIED | `insert into fkaios_self_tests(requested_by) values ('<who>')` → the next tick runs 4 scenarios on real models (about 10 s, free tier) |
+
+**Lessons:**
+- Through the Supabase connector, `DROP POLICY` (and some `UPDATE`s) wait for an interactive confirmation and time out. Use a guarded `create policy` in a `do` block, and data repairs through a migration.
+- Every migration is applied first, then the repo file is renamed to its live version and md5-checked against `schema_migrations`.
+
+**Founder actions (blocking only the items named):**
+1. **Run one real objective from the Console.** This proves canonical state, verifier, rectification and learning on real work. Use the controlled test in §6. The rules forbid creating objectives by SQL.
+2. **Second LLM provider or credit.** An `OPENROUTER_API_KEY` alone unlocks 18 free models for evaluation and failover. Without one, every resource is Gemini, so the verifier cannot be cross-provider, and Gemini daily quotas cap throughput.
+3. **Decide `capability_adoption` approvals** when they appear. Gemini's free tier is not recorded in its model metadata, so adoptions go to the founder instead of the autonomous path.
+4. Grant the CI token `database_migrations_read` (drift check).
+5. Rotate `HEARTBEAT_SECRET`/cron secrets; enable leaked-password protection.
+
 ## Re-audit baseline and P0 change control (8 Oct 2026)
 
 `docs/FKAIOS_REAUDIT_2026-10-08.md` is now the authoritative gap list.

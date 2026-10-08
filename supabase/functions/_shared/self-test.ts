@@ -51,8 +51,9 @@ async function continuation(db: Db): Promise<ScenarioResult> {
     const endsWithEnd = /END\W*$/.test(out.text.trim());
     const numbered = [1, 2, 3, 4, 5].filter((n) => new RegExp(`(^|\\s)${n}[.)]`).test(out.text)).length;
     const restarted = (out.text.match(/(^|\s)1[.)]/g) ?? []).length > 1;
-    return { scenario: "continuation", passed: out.continuations >= 1 && endsWithEnd && numbered === 5 && !restarted,
-      details: { continuations: out.continuations, chars: out.text.length, ends_with_end: endsWithEnd, numbered_sentences: numbered, restarted, text: out.text.slice(0, 2000) } };
+    const doubled = /\b(\w{4,})\1\b/i.exec(out.text)?.[0] ?? null; // a seam that repeated a word without merging it
+    return { scenario: "continuation", passed: out.continuations >= 1 && endsWithEnd && numbered === 5 && !restarted && !doubled,
+      details: { continuations: out.continuations, chars: out.text.length, ends_with_end: endsWithEnd, numbered_sentences: numbered, restarted, doubled, text: out.text.slice(0, 2000) } };
   } catch (err) {
     return { scenario: "continuation", passed: false, details: { error: err instanceof Error ? err.message : String(err) } };
   }
