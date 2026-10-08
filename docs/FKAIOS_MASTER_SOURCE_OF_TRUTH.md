@@ -55,37 +55,49 @@ This is the reference document for FKAIOS. Before changing anything:
 
 ---
 
-## Autonomy implementation (8 Oct 2026, PRs #48–#53). Read this first
+## Autonomy implementation (8 Oct 2026, PRs #48–#60). Read this first
 
-Design and component map: [`docs/FKAIOS_AUTONOMY_ARCHITECTURE.md`](FKAIOS_AUTONOMY_ARCHITECTURE.md).
+Design and component map: [`docs/FKAIOS_AUTONOMY_ARCHITECTURE.md`](FKAIOS_AUTONOMY_ARCHITECTURE.md). P0 secret plan: [`docs/FKAIOS_P0_CRON_SECRET_PLAN.md`](FKAIOS_P0_CRON_SECRET_PLAN.md).
 
-**Status vocabulary:** IMPLEMENTED = code on `main` · DEPLOYED = CI deploy succeeded · INVOKED = ran in production · VERIFIED = production rows prove the behaviour.
+**Status:**
+- **GREEN** = implemented, operational, and verified by production rows.
+- **YELLOW** = implemented and deployed, but not yet proven, or waiting on infrastructure or a real-world test.
+- **RED** = missing, broken, blocked or unsafe.
+- A schema, an adapter that compiles, or a queued test is never GREEN.
 
-| Capability | Status | Production evidence |
+| Capability | Status | Production evidence or gap |
 |---|---|---|
-| Resource identity and registry lifecycle | VERIFIED | `model_registry.resource_ref`, check constraints, discovery writes lifecycle states |
-| Continuous discovery (Gemini, Anthropic and OpenAI APIs, OpenRouter catalog) | VERIFIED | hourly `discovery` steps (14:45, 15:46): 25 Gemini models (configured), 14 Anthropic and 48 OpenAI (no credit), 18 OpenRouter free models (no key). Discovery is not trust: discovered models are never routed |
-| Model-level failover | VERIFIED | self-test: a model the provider does not serve fails as `model_unavailable`, then `gemini-3.5-flash-lite` answers; both attempts are in `fkaios_execution_steps` |
-| Execution evidence (one row per attempt) | VERIFIED | `fkaios_execution_steps` rows for discovery, evaluation, continuation and verification |
-| Output-limit continuation | VERIFIED | self-test `3e57e289`: 3 continuations, all 5 sentences, no restart. A seam defect (lost spaces) was found there and fixed in #53 |
-| Independent verifier | VERIFIED (self-test) | rejects a wrong deliverable (quality 0) and passes a correct one (quality 1); evidence rows `e9747c7e`, `b0c8e66e`. It reports `producers_unknown` rather than overclaiming independence |
-| Canonical objective state, checkpoint resume, rectification | DEPLOYED, not yet INVOKED | needs a real objective (founder action 1 below) |
-| Golden evals, leased test executor, incumbent comparison | DEPLOYED, INVOKED | the executor claims and finishes tests. A lookup bug cancelled the first Gemini test (fixed in #50). Eval evidence was blocked by `objective_id NOT NULL` (fixed by migration `20261008154853`). A completed benchmark is still pending; Gemini candidates are queued at each hourly discovery |
-| Governed adoption and rollback (versioned routing) | DEPLOYED | SQL functions `fkaios_adopt_routing` and `fkaios_rollback_routing`; routing policy v1 active for 8 task classes |
-| Learning from verified outcomes | DEPLOYED | `v_fkaios_resource_performance` counts only verified or rejected steps; routing is reordered only after 5 or more samples |
-| Observability | VERIFIED | `v_fkaios_operations` |
-| Production self-test | VERIFIED | `insert into fkaios_self_tests(requested_by) values ('<who>')` → the next tick runs 4 scenarios on real models (about 10 s, free tier) |
+| Resource identity, registry lifecycle | GREEN | `resource_ref` constraints; discovery writes lifecycle states |
+| Continuous discovery (provider model APIs, OpenRouter catalog) | GREEN | hourly `discovery` steps; discovery never means trust: discovered models are not routed |
+| Model-level failover | GREEN | self-tests `ef65c13b`, `3e57e289`, `9ba21ec2`: an unserved model fails as `model_unavailable`, then the next model answers; both attempts are logged |
+| Output-limit continuation | GREEN | self-test `9ba21ec2`: 3 continuations, all 5 sentences, no restart, clean seams (after fixes in #53 and #54) |
+| Execution evidence (one row per attempt, cost, tokens, switches) | GREEN | `fkaios_execution_steps`; `v_fkaios_operations` |
+| Verifier mechanism (rejects wrong, passes right) | GREEN (mechanism) | evidence `e9747c7e`, `b0c8e66e`, `2bf7f82c`, `69a0f2f5` |
+| Verifier **independence** | YELLOW | only one usable model (gemini-3.5-flash-lite). Real objectives would be verified by the same model that produced them, recorded as `same_model`, never as independent. Changes when a second model is verified (Gemini candidates are under evaluation) or a local model or second provider is added |
+| Canonical objective state, checkpoint resume, rectification on a real objective | YELLOW | deployed; needs one founder-submitted objective (founder action 1) |
+| Golden text-model evaluation, leased executor, incumbent comparison | YELLOW | executor invoked; blocking bugs fixed (#50, migration `20261008154853`); first full benchmark pending |
+| Governed adoption and rollback, versioned routing | YELLOW | SQL functions and policy v1 deployed; no adoption has happened yet |
+| Learning from verified outcomes | YELLOW | view deployed; needs at least 5 verified real samples per class |
+| Speech-to-text / text-to-speech capabilities | YELLOW | capability index, adapters, failover and evidence are deployed. Gemini speech is tested by the speech-evaluation tick and the `speech_roundtrip` self-test once discovery registers the TTS models |
+| Voice turn (audio → STT → responder → TTS → audio) | YELLOW | pipeline plus `voice_turn` self-test deployed; production run pending |
+| Local LLM / STT / TTS | YELLOW (infrastructure) | adapters and discovery are ready. **No local runtime is known to exist in production** (the self-hosted URLs are believed unset; the speech-evaluation skip reasons will confirm it). Required: a host running Ollama (LLM) and speaches (faster-whisper + Kokoro), reachable over HTTPS. "Free" here means no API charge; the host is an infrastructure cost |
+| Communications (request → validation → approval → send → provider id → evidence) | YELLOW | layer and executor deployed; every send waits for a founder-approved `external_communication`. Not exercised: there is no approved request, and the WhatsApp token has a history of expiring |
+| Executive engines (opportunity, evolution, executive-brain) | YELLOW | brought into the repo, resource-routed and schema-checked (#59), deployed; first scheduled run 03:30–04:30 UTC |
+| Production self-test harness | GREEN | `insert into fkaios_self_tests(requested_by) values ('<who>')` |
+| Cron secret in URLs (P0) | **RED** | secret readable in request logs; rotation and Vault header plan ready, needs the founder |
+| maps-engine (lead enrichment) | RED (bounded) | every call returns 500. Nominatim answers 200 from the database server, so the cause is the edge runtime's egress (blocking or rate limiting) or a deployed/repo mismatch. Peripheral; does not block the autonomy loop |
 
 **Lessons:**
-- Through the Supabase connector, `DROP POLICY` (and some `UPDATE`s) wait for an interactive confirmation and time out. Use a guarded `create policy` in a `do` block, and data repairs through a migration.
-- Every migration is applied first, then the repo file is renamed to its live version and md5-checked against `schema_migrations`.
+- Through the Supabase connector, `DROP POLICY` (and some `UPDATE`s) wait for an interactive confirmation and time out. Use a guarded `create policy` in a `do` block.
+- Apply each migration first, then rename the repo file to its live version and md5-check it against `schema_migrations`.
+- Secret-store writes are founder-level actions; automation must never copy a credential.
 
 **Founder actions (blocking only the items named):**
-1. **Run one real objective from the Console.** This proves canonical state, verifier, rectification and learning on real work. Use the controlled test in §6. The rules forbid creating objectives by SQL.
-2. **Second LLM provider or credit.** An `OPENROUTER_API_KEY` alone unlocks 18 free models for evaluation and failover. Without one, every resource is Gemini, so the verifier cannot be cross-provider, and Gemini daily quotas cap throughput.
-3. **Decide `capability_adoption` approvals** when they appear. Gemini's free tier is not recorded in its model metadata, so adoptions go to the founder instead of the autonomous path.
-4. Grant the CI token `database_migrations_read` (drift check).
-5. Rotate `HEARTBEAT_SECRET`/cron secrets; enable leaked-password protection.
+1. **One real objective from the Console** (Command Center → New objective). Use the controlled test in §6. It proves canonical state, planning, selection, verification, rectification and learning on real work.
+2. **Rotate the cron secret and store it in Vault**, following `docs/FKAIOS_P0_CRON_SECRET_PLAN.md` step 1, then tell Claude.
+3. **Optional infrastructure for the local layer:** a machine running Ollama and speaches, exposed over HTTPS, with its URLs set as `SELF_HOSTED_LLM_BASE_URL` and `SELF_HOSTED_SPEECH_BASE_URL`. Everything else works without it.
+4. **Decide `capability_adoption` and `external_communication` approvals** when they appear.
+5. Grant the CI token `database_migrations_read`; enable leaked-password protection.
 
 ## Re-audit baseline and P0 change control (8 Oct 2026)
 
