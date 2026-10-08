@@ -11,6 +11,9 @@
 //   verifier_pass    the independent verifier passes a correct one
 //   speech_roundtrip known text ─► text_to_speech ─► speech_to_text (another
 //                    resource) ─► word error rate, scored by code
+//   structured_routing the executive engines' call path (routedStructuredCall):
+//                    a schema-bound reasoning request is served by whatever
+//                    resource selection picks, the reply is schema-checked
 //   voice_turn       spoken question ─► STT ─► responder ─► TTS ─► STT back;
 //                    the answer and the reply audio are both checked
 // Speech scenarios use free and local resources only (paid ones need a spend decision).
@@ -23,6 +26,7 @@ import { verifyObjective } from "./objective-verifier.ts";
 import { markStepsVerified } from "./execution-evidence.ts";
 import { synthesize, transcribe, wordErrorRate } from "./speech.ts";
 import { voiceTurn } from "./voice.ts";
+import { routedStructuredCall } from "./structured-reasoning.ts";
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -142,13 +146,24 @@ async function voiceTurnScenario(db: Db): Promise<ScenarioResult> {
     answered_correctly: answered, reply_audio_wer: turn.replyCheck?.wer ?? null, resources: turn.resources, reply_transcribed_by: turn.replyCheck?.transcribedBy ?? null, steps: turn.stepIds.length } };
 }
 
+async function structuredRouting(db: Db): Promise<ScenarioResult> {
+  const schema = { name: "emit_check", description: "Emit the arithmetic check", input_schema: { type: "object", properties: { items: { type: "array", items: { type: "object", properties: { question: { type: "string" }, answer: { type: "integer" } }, required: ["question", "answer"] } } }, required: ["items"] } };
+  const r = await routedStructuredCall(db, { engine: "fkaios-self-test", taskClass: "reasoning", toolSchema: schema, maxTokens: 400,
+    system: "You check arithmetic. Emit exactly two items via emit_check.", user: "Items: 'What is 17 + 25?' and 'What is 9 x 8?'" });
+  const items = Array.isArray(r.input?.items) ? r.input!.items as Array<{ answer?: unknown }> : [];
+  const answers = items.map((i) => Number(i.answer));
+  const correct = answers.includes(42) && answers.includes(72);
+  return { scenario: "structured_routing", passed: r.ok && correct && !String(r.resourceRef ?? "").startsWith("model:anthropic:"),
+    details: { served_by: r.resourceRef, attempts: r.attempts, answers, failure: r.failure, schema_valid: r.ok } };
+}
+
 export async function runSelfTestIfRequested(db: Db): Promise<Record<string, unknown> | null> {
   const { data: req } = await db.from("fkaios_self_tests").select("id").eq("status", "requested").order("requested_at").limit(1).maybeSingle();
   if (!req) return null;
   const { data: claimed } = await db.from("fkaios_self_tests").update({ status: "running", started_at: new Date().toISOString() }).eq("id", req.id).eq("status", "requested").select("id").maybeSingle();
   if (!claimed) return null; // another tick took it
   const results: ScenarioResult[] = [];
-  for (const run of [modelFailover, continuation, (db: Db) => verifier(db, false), (db: Db) => verifier(db, true), speechRoundtrip, voiceTurnScenario]) {
+  for (const run of [modelFailover, continuation, (db: Db) => verifier(db, false), (db: Db) => verifier(db, true), structuredRouting, speechRoundtrip, voiceTurnScenario]) {
     try { results.push(await run(db)); } catch (err) { results.push({ scenario: run.name || "scenario", passed: false, details: { error: err instanceof Error ? err.message : String(err) } }); }
     await db.from("fkaios_self_tests").update({ results }).eq("id", req.id);
   }
