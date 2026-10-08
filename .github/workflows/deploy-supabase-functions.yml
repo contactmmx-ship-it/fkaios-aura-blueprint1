@@ -42,3 +42,8 @@ jobs:
           supabase functions deploy founder-objective --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy research-engine --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy builder-engine --project-ref "$SUPABASE_PROJECT_REF"
+          # Scheduled engines: called by pg_cron with the heartbeat secret, not a
+          # user JWT, so gateway JWT verification stays off (as deployed before).
+          supabase functions deploy opportunity-engine --no-verify-jwt --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy evolution-engine --no-verify-jwt --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy executive-brain --no-verify-jwt --project-ref "$SUPABASE_PROJECT_REF"

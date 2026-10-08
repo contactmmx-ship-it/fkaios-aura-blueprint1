@@ -776,3 +776,15 @@ Deno.test("Test 10b: getConfiguredDefaultProviders omits providers with no confi
     if (savedOpenAI === undefined) Deno.env.delete("OPENAI_API_KEY"); else Deno.env.set("OPENAI_API_KEY", savedOpenAI);
   }
 });
+
+import { parseStructuredOutput, structuredOutputInstruction } from "./llm-router.ts";
+
+Deno.test("structured output: any provider's JSON reply is parsed and must satisfy the schema's required fields", () => {
+  const schema = { name: "emit_items", description: "Emit items", input_schema: { type: "object", properties: { items: { type: "array" } }, required: ["items"] } };
+  if (!structuredOutputInstruction(schema).includes('"emit_items"')) throw new Error("instruction must name the function");
+  const ok = parseStructuredOutput('```json\n{"items":[1,2]}\n```', schema);
+  if (JSON.stringify(ok) !== '{"items":[1,2]}') throw new Error(`got ${JSON.stringify(ok)}`);
+  if (parseStructuredOutput('{"other":1}', schema) !== null) throw new Error("missing required field must be rejected");
+  if (parseStructuredOutput("not json", schema) !== null) throw new Error("non-JSON must be rejected");
+  if (structuredOutputInstruction(undefined) !== "") throw new Error("no schema, no instruction");
+});

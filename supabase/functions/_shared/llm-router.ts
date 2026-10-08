@@ -368,6 +368,32 @@ function isAnthropicToolSchema(schema: unknown): schema is { name: string; descr
   return !!schema && typeof schema === "object" && typeof (schema as { name?: unknown }).name === "string" && "input_schema" in (schema as Record<string, unknown>);
 }
 
+/**
+ * Provider-neutral structured output. Anthropic answers through a forced
+ * tool; other providers are given the same JSON schema as an instruction and
+ * their reply is parsed and checked here. A reply that does not satisfy the
+ * schema's required fields is not a result: the adapter returns no content, so
+ * the call is classified invalid_response and fails over to the next resource.
+ */
+export function structuredOutputInstruction(schema: unknown): string {
+  if (!isAnthropicToolSchema(schema)) return "";
+  return `\n\nOUTPUT FORMAT (mandatory): respond with ONLY one JSON object, no prose and no code fences, that is the input of the function "${schema.name}"${schema.description ? ` (${schema.description})` : ""} and matches this JSON Schema:\n${JSON.stringify(schema.input_schema)}`;
+}
+
+export function parseStructuredOutput(text: string, schema: unknown): Record<string, unknown> | null {
+  if (!isAnthropicToolSchema(schema)) return null;
+  const cleaned = text.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  let value: unknown;
+  try { value = JSON.parse(cleaned.slice(start, end + 1)); } catch { return null; }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const required = ((schema.input_schema as { required?: unknown })?.required ?? []) as unknown[];
+  for (const key of required) if (!(String(key) in (value as Record<string, unknown>))) return null;
+  return value as Record<string, unknown>;
+}
+
 export const anthropicAdapter: ProviderAdapter = {
   name: "anthropic",
   getModel: getAnthropicModel,
@@ -454,7 +480,7 @@ export const openaiAdapter: ProviderAdapter = {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "system", content: request.systemPrompt }, { role: "user", content: request.userContent }] }),
+      body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "system", content: request.systemPrompt + structuredOutputInstruction(request.toolSchema) }, { role: "user", content: request.userContent }] }),
     });
     const latencyMs = Date.now() - start;
     if (!response.ok) {
@@ -467,7 +493,8 @@ export const openaiAdapter: ProviderAdapter = {
     return {
       ok: true,
       httpStatus: response.status,
-      content: data?.choices?.[0]?.message?.content ?? "",
+      content: isAnthropicToolSchema(request.toolSchema) ? (parseStructuredOutput(data?.choices?.[0]?.message?.content ?? "", request.toolSchema) ? data?.choices?.[0]?.message?.content ?? "" : "") : data?.choices?.[0]?.message?.content ?? "",
+      toolCall: isAnthropicToolSchema(request.toolSchema) ? parseStructuredOutput(data?.choices?.[0]?.message?.content ?? "", request.toolSchema) ?? undefined : undefined,
       rawBody: data,
       inputTokens: data?.usage?.prompt_tokens ?? 0,
       outputTokens: data?.usage?.completion_tokens ?? 0,
@@ -509,7 +536,7 @@ function buildOpenAICompatibleAdapter(
       const response=await fetch(baseUrl+"/chat/completions",{
         method:"POST",
         headers:{...(apiKey?{Authorization:"Bearer "+apiKey}:{}),"Content-Type":"application/json",...extraHeaders},
-        body:JSON.stringify({model,max_tokens:request.maxTokens??4096,messages:[{role:"system",content:request.systemPrompt},{role:"user",content:request.userContent}],temperature:request.temperature}),
+        body:JSON.stringify({model,max_tokens:request.maxTokens??4096,messages:[{role:"system",content:request.systemPrompt+structuredOutputInstruction(request.toolSchema)},{role:"user",content:request.userContent}],temperature:request.temperature}),
       });
       const latencyMs=Date.now()-start;
       if(!response.ok){
@@ -517,7 +544,9 @@ function buildOpenAICompatibleAdapter(
         return {ok:false,httpStatus:response.status,rawBody:parsed,latencyMs,model};
       }
       const data=await response.json();
-      return {ok:true,httpStatus:response.status,content:data?.choices?.[0]?.message?.content??"",rawBody:data,inputTokens:data?.usage?.prompt_tokens??0,outputTokens:data?.usage?.completion_tokens??0,latencyMs,model,truncated:data?.choices?.[0]?.finish_reason==="length"};
+      const text:string=data?.choices?.[0]?.message?.content??"";
+      const toolCall=isAnthropicToolSchema(request.toolSchema)?parseStructuredOutput(text,request.toolSchema):undefined;
+      return {ok:true,httpStatus:response.status,content:isAnthropicToolSchema(request.toolSchema)?(toolCall?text:""):text,toolCall:toolCall??undefined,rawBody:data,inputTokens:data?.usage?.prompt_tokens??0,outputTokens:data?.usage?.completion_tokens??0,latencyMs,model,truncated:data?.choices?.[0]?.finish_reason==="length"};
     },
     estimateCost(_request,response){ return 0; },
     health(){ return {provider:name,successRate:null,failureCount:0,fallbackFrequency:null,avgLatencyMs:null,timeoutRate:null,costPerSuccessUsd:null,sampleSize:0}; },
@@ -538,14 +567,15 @@ export const geminiAdapter: ProviderAdapter = {
       return { ok: false, httpStatus: 401, rawBody: { error: "GEMINI_API_KEY is not configured" }, latencyMs: 0, model };
     }
     const maxTokens = request.maxTokens ?? 8192;
+    const structured = isAnthropicToolSchema(request.toolSchema);
     const start = Date.now();
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: "POST",
       headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({
-        system_instruction: { parts: [{ text: request.systemPrompt }] },
+        system_instruction: { parts: [{ text: request.systemPrompt + structuredOutputInstruction(request.toolSchema) }] },
         contents: [{ role: "user", parts: [{ text: request.userContent }] }],
-        generationConfig: { maxOutputTokens: maxTokens, temperature: request.temperature },
+        generationConfig: { maxOutputTokens: maxTokens, temperature: request.temperature, ...(structured ? { responseMimeType: "application/json" } : {}) },
       }),
     });
     const latencyMs = Date.now() - start;
@@ -556,10 +586,13 @@ export const geminiAdapter: ProviderAdapter = {
       return { ok: false, httpStatus: response.status, rawBody: parsedBody, latencyMs, model };
     }
     const data = await response.json();
+    const text = ((data?.candidates?.[0]?.content?.parts ?? []) as Array<{ text?: string; thought?: boolean }>).filter((p) => !p.thought).map((p) => p.text ?? "").join("");
+    const toolCall = structured ? parseStructuredOutput(text, request.toolSchema) : undefined;
     return {
       ok: true,
       httpStatus: response.status,
-      content: data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "",
+      content: structured ? (toolCall ? text : "") : text,
+      toolCall: toolCall ?? undefined,
       rawBody: data,
       inputTokens: data?.usageMetadata?.promptTokenCount ?? 0,
       outputTokens: data?.usageMetadata?.candidatesTokenCount ?? 0,
