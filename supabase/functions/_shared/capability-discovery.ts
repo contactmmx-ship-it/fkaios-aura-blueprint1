@@ -226,7 +226,7 @@ export async function runCapabilityDiscovery(db: Db, env: (k: string) => string 
       .sort((a, b) => evaluationPriority(b.model) - evaluationPriority(a.model));
     for (const c of ranked) {
       if (slots <= 0) break;
-      const { data: prior } = await db.from("capability_test_queue").select("id").eq("candidate_id", c.id).eq("benchmark_suite", "fkaios_core").limit(1);
+      const { data: prior } = await db.from("capability_test_queue").select("id").eq("candidate_id", c.id).eq("benchmark_suite", "fkaios_core").in("status", ["queued", "running", "passed", "failed"]).limit(1);
       if ((prior ?? []).length) continue; // evaluated before; re-tests come from monitoring, not discovery
       const { error } = await db.from("capability_test_queue").insert({ candidate_id: c.id, benchmark_suite: "fkaios_core", priority: evaluationPriority(c.model), status: "queued" });
       if (!error) {
