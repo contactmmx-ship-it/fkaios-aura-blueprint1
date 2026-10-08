@@ -47,8 +47,12 @@ async function continuation(db: Db): Promise<ScenarioResult> {
   };
   try {
     const out = await callWithContinuation(route, request, 4);
-    return { scenario: "continuation", passed: out.continuations >= 1 && /END\s*$/.test(out.text.trim()),
-      details: { continuations: out.continuations, chars: out.text.length, ends_with_end: /END\s*$/.test(out.text.trim()), tail: out.text.slice(-120) } };
+    // Complete = the closing marker arrived and all five numbered sentences are present (nothing restarted or lost).
+    const endsWithEnd = /END\W*$/.test(out.text.trim());
+    const numbered = [1, 2, 3, 4, 5].filter((n) => new RegExp(`(^|\\s)${n}[.)]`).test(out.text)).length;
+    const restarted = (out.text.match(/(^|\s)1[.)]/g) ?? []).length > 1;
+    return { scenario: "continuation", passed: out.continuations >= 1 && endsWithEnd && numbered === 5 && !restarted,
+      details: { continuations: out.continuations, chars: out.text.length, ends_with_end: endsWithEnd, numbered_sentences: numbered, restarted, text: out.text.slice(0, 2000) } };
   } catch (err) {
     return { scenario: "continuation", passed: false, details: { error: err instanceof Error ? err.message : String(err) } };
   }

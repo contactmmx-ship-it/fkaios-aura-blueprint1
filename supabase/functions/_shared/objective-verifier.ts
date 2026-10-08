@@ -39,7 +39,7 @@ export interface Verdict {
   humanDecisionReason: string | null;
   deterministic: { ok: boolean; problems: string[] };
   verifierRef: string | null;
-  independence: "different_provider" | "different_model" | "same_model" | "none";
+  independence: "different_provider" | "different_model" | "same_model" | "producers_unknown" | "none";
   available: boolean;
   evidenceId?: string | null;
 }
@@ -154,6 +154,7 @@ export function parseVerdict(text: string, deliverable: string, deterministic: {
 
 export function independenceLevel(verifierRef: string | null, producerRefs: string[]): Verdict["independence"] {
   if (!verifierRef) return "none";
+  if (producerRefs.length === 0) return "producers_unknown"; // never claim independence that was not measured
   if (producerRefs.includes(verifierRef)) return "same_model";
   const vp = parseRef(verifierRef)?.provider;
   return producerRefs.some((p) => parseRef(p)?.provider === vp) ? "different_model" : "different_provider";

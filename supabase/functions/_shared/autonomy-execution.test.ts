@@ -88,6 +88,7 @@ Deno.test("verifier: independence is measured, not assumed", () => {
   assertEquals(independenceLevel("model:gemini:b", ["model:gemini:a"]), "different_model");
   assertEquals(independenceLevel("model:gemini:a", ["model:gemini:a"]), "same_model");
   assertEquals(independenceLevel(null, []), "none");
+  assertEquals(independenceLevel("model:gemini:a", []), "producers_unknown");
 });
 
 Deno.test("verifier: contract criteria normalise strings and metric objects", () => {
