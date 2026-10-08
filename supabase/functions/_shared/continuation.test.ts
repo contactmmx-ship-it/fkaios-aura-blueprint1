@@ -1,5 +1,5 @@
 /// <reference lib="deno.ns" />
-import { callWithContinuation, continuationPrompt } from "./continuation.ts";
+import { callWithContinuation, continuationPrompt, stitch } from "./continuation.ts";
 import type { LLMRequest, LLMResult } from "./llm-router.ts";
 
 function assert(condition: boolean, message = "assertion failed"): void {
@@ -39,4 +39,16 @@ Deno.test("continuation: a failed continuation throws, a failed first call is re
 Deno.test("continuation: prompt keeps the original request and the partial output", () => {
   const p = continuationPrompt("ORIGINAL", "PARTIAL", 1);
   assert(p.startsWith("ORIGINAL") && p.includes("PARTIAL") && p.includes("CHECKPOINT 1"));
+});
+
+Deno.test("continuation: seams are stitched on the repeated anchor, not glued", () => {
+  // the production failure: partial cut after "branch", continuation drops its leading space
+  assert(stitch("open individual branch", "open individual branch locations under the brand") === "open individual branch locations under the brand");
+  assert(stitch("profits are then", "profits are then reinvested.") === "profits are then reinvested.");
+  // mid-word cut: the anchor carries the partial word
+  assert(stitch("the franch", "the franchise grows") === "the franchise grows");
+  // no anchor: appended unchanged (never drops content)
+  assert(stitch("abc", " def") === "abc def");
+  // a short accidental overlap is not trusted
+  assert(stitch("the end", "end of it") === "the endend of it");
 });
