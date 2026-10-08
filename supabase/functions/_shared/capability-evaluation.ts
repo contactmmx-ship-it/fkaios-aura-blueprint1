@@ -212,7 +212,7 @@ export async function runCapabilityTestStep(db: Db): Promise<Record<string, unkn
   const { data: cand } = await db.from("capability_discovery_candidates").select("id,resource_key,provider,model").eq("id", test.candidate_id).maybeSingle();
   const candidate = cand ? resourceFromRef(String(cand.resource_key)) : null;
   if (!candidate) { await finish(db, testId, "cancelled", test.evidence, "candidate is not a model resource"); return { test: testId, cancelled: "not a model" }; }
-  const { data: reg } = await db.from("model_registry").select("id,access_state,free_tier,cost_in_per_mtok,lifecycle_state").eq("resource_ref", candidate.ref).maybeSingle();
+  const { data: reg } = await db.from("model_registry").select("resource_ref,access_state,free_tier,cost_in_per_mtok,lifecycle_state").eq("resource_ref", candidate.ref).maybeSingle();
   if (!reg || reg.access_state !== "configured") {
     await finish(db, testId, "cancelled", test.evidence, `candidate not reachable: access ${reg?.access_state ?? "unregistered"}`);
     await db.from("capability_discovery_candidates").update({ status: "blocked" }).eq("id", cand.id);
