@@ -777,7 +777,7 @@ Deno.test("Test 10b: getConfiguredDefaultProviders omits providers with no confi
   }
 });
 
-import { parseStructuredOutput, structuredOutputInstruction } from "./llm-router.ts";
+import { callLLMOnResources, parseStructuredOutput, structuredOutputInstruction } from "./llm-router.ts";
 
 Deno.test("structured output: any provider's JSON reply is parsed and must satisfy the schema's required fields", () => {
   const schema = { name: "emit_items", description: "Emit items", input_schema: { type: "object", properties: { items: { type: "array" } }, required: ["items"] } };
@@ -794,4 +794,17 @@ Deno.test("a 503 'high demand' is one model at capacity (model-scoped rate_limit
   if (overloaded.category !== "rate_limit") throw new Error(`got ${overloaded.category}`);
   const down = classifyLLMFailure({ ok: false, httpStatus: 503, rawBody: "upstream connect error", latencyMs: 10, model: "m" });
   if (down.category !== "provider_outage") throw new Error(`got ${down.category}`);
+});
+
+Deno.test("callLLMOnResources retries a transient capacity failure once after backoff, and stops on success", async () => {
+  let calls = 0;
+  const adapter = { name: "gemini", getModel: () => "m", estimateCost: () => 0, health: () => ({}),
+    call: () => { calls++; return Promise.resolve(calls === 1
+      ? { ok: false, httpStatus: 503, rawBody: { error: { message: "This model is currently experiencing high demand." } }, latencyMs: 1, model: "m" }
+      : { ok: true, httpStatus: 200, content: "fine", rawBody: {}, latencyMs: 1, model: "m" }); } };
+  // deno-lint-ignore no-explicit-any
+  const config = { providers: [adapter], timeoutMsByClass: { background_agent: 5000 } } as any;
+  const r = await callLLMOnResources({ systemPrompt: "s", userContent: "u", functionName: "t", functionClass: "background_agent" }, config, [{ ref: "model:gemini:m", provider: "gemini", model: "m" }], { backoffMs: 1 });
+  if (r.status !== "success" || calls !== 2) throw new Error(`status ${r.status}, calls ${calls}`);
+  if (r.log.attempts[0].failureCategory !== "rate_limit") throw new Error(`first attempt ${r.log.attempts[0].failureCategory}`);
 });

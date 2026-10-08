@@ -157,17 +157,47 @@ async function structuredRouting(db: Db): Promise<ScenarioResult> {
     details: { served_by: r.resourceRef, attempts: r.attempts, answers, failure: r.failure, schema_valid: r.ok } };
 }
 
-export async function runSelfTestIfRequested(db: Db): Promise<Record<string, unknown> | null> {
-  const { data: req } = await db.from("fkaios_self_tests").select("id").eq("status", "requested").order("requested_at").limit(1).maybeSingle();
-  if (!req) return null;
-  const { data: claimed } = await db.from("fkaios_self_tests").update({ status: "running", started_at: new Date().toISOString() }).eq("id", req.id).eq("status", "requested").select("id").maybeSingle();
+export const SELF_TEST_SCENARIOS: Array<{ name: string; run: (db: Db) => Promise<ScenarioResult> }> = [
+  { name: "model_failover", run: modelFailover },
+  { name: "continuation", run: continuation },
+  { name: "verifier_reject", run: (db: Db) => verifier(db, false) },
+  { name: "verifier_pass", run: (db: Db) => verifier(db, true) },
+  { name: "structured_routing", run: structuredRouting },
+  { name: "speech_roundtrip", run: speechRoundtrip },
+  { name: "voice_turn", run: voiceTurnScenario },
+];
+
+/** Time one scenario may hold the run before another tick may take it over (its worker is presumed dead). */
+const SCENARIO_LEASE_MS = 4 * 60_000;
+
+/**
+ * Runs ONE scenario of the oldest unfinished self-test per call (one per
+ * founder-brain tick), so no run can outlive the edge runtime's background
+ * time limit. The lease (compare-and-swap on lease_until) keeps overlapping
+ * ticks apart; a run whose worker died resumes from the first scenario that
+ * has no result. Results are appended as each scenario finishes.
+ */
+export async function runSelfTestIfRequested(db: Db, now = new Date()): Promise<Record<string, unknown> | null> {
+  const { data: rows } = await db.from("fkaios_self_tests").select("id,status,results,lease_until").in("status", ["requested", "running"]).order("requested_at").limit(5);
+  const free = ((rows ?? []) as Array<{ id: string; status: string; results: ScenarioResult[] | null; lease_until: string | null }>)
+    .find((r) => !r.lease_until || new Date(r.lease_until).getTime() < now.getTime());
+  if (!free) return null;
+  const leaseUntil = new Date(now.getTime() + SCENARIO_LEASE_MS).toISOString();
+  let claim = db.from("fkaios_self_tests").update({ status: "running", lease_until: leaseUntil, ...(free.status === "requested" ? { started_at: now.toISOString() } : {}) }).eq("id", free.id);
+  claim = free.lease_until ? claim.eq("lease_until", free.lease_until) : claim.is("lease_until", null);
+  const { data: claimed } = await claim.select("id").maybeSingle();
   if (!claimed) return null; // another tick took it
-  const results: ScenarioResult[] = [];
-  for (const run of [modelFailover, continuation, (db: Db) => verifier(db, false), (db: Db) => verifier(db, true), structuredRouting, speechRoundtrip, voiceTurnScenario]) {
-    try { results.push(await run(db)); } catch (err) { results.push({ scenario: run.name || "scenario", passed: false, details: { error: err instanceof Error ? err.message : String(err) } }); }
-    await db.from("fkaios_self_tests").update({ results }).eq("id", req.id);
+
+  const results: ScenarioResult[] = Array.isArray(free.results) ? [...free.results] : [];
+  const done = new Set(results.map((r) => r.scenario));
+  const next = SELF_TEST_SCENARIOS.find((s) => !done.has(s.name));
+  if (next) {
+    let result: ScenarioResult;
+    try { result = await next.run(db); } catch (err) { result = { scenario: next.name, passed: false, details: { error: err instanceof Error ? err.message : String(err) } }; }
+    results.push({ ...result, scenario: next.name });
   }
-  const passed = results.every((r) => r.passed);
-  await db.from("fkaios_self_tests").update({ status: passed ? "passed" : "failed", results, finished_at: new Date().toISOString() }).eq("id", req.id);
-  return { self_test: req.id, passed, results: results.map((r) => ({ scenario: r.scenario, passed: r.passed })) };
+  const finished = SELF_TEST_SCENARIOS.every((s) => results.some((r) => r.scenario === s.name));
+  const passed = finished && results.every((r) => r.passed);
+  await db.from("fkaios_self_tests").update({ results, lease_until: null, ...(finished ? { status: passed ? "passed" : "failed", finished_at: new Date().toISOString() } : {}) }).eq("id", free.id);
+  return { self_test: free.id, ran: next?.name ?? null, finished, passed: finished ? passed : null, progress: `${results.length}/${SELF_TEST_SCENARIOS.length}` };
 }

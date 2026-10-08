@@ -120,9 +120,17 @@ export function pcmToWav(pcm: Uint8Array, sampleRate = 24000, channels = 1): Uin
   return out;
 }
 
+const NUMBER_WORDS: Record<string, string> = Object.fromEntries(
+  ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"].map((w, i) => [w, String(i)]),
+);
+
 /** Word error rate (word-level edit distance / reference length) on normalised text. Deterministic: the scorer is code, not a model. */
 export function wordErrorRate(reference: string, hypothesis: string): number {
-  const norm = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter(Boolean);
+  // Spoken and written forms of the same words score as equal ("two plus three"
+  // vs "2 + 3"); anything genuinely missing, added or different still counts.
+  const norm = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/\+/g, " plus ").replace(/=/g, " equals ").replace(/(\d)\s*[x×]\s*(\d)/g, "$1 times $2").replace(/%/g, " percent ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter(Boolean).map((w) => NUMBER_WORDS[w] ?? w);
   const r = norm(reference), h = norm(hypothesis);
   if (r.length === 0) return h.length === 0 ? 0 : 1;
   let prev = Array.from({ length: h.length + 1 }, (_, j) => j);
@@ -164,7 +172,7 @@ async function timedFetch(url: string, init: RequestInit, timeoutMs: number): Pr
 function modelName(ref: string): string { return parseRef(ref)?.name ?? ref; }
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-const TRANSCRIBE_PROMPT = "Transcribe this audio verbatim. Do not translate, summarise or correct it. Respond with ONLY JSON: {\"language\": \"<BCP-47 code>\", \"text\": \"<transcript>\"}";
+const TRANSCRIBE_PROMPT = "Transcribe this audio verbatim: every word of every sentence, in order, from the first to the last. Do not translate, summarise, answer, shorten or correct it, and write numbers the way they are spoken. Respond with ONLY JSON: {\"language\": \"<BCP-47 code>\", \"text\": \"<full transcript>\"}";
 
 async function transcribeGemini(ref: string, audio: AudioInput, env: (k: string) => string | undefined): Promise<TranscriptionOutput> {
   const started = Date.now();

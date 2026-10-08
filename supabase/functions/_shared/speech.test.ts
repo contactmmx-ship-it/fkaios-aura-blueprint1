@@ -174,3 +174,9 @@ Deno.test("speech evaluation: a partner-leg failure does not hold the candidate 
   const ownFailure = { ...base, metadata: { last_eval_at: "2026-10-08T11:20:00Z", last_eval_result: "failed" } };
   assertEquals(pickSpeechCandidate([ownFailure], env({ GEMINI_API_KEY: "k" }), now), null);
 });
+
+Deno.test("word error rate treats spoken and written numbers alike but still counts omissions", () => {
+  assertEquals(wordErrorRate("What is two plus three?", "What is 2 + 3?"), 0);
+  assertEquals(wordErrorRate("Two plus three is five.", "2 + 3 = 5"), 0.2); // 'is' vs 'equals' is a real difference
+  assertEquals(wordErrorRate("What is two plus three? Answer in one short sentence.", "What is 2 + 3?"), 0.5);
+});

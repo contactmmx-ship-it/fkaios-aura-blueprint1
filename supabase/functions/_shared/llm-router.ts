@@ -1115,17 +1115,44 @@ const RESOURCE_SCOPED_FAILURES: ReadonlySet<FailureCategory> = new Set(["rate_li
  * callLLM: a 200 with no usable content is a failure, and every attempt is
  * logged with its provider, exact model and failure category.
  */
+/** Failures that are expected to clear on their own within seconds (a model at capacity, a slow response). */
+const TRANSIENT_FAILURES: ReadonlySet<FailureCategory> = new Set(["rate_limit", "timeout"]);
+
+export interface ResourceRetryOptions {
+  /** Extra passes over resources whose only failure was transient, once every resource has failed. */
+  transientRetries?: number;
+  backoffMs?: number;
+}
+
 export async function callLLMOnResources(
   request: LLMRequest,
   config: RouterConfig,
   resources: ExecutionResource[],
+  retry: ResourceRetryOptions = {},
 ): Promise<LLMResult & { resource?: ExecutionResource }> {
   const timeoutMs = config.timeoutMsByClass[request.functionClass];
   const attempts: CallAttempt[] = [];
   const deadProviders = new Set<ProviderName>();
   let tokenUsage: { input: number; output: number } | null = null;
+  const maxRetries = retry.transientRetries ?? 1;
+  const backoffMs = retry.backoffMs ?? 3000;
+  let pass = resources;
 
-  for (const resource of resources) {
+  for (let round = 0; round <= maxRetries; round++) {
+  if (round > 0) {
+    // Every resource failed. Retry only those whose failure was transient
+    // (a provider's own "spikes are usually temporary" 503s, timeouts), after
+    // a short backoff, instead of giving up on a momentary capacity spike.
+    const lastByRef = new Map<string, CallAttempt>();
+    for (const a of attempts) lastByRef.set(`${a.provider}:${a.model}`, a);
+    pass = pass.filter((r) => {
+      const last = lastByRef.get(`${r.provider}:${r.model}`);
+      return !!last?.failure && TRANSIENT_FAILURES.has(last.failure.category) && !deadProviders.has(r.provider);
+    });
+    if (pass.length === 0) break;
+    await new Promise((resolve) => setTimeout(resolve, backoffMs * round));
+  }
+  for (const resource of pass) {
     if (deadProviders.has(resource.provider)) continue;
     const adapter = config.providers.find((p) => p.name === resource.provider);
     if (!adapter) continue; // provider not configured in this runtime
@@ -1168,6 +1195,7 @@ export async function callLLMOnResources(
     if (!failure.shouldFailover) {
       return { status: "failed_all_providers", log: buildLogEntry(request, attempts, "failed_all_providers", tokenUsage) };
     }
+  }
   }
 
   const anyInvalidResponse = attempts.some((a) => a.failure?.category === "invalid_response");
