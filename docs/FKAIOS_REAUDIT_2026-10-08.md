@@ -168,7 +168,7 @@ Columns: **Exists?** is what is in production now; **Needed for** is the stage i
 
 ### P0: make what exists true and usable
 
-**P0.1 Repo ↔ production for PRs #45 and #46**
+**P0.1 Repo ↔ production for PRs #45 and #46** (✅ done 8 Oct: verbatim records in `live-snapshot`, corrective migration `20261008090018`, drift-guard workflow; PRs #45 and #46 not adopted. See the SoT)
 - **Why:** the schema is live but not on `main`.
 - **Current:** applied out of band.
 - **Missing:** a repo record.
