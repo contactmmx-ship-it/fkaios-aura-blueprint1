@@ -149,3 +149,19 @@ Deno.test("synthesize wraps provider PCM as WAV; voice turn runs the responder b
     assert(turn.audio !== null && turn.audio.mimeType === "audio/wav");
   } finally { globalThis.fetch = realFetch; }
 });
+
+import { pickSpeechCandidate } from "./speech-evaluation.ts";
+
+Deno.test("speech evaluation picks configured, untested, unpaid resources, local first, and not twice a day", () => {
+  const now = new Date("2026-10-08T12:00:00Z");
+  const rows = [
+    { ...row("model:gemini:tts", { lifecycle_state: "discovered", credential_ref: "GEMINI_API_KEY" }), capability: "text_to_speech" },
+    { ...row("tool:self_hosted:kokoro", { lifecycle_state: "discovered", tier: "local", credential_ref: "SELF_HOSTED_SPEECH_BASE_URL" }), capability: "text_to_speech" },
+    { ...row("model:openai:tts", { lifecycle_state: "discovered", tier: "paid_premium", credential_ref: "OPENAI_API_KEY" }), capability: "text_to_speech" },
+    row("model:gemini:verified", { lifecycle_state: "verified" }),
+  ];
+  assertEquals(pickSpeechCandidate(rows, env({ GEMINI_API_KEY: "k", OPENAI_API_KEY: "k" }), now)?.resource_ref, "model:gemini:tts");
+  assertEquals(pickSpeechCandidate(rows, env({ GEMINI_API_KEY: "k", SELF_HOSTED_SPEECH_BASE_URL: "h" }), now)?.resource_ref, "tool:self_hosted:kokoro");
+  const triedToday = rows.map((r) => r.resource_ref === "model:gemini:tts" ? { ...r, metadata: { last_eval_at: "2026-10-08T06:00:00Z" } } : r);
+  assertEquals(pickSpeechCandidate(triedToday, env({ GEMINI_API_KEY: "k" }), now), null);
+});

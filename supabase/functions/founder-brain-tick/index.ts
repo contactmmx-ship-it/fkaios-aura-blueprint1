@@ -38,6 +38,7 @@ import { runDiscoveryIfDue } from "../_shared/capability-discovery.ts";
 import { runEvaluationTick } from "../_shared/capability-evaluation.ts";
 import { runSelfTestIfRequested } from "../_shared/self-test.ts";
 import { executeApprovedCommunications } from "../_shared/communications.ts";
+import { runSpeechEvaluationTick } from "../_shared/speech-evaluation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -150,7 +151,8 @@ Deno.serve(async (req: Request) => {
       runSelfTestIfRequested(serviceClient),
       // Only founder-approved external_communication rows are ever sent.
       executeApprovedCommunications(serviceClient).catch((err) => [{ error: err instanceof Error ? err.message : String(err) }]),
-    ]).then(([evaluationResult, selfTest, communications]) => ({ ...evaluationResult, selfTest, communications }))
+      runSpeechEvaluationTick(serviceClient).catch((err) => ({ error: err instanceof Error ? err.message : String(err) })),
+    ]).then(([evaluationResult, selfTest, communications, speech]) => ({ ...evaluationResult, selfTest, communications, speech }))
       .then((r) => console.log(JSON.stringify({ level: "INFO", source: "capability-evaluation", ...r })))
       .catch((err) => console.error("founder-brain-tick: capability evaluation failed (non-blocking)", err instanceof Error ? err.message : String(err)));
     // deno-lint-ignore no-explicit-any
