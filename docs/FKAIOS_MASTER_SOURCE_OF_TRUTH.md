@@ -85,7 +85,7 @@ Design and component map: [`docs/FKAIOS_AUTONOMY_ARCHITECTURE.md`](FKAIOS_AUTONO
 | Executive engines (opportunity, evolution, executive-brain) | YELLOW | brought into the repo, resource-routed and schema-checked (#59), deployed; first scheduled run 03:30–04:30 UTC |
 | Production self-test harness | GREEN | `insert into fkaios_self_tests(requested_by) values ('<who>')` |
 | Cron secret in URLs (P0) | **RED** | secret readable in request logs; rotation and Vault header plan ready, needs the founder |
-| maps-engine (lead enrichment) | RED (bounded) | every call returns 500. Nominatim answers 200 from the database server, so the cause is the edge runtime's egress (blocking or rate limiting) or a deployed/repo mismatch. Peripheral; does not block the autonomy loop |
+| maps-engine (lead enrichment) | RED (bounded, root cause known) | deployed v62 matches the repo. Its own `debug` action returns `Unexpected token 'A', "Access den"…`: OpenStreetMap Nominatim answers the edge runtime with a plain-text **Access denied** (its egress IP range is blocked), while the same query from the database server returns 200. Not a code, rate-limit or configuration fault. Fix needs an external choice: a keyed geocoder or a self-hosted Nominatim. Peripheral: does not block the autonomy loop |
 
 **Lessons:**
 - Through the Supabase connector, `DROP POLICY` (and some `UPDATE`s) wait for an interactive confirmation and time out. Use a guarded `create policy` in a `do` block.
