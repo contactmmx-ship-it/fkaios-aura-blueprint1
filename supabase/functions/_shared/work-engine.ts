@@ -187,6 +187,24 @@ export async function allocateProjectWork(projectId: string): Promise<{ allocate
     objectiveFounderSubmitted = objective?.classification === "founder_objective";
   }
 
+  // Initialize canonical project state before queueing work.
+  if (objectiveId) {
+    try {
+      await client.rpc("fkaios_upsert_project_state", {
+        p_orchestration_project_id: projectId,
+        p_objective: project?.request ?? objectiveId,
+        p_objective_id: objectiveId,
+        p_status: "active",
+        p_current_task_id: tasks[0].id,
+        p_current_task_summary: tasks[0].title,
+        p_next_action: "Execute the assigned task and persist verified work.",
+        p_provenance: { source: "work-engine:allocateProjectWork", objective_id: objectiveId },
+      });
+    } catch (stateErr) {
+      console.error("work-engine: canonical project state initialization failed", stateErr instanceof Error ? stateErr.message : String(stateErr));
+    }
+  }
+
   const results: AllocationResult[] = [];
   for (const t of tasks) {
     const r = await allocateTask({ id: t.id, title: t.title, description: t.description ?? "", departmentCode, objectiveId, projectId: t.project_id, founderSubmitted: objectiveFounderSubmitted });
