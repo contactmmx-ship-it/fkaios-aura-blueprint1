@@ -38,6 +38,9 @@ objective ─► objective_contracts (understanding) ─► fkaios_objective_sta
 | Golden evaluation and executor | `_shared/capability-evaluation.ts`, background in founder-brain-tick | suite `fkaios_core` v1 (8 cases, 8 task classes, scored by code); resumable leased executor; budget cap; the incumbent is what production routes each class to today |
 | Governed adoption and rollback | `fkaios_adopt_routing`, `fkaios_rollback_routing` (SQL, atomic) | autonomous only under policy v1 (no extra cost, configured, no regressions, score ≥ 0.75); otherwise a founder approval (`approvals.action_type = capability_adoption`); 72 h monitoring; automatic rollback on degradation |
 | Production self-test | `_shared/self-test.ts`, background in founder-brain-tick | a `fkaios_self_tests` row (status `requested`) makes the next tick run model failover, continuation, verifier reject and verifier pass on real models through the real code paths; no objective, no approval gate |
+| Capability → resource index | `fkaios_resource_capabilities` | which resources can provide each capability (speech, communications), with tier (local → self-hosted → free → low-cost → paid), privacy class, cost model, infrastructure needs, credential *reference* (env-var name only, enforced by a check), lifecycle and health |
+| Speech capabilities | `_shared/speech.ts` | `speech_to_text` and `text_to_speech` selected per call (local first; paid only with an explicit spend decision), with failover, failure classification and an evidence row per attempt (`capability_ref capability:<name>`). Adapters: Gemini, any OpenAI-compatible speech server (faster-whisper, Kokoro, Piper), ElevenLabs, OpenAI |
+| Voice turn | `_shared/voice.ts` | audio → STT → any responder → TTS (→ STT back to check the audio). It holds no business logic: the same brain serves every modality |
 | Leased test queue | `fkaios_claim_capability_test`, `fkaios_finish_capability_test` | `capability_test_queue` (lease, SKIP LOCKED, owner-checked finish, crash reclaim) |
 
 ## Governance rules built into the schema
@@ -59,3 +62,7 @@ objective ─► objective_contracts (understanding) ─► fkaios_objective_sta
 - **8 Oct, production self-tests:**
   - Run `ef65c13b` (15:53): model failover, verifier reject and verifier pass passed. Continuation completed, but a too-strict check failed it. The verifier also overstated independence when no producer was known. Both fixed in #52.
   - Run `3e57e289` (15:57): **4/4 passed**. Its text exposed lost spaces at continuation seams. Fixed in #53 by stitching each continuation onto an anchor repeated from the end of the partial output.
+- **8 Oct, security and speech:**
+  - **Cron secret leak (P0):** cron jobs send `HEARTBEAT_SECRET` as `?secret=` in function URLs, and edge request logs (plus agent-scheduler's own log line) record those URLs. The fix is a header read from Vault through `fkaios_cron_call()`. It was blocked as a secret-store write needing founder approval, so it is not applied; the secret must be rotated either way.
+  - **Unauthenticated cron removed:** `ai-engine-run-jobs-5min` (HTTP 401 every 5 minutes) is deactivated by migration `20261008161605`.
+  - **Speech layer:** migration `20261008161835` adds `fkaios_resource_capabilities`, alongside the speech and voice modules.

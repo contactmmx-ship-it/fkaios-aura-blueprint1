@@ -41,6 +41,26 @@ export function parseGeminiModels(body: unknown): DiscoveredModel[] {
   return out;
 }
 
+/**
+ * Speech resources a provider lists. They are not text models, so they never
+ * enter the text evaluation path; they are registered per capability in
+ * fkaios_resource_capabilities instead (discovery is not trust: lifecycle
+ * starts at 'discovered').
+ */
+export interface DiscoveredSpeechResource { capability: "speech_to_text" | "text_to_speech"; provider: string; model: string; displayName: string }
+
+export function parseGeminiSpeechModels(body: unknown): DiscoveredSpeechResource[] {
+  const models = (body as { models?: unknown[] })?.models ?? [];
+  const out: DiscoveredSpeechResource[] = [];
+  for (const m of models as Array<Record<string, unknown>>) {
+    const name = String(m.name ?? "").replace(/^models\//, "");
+    const methods = Array.isArray(m.supportedGenerationMethods) ? m.supportedGenerationMethods.map(String) : [];
+    if (!name || !methods.includes("generateContent")) continue;
+    if (/tts/i.test(name)) out.push({ capability: "text_to_speech", provider: "gemini", model: name, displayName: String(m.displayName ?? name) });
+  }
+  return out;
+}
+
 export function parseAnthropicModels(body: unknown): DiscoveredModel[] {
   const data = (body as { data?: unknown[] })?.data ?? [];
   return (data as Array<Record<string, unknown>>)
@@ -87,7 +107,7 @@ export function evaluationPriority(model: string): number {
   return Math.max(1, Math.min(99, p));
 }
 
-interface ProviderListing { provider: string; ok: boolean; models: DiscoveredModel[]; error?: string }
+interface ProviderListing { provider: string; ok: boolean; models: DiscoveredModel[]; speech?: DiscoveredSpeechResource[]; error?: string }
 
 async function fetchJson(url: string, headers: Record<string, string>): Promise<unknown> {
   const res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
@@ -100,14 +120,16 @@ async function listProviders(env: (k: string) => string | undefined): Promise<Pr
   const gem = env("GEMINI_API_KEY");
   if (gem) jobs.push((async () => {
     const all: DiscoveredModel[] = [];
+    const speech: DiscoveredSpeechResource[] = [];
     let token = "";
     for (let page = 0; page < 5; page++) {
       const body = await fetchJson(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000${token ? `&pageToken=${encodeURIComponent(token)}` : ""}`, { "x-goog-api-key": gem }) as { nextPageToken?: string };
       all.push(...parseGeminiModels(body));
+      speech.push(...parseGeminiSpeechModels(body));
       token = body.nextPageToken ?? "";
       if (!token) break;
     }
-    return { provider: "gemini", ok: true, models: all };
+    return { provider: "gemini", ok: true, models: all, speech };
   })().catch((e) => ({ provider: "gemini", ok: false, models: [], error: String(e) })));
   const ant = env("ANTHROPIC_API_KEY");
   if (ant) jobs.push(fetchJson("https://api.anthropic.com/v1/models?limit=100", { "x-api-key": ant, "anthropic-version": "2023-06-01" })
@@ -153,6 +175,22 @@ export async function runCapabilityDiscovery(db: Db, env: (k: string) => string 
   for (const listing of listings) {
     report.providers.push({ provider: listing.provider, ok: listing.ok, listed: listing.models.length, error: listing.error });
     if (!listing.ok) continue;
+    for (const sp of listing.speech ?? []) {
+      const ref = modelRef(sp.provider, sp.model);
+      const { data: known } = await db.from("fkaios_resource_capabilities").select("id,metadata").eq("capability", sp.capability).eq("resource_ref", ref).maybeSingle();
+      if (!known) {
+        const { error } = await db.from("fkaios_resource_capabilities").insert({
+          capability: sp.capability, resource_ref: ref, provider: sp.provider, display_name: sp.displayName,
+          tier: "free_external", credential_ref: "GEMINI_API_KEY", privacy_class: "external",
+          cost_model: { api_usd: 0, note: "free tier where the provider offers one; quota-limited" },
+          operations: sp.capability === "text_to_speech" ? ["synthesize", "voice_selection"] : ["transcribe"],
+          lifecycle_state: "discovered", source: `provider_api:${sp.provider}`, metadata: { first_seen_at: now.toISOString(), last_seen_at: now.toISOString() },
+        });
+        if (!error) report.newModels.push(`${ref} (${sp.capability})`);
+      } else {
+        await db.from("fkaios_resource_capabilities").update({ metadata: { ...((known.metadata as Record<string, unknown>) ?? {}), last_seen_at: now.toISOString() }, updated_at: now.toISOString() }).eq("id", known.id);
+      }
+    }
     const seen = new Set<string>();
     for (const m of listing.models) {
       const ref = modelRef(m.provider, m.model);
