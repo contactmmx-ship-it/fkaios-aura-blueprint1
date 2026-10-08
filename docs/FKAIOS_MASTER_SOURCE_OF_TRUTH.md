@@ -33,6 +33,11 @@ This is the reference document for FKAIOS. Before changing anything:
    - ₹0 stays ₹0.
    - Work autonomously; stop only for money, credentials, or legal or irreversible decisions.
 7. Every new piece of work must update this file. Append a chapter to §2 and refresh §1.
+8. **Change control (from 8 Oct 2026).** `main` is the only engineering source of truth.
+   - **Database:** a migration reaches production only from a file on `main`. Name the file with the exact version production records (`supabase/migrations/<version>_<name>.sql`), or record it verbatim in `supabase/live-snapshot/migrations/`. Never apply a migration from an unmerged branch.
+   - **Drift guard:** the `Check production migration drift` workflow fails when production has a migration the repo doesn't record. It runs on PRs, on pushes to `main` and every 6 hours.
+   - **Functions:** CI (`deploy-supabase-functions.yml`) is the only deploy path.
+   - **Status claims:** a stage counts as done only when it is live, called by real execution, and has changed behaviour with evidence (see `docs/FKAIOS_REAUDIT_2026-10-08.md`). Schema, seed rows and branch code are not done.
 
 ### Source coverage (be honest about gaps)
 
@@ -49,6 +54,35 @@ This is the reference document for FKAIOS. Before changing anything:
 **Missing:** verbatim transcripts of chats that weren't pasted. To fill a gap, paste or export that chat and append it as a chapter. Never invent it.
 
 ---
+
+## Re-audit baseline and P0 change control (8 Oct 2026)
+
+`docs/FKAIOS_REAUDIT_2026-10-08.md` is now the authoritative gap list.
+- **Verified:** Stage 1 (governed objective execution) only, n = 1.
+- Earlier "stage 9–12 done" claims for PRs #45 and #46 are withdrawn. Those stages are schema only, plus 3 inert queue rows.
+
+**P0.1 (repo ↔ production), done and verified:**
+- **Recorded in the repo.** 4 migrations ran in production with no repo record of that version. Each is now in `supabase/live-snapshot/migrations/`, exactly as production ran it (md5-verified):
+  - `20261007104810` and `20261007105223`: backlog cleanup parts A and C;
+  - `20261008075715` and `20261008080204`: capability benchmarking and discovery, applied out of band from unmerged PRs #45 and #46.
+- **PRs #45 and #46 are not adopted.** Their migration files differ from what ran: discovery differs cosmetically, and the timestamps differ. Their `capability-benchmark` function, which accepts self-reported scores, stays undeployed. Do not merge them as they stand.
+- **Corrective migration `20261008090018_capability_eval_schema_guardrails`**: applied, and its repo file is byte-identical to what production ran.
+  - **Test queue:** one active (`queued`/`running`) test per candidate and suite. Re-tests are now possible.
+  - **Benchmarks:** `verified = true` requires a `verification_evidence_id` (FK to `fkaios_verification_evidence`).
+  - **Adoption proposals:** `approve`, `adopted` and `rejected` require `decided_at` and `decided_by`; `approve` and `adopted` also require an `approval_id` (FK to `approvals`).
+  - **`fkaios_rank_benchmarked_resources`:** `service_role` only (anon and authenticated could execute it before), with `search_path` pinned.
+  - **Verified live:** a self-reported verified benchmark and an unapproved adoption were both rejected (the test was rolled back). Rows: 0 benchmarks, 0 proposals, 3 queued tests unchanged.
+- **Drift guard:** `.github/tools/check_migration_drift.py` and `.github/workflows/check-migration-drift.yml`.
+  - Against the live list: 118 live migrations, 0 unrecorded.
+  - An injected unknown version fails the check.
+  - **Blocked on founder action:** the CI `SUPABASE_ACCESS_TOKEN` lacks the `database_migrations_read` permission (HTTP 403 on the PR #47 run). Until the token has it, PR runs warn "Drift check NOT RUN" and scheduled runs fail.
+
+**Next (re-audit sequence):**
+1. Canonical project state, written on every task transition.
+2. Execution identity: `resource_ref`, cost and latency on every run.
+3. Independent verification.
+4. Deterministic benchmark suite.
+5. Test-queue executor.
 
 ## Objective loop proven end to end (7 Oct 2026, 15:04–15:18 UTC)
 
