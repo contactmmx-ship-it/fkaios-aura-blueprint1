@@ -169,6 +169,14 @@ async function timedFetch(url: string, init: RequestInit, timeoutMs: number): Pr
   }
 }
 
+/**
+ * Timeouts scale with the work. A one-sentence synthesis hanging for 90 s
+ * (seen in production 8 Oct 2026) must fail over in seconds, not consume the
+ * whole background-execution window.
+ */
+export function ttsTimeoutMs(text: string): number { return Math.min(60_000, 15_000 + text.length * 40); }
+export function sttTimeoutMs(audioBytes: number): number { return Math.min(90_000, 20_000 + Math.round(audioBytes / 1024) * 60); }
+
 function modelName(ref: string): string { return parseRef(ref)?.name ?? ref; }
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
@@ -184,7 +192,7 @@ async function transcribeGemini(ref: string, audio: AudioInput, env: (k: string)
       contents: [{ role: "user", parts: [{ inlineData: { mimeType: audio.mimeType, data: bytesToBase64(audio.bytes) } }, { text: TRANSCRIBE_PROMPT + (audio.languageHint ? ` Expected language: ${audio.languageHint}.` : "") }] }],
       generationConfig: { temperature: 0, responseMimeType: "application/json" },
     }),
-  }, 60000);
+  }, sttTimeoutMs(audio.bytes.length));
   if (!res.ok) await failFrom(res, model, started);
   const body = await res.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
   const raw = (body.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
@@ -206,7 +214,7 @@ async function synthesizeGemini(ref: string, text: string, voice: string | null,
       contents: [{ role: "user", parts: [{ text }] }],
       generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } } },
     }),
-  }, 90000);
+  }, ttsTimeoutMs(text));
   if (!res.ok) await failFrom(res, model, started);
   const body = await res.json() as { candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { mimeType?: string; data?: string } }> } }> };
   const part = (body.candidates?.[0]?.content?.parts ?? []).find((p) => p.inlineData?.data);
@@ -235,7 +243,7 @@ async function transcribeOpenAICompat(ref: string, row: SpeechResourceRow, audio
   form.append("model", model);
   form.append("response_format", ref.startsWith("tool:self_hosted:") ? "verbose_json" : "json");
   if (audio.languageHint) form.append("language", audio.languageHint.slice(0, 2));
-  const res = await timedFetch(`${base}/v1/audio/transcriptions`, { method: "POST", headers: key ? { Authorization: `Bearer ${key}` } : {}, body: form }, 120000);
+  const res = await timedFetch(`${base}/v1/audio/transcriptions`, { method: "POST", headers: key ? { Authorization: `Bearer ${key}` } : {}, body: form }, sttTimeoutMs(audio.bytes.length));
   if (!res.ok) await failFrom(res, model, started);
   const body = await res.json() as { text?: string; language?: string; segments?: Array<{ start: number; end: number; text: string; avg_logprob?: number }> };
   const text = String(body.text ?? "").trim();
@@ -255,7 +263,7 @@ async function synthesizeOpenAICompat(ref: string, row: SpeechResourceRow, text:
     method: "POST",
     headers: { "Content-Type": "application/json", ...(key ? { Authorization: `Bearer ${key}` } : {}) },
     body: JSON.stringify({ model, input: text, voice: v, response_format: "wav" }),
-  }, 120000);
+  }, ttsTimeoutMs(text));
   if (!res.ok) await failFrom(res, model, started);
   const audio = new Uint8Array(await res.arrayBuffer());
   if (audio.length < 100) throw new SpeechCallError("invalid_response", "audio too short");
@@ -269,7 +277,7 @@ async function synthesizeElevenLabs(text: string, voice: string | null, env: (k:
     method: "POST",
     headers: { "xi-api-key": env("ELEVENLABS_API_KEY") ?? "", "Content-Type": "application/json", Accept: "audio/mpeg" },
     body: JSON.stringify({ text, model_id: "eleven_multilingual_v2" }),
-  }, 90000);
+  }, ttsTimeoutMs(text));
   if (!res.ok) await failFrom(res, "eleven_multilingual_v2", started);
   const audio = new Uint8Array(await res.arrayBuffer());
   if (audio.length < 100) throw new SpeechCallError("invalid_response", "audio too short");

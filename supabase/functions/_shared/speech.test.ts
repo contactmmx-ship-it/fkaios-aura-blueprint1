@@ -180,3 +180,12 @@ Deno.test("word error rate treats spoken and written numbers alike but still cou
   assertEquals(wordErrorRate("Two plus three is five.", "2 + 3 = 5"), 0.2); // 'is' vs 'equals' is a real difference
   assertEquals(wordErrorRate("What is two plus three? Answer in one short sentence.", "What is 2 + 3?"), 0.5);
 });
+
+import { sttTimeoutMs, ttsTimeoutMs } from "./speech.ts";
+
+Deno.test("speech timeouts scale with the work and stay bounded", () => {
+  assertEquals(ttsTimeoutMs("What is two plus three? Answer in one short sentence."), 15000 + 53 * 40);
+  assertEquals(ttsTimeoutMs("x".repeat(5000)), 60000);
+  assertEquals(sttTimeoutMs(221370), 20000 + 216 * 60);
+  assertEquals(sttTimeoutMs(50 * 1024 * 1024), 90000);
+});
