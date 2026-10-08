@@ -76,6 +76,15 @@ export function parseOpenAIModels(body: unknown): DiscoveredModel[] {
     .map((id) => ({ provider: "openai", model: id, source: "provider_api:openai" }));
 }
 
+/** A local OpenAI-compatible server (Ollama, llama.cpp, vLLM): every listed model is free of API cost. */
+export function parseSelfHostedModels(body: unknown): DiscoveredModel[] {
+  const data = (body as { data?: unknown[] })?.data ?? [];
+  return (data as Array<Record<string, unknown>>)
+    .map((m) => String(m.id ?? ""))
+    .filter((id) => id && !/(embed|embedding|rerank|whisper|tts)/i.test(id))
+    .map((id) => ({ provider: "self_hosted", model: id, source: "provider_api:self_hosted", freeTier: true, costInPerMtok: 0, costOutPerMtok: 0 }));
+}
+
 /** OpenRouter prices are USD per token as strings; we store USD per 1M tokens. */
 export function parseOpenRouterModels(body: unknown, limit = 40): DiscoveredModel[] {
   const data = (body as { data?: unknown[] })?.data ?? [];
@@ -139,6 +148,13 @@ async function listProviders(env: (k: string) => string | undefined): Promise<Pr
   if (oai) jobs.push(fetchJson("https://api.openai.com/v1/models", { Authorization: `Bearer ${oai}` })
     .then((b) => ({ provider: "openai", ok: true, models: parseOpenAIModels(b) }))
     .catch((e) => ({ provider: "openai", ok: false, models: [], error: String(e) })));
+  const local = (env("SELF_HOSTED_LLM_BASE_URL") ?? "").replace(/\/+$/, "");
+  if (local) {
+    const key = env("SELF_HOSTED_LLM_API_KEY");
+    jobs.push(fetchJson(`${local}/models`, key ? { Authorization: `Bearer ${key}` } : {})
+      .then((b) => ({ provider: "self_hosted", ok: true, models: parseSelfHostedModels(b) }))
+      .catch((e) => ({ provider: "self_hosted", ok: false, models: [], error: String(e) })));
+  }
   jobs.push(fetchJson("https://openrouter.ai/api/v1/models", {})
     .then((b) => ({ provider: "openrouter", ok: true, models: parseOpenRouterModels(b) }))
     .catch((e) => ({ provider: "openrouter", ok: false, models: [], error: String(e) })));
@@ -150,7 +166,7 @@ async function accessStates(db: Db, env: (k: string) => string | undefined): Pro
   const { data } = await db.from("provider_health_state").select("provider,failure_category,status");
   const noCredit = new Set(((data ?? []) as Array<{ provider: string; failure_category: string | null; status: string }>)
     .filter((h) => h.failure_category === "credit_exhaustion" && h.status !== "available").map((h) => h.provider));
-  const key: Record<string, string> = { gemini: "GEMINI_API_KEY", anthropic: "ANTHROPIC_API_KEY", openai: "OPENAI_API_KEY", openrouter: "OPENROUTER_API_KEY" };
+  const key: Record<string, string> = { gemini: "GEMINI_API_KEY", anthropic: "ANTHROPIC_API_KEY", openai: "OPENAI_API_KEY", openrouter: "OPENROUTER_API_KEY", self_hosted: "SELF_HOSTED_LLM_BASE_URL" };
   const out: Record<string, string> = {};
   for (const [p, k] of Object.entries(key)) out[p] = !env(k) ? "no_credential" : noCredit.has(p) ? "no_credit" : "configured";
   return out;
