@@ -25,6 +25,10 @@ const EXTERNAL_FACT_SUBJECTS =
   /\b(distributors?|dealers?|suppliers?|vendors?|wholesalers?|retailers?|manufacturers?|companies|businesses|firms|contacts?|prospects?|competitors?|customers?|prospect\s+observations?|business\s+signals?|system\s+readiness|current\s+(status|performance|state|figures?|metrics?)|operational\s+(status|performance|metrics?|figures?|readiness)|franchise\s+(expansion|locations?|outlets?)|market\s+(size|share|data|figures|trends)|competitive\s+landscape|prices|pricing|sales|revenues?|turnover|phone\s+numbers?|email\s+addresses|addresses)\b/i;
 
 export function requiresExternalFacts(task: { title?: unknown; description?: unknown }): boolean {
+  // A rectification task only revises a deliverable built from evidence that
+  // prior tasks already recorded; the independent verifier rejects anything
+  // it adds without support.
+  if (typeof task.title === "string" && /^Rectify:/i.test(task.title)) return false;
   const text = `${typeof task.title === "string" ? task.title : ""}\n${typeof task.description === "string" ? task.description : ""}`;
   return EXTERNAL_FACT_VERBS.test(text) && EXTERNAL_FACT_SUBJECTS.test(text);
 }

@@ -35,6 +35,7 @@ import { runObjectiveLoop } from "../_shared/objective-loop.ts";
 import { COGNITIVE_CYCLE_ACTION, cognitiveIntervalMinutes, shouldRunCognitiveCycle } from "../_shared/cognitive-budget.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { runDiscoveryIfDue } from "../_shared/capability-discovery.ts";
+import { runEvaluationTick } from "../_shared/capability-evaluation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -138,6 +139,17 @@ Deno.serve(async (req: Request) => {
     } catch (err) {
       console.error("founder-brain-tick: capability discovery failed (non-blocking)", err instanceof Error ? err.message : String(err));
     }
+
+    // Controlled evaluation, governed adoption and post-adoption monitoring.
+    // Runs after the response (EdgeRuntime.waitUntil) so a slow model call
+    // never delays the objective loop; the test queue lease keeps ticks apart.
+    const evaluation = runEvaluationTick(serviceClient)
+      .then((r) => console.log(JSON.stringify({ level: "INFO", source: "capability-evaluation", ...r })))
+      .catch((err) => console.error("founder-brain-tick: capability evaluation failed (non-blocking)", err instanceof Error ? err.message : String(err)));
+    // deno-lint-ignore no-explicit-any
+    const edgeRuntime = (globalThis as any).EdgeRuntime;
+    if (edgeRuntime?.waitUntil) edgeRuntime.waitUntil(evaluation);
+    else await evaluation;
     const { data: lastCycle } = await serviceClient.from("execution_log").select("created_at")
       .eq("function_name", "founder-brain-tick").eq("action", COGNITIVE_CYCLE_ACTION)
       .order("created_at", { ascending: false }).limit(1).maybeSingle();
