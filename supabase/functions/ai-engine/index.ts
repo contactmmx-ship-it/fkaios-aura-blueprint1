@@ -45,6 +45,7 @@ import {
 import { selectResources, type SelectionDecision } from "../_shared/resource-selection.ts";
 import { recordLLMAttempts, type StepKind } from "../_shared/execution-evidence.ts";
 import { classifyTaskClass, toolRef, workerRef } from "../_shared/resource-identity.ts";
+import { callWithContinuation } from "../_shared/continuation.ts";
 import { executeCapability } from "../_shared/company-os.ts";
 import {
   checkWorkerGrounding,
@@ -1300,9 +1301,6 @@ async function updateProviderHealthFromAttempts(attempts: AttemptRecord[], cid: 
   }
 }
 
-/** Continuations allowed when a response stops at the output-token limit. */
-const MAX_CONTINUATIONS = 2;
-
 async function callLLM(systemPrompt: string, userContent: string, cid: string, toolSchema?: unknown): Promise<LLMResult> {
   const ctx = jobContext;
   const allProviders = buildDefaultRouterConfig();
@@ -1341,7 +1339,13 @@ async function callLLM(systemPrompt: string, userContent: string, cid: string, t
     return result;
   };
 
-  let result = await route(request, ctx?.stepKind ?? "task_execution");
+  // OUTPUT-LIMIT CONTINUATION (shared with the self-test): a truncated
+  // response is continued from a checkpoint instead of failing or restarting.
+  const continued = await callWithContinuation(
+    (req, kind) => route(req as typeof request, kind === "continuation" ? "continuation" : (ctx?.stepKind ?? "task_execution")),
+    request,
+  );
+  const result = continued.last;
   if (result.status !== "success") {
     structuredLog("ERROR", "LLM call failed via router", { status: result.status, log: result.log }, cid);
     throw new Error(
@@ -1350,33 +1354,8 @@ async function callLLM(systemPrompt: string, userContent: string, cid: string, t
         : `All configured LLM providers failed: ${result.log.failure_reason ?? "unknown"}`,
     );
   }
-
-  // OUTPUT-LIMIT CONTINUATION: a response cut off at the token limit is a
-  // checkpoint, not a result. The partial output is handed to the next call
-  // (whichever resource selection picks, possibly a different model) with an
-  // instruction to continue exactly where it stopped, never to restart.
-  let text = result.content ?? "";
-  let inputTokens = result.log.token_usage?.input ?? 0;
-  let outputTokens = result.log.token_usage?.output ?? 0;
-  let continuations = 0;
-  while (result.truncated && !toolSchema && continuations < MAX_CONTINUATIONS) {
-    continuations++;
-    structuredLog("INFO", "Response hit the output-token limit; continuing from checkpoint", { continuation: continuations, chars: text.length, model: result.model }, cid);
-    const next = await route({
-      ...request,
-      userContent: `${userContent}\n\n[CONTINUATION CHECKPOINT ${continuations}] Your previous response was cut off at the output-token limit. The partial output so far is below between the markers. Continue EXACTLY from the last character. Do not repeat anything already written and do not restart.\n<<<PARTIAL_OUTPUT\n${text}\nPARTIAL_OUTPUT>>>`,
-    }, "continuation");
-    if (next.status !== "success") {
-      throw new Error(`Output was truncated and continuation ${continuations} failed: ${next.log.failure_reason ?? next.status}`);
-    }
-    text += next.content ?? "";
-    inputTokens += next.log.token_usage?.input ?? 0;
-    outputTokens += next.log.token_usage?.output ?? 0;
-    result = next;
-  }
-  if (result.truncated && !toolSchema) {
-    throw new Error(`Output still truncated after ${MAX_CONTINUATIONS} continuations (${text.length} chars); task needs decomposition.`);
-  }
+  if (continued.continuations > 0) structuredLog("INFO", "Response continued from output-limit checkpoints", { continuations: continued.continuations, chars: continued.text.length }, cid);
+  const { text, inputTokens, outputTokens } = continued;
 
   if (result.log.attempted_providers.length > 1) {
     structuredLog("INFO", "LLM provider fallback succeeded", {
