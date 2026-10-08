@@ -37,10 +37,14 @@ import {
 } from "../_shared/utils.ts";
 import {
   callLLM as routedCallLLM,
+  callLLMOnResources,
   buildDefaultRouterConfig,
   type AttemptRecord,
   type FailureCategory,
 } from "../_shared/llm-router.ts";
+import { selectResources, type SelectionDecision } from "../_shared/resource-selection.ts";
+import { recordLLMAttempts, type StepKind } from "../_shared/execution-evidence.ts";
+import { classifyTaskClass, toolRef, workerRef } from "../_shared/resource-identity.ts";
 import { executeCapability } from "../_shared/company-os.ts";
 import {
   checkWorkerGrounding,
@@ -101,6 +105,58 @@ interface AIJob {
   status: string; result: Record<string, unknown> | null; retry_count: number; created_at: string; updated_at: string;
 }
 interface LLMResult { text: string; inputTokens: number; outputTokens: number; model: string; provider: TokenPricingProvider; toolCall?: unknown; }
+
+// The job currently being executed. runJobs() processes one job at a time, so
+// a module-level context is safe; it is what lets every LLM call made while
+// executing a job be attributed (objective, task, worker, task class) and,
+// for objective work, routed by resource selection instead of provider order.
+interface JobContext {
+  jobId: string;
+  agentRunId: string | null;
+  objectiveId: string | null;
+  projectId: string | null;
+  taskId: string | null;
+  taskClass: string;
+  workerRef: string | null;
+  /** Objective work uses resource selection (model-level routing, learning, policies). */
+  useSelection: boolean;
+  /** Resources to try last, e.g. the ones that produced work that failed verification. */
+  avoid: string[];
+  stepKind: StepKind;
+}
+let jobContext: JobContext | null = null;
+
+function buildJobContext(job: AIJob, agentRunId: string | null): JobContext {
+  const p = job.payload ?? {};
+  const objectiveId = typeof p.objective_id === "string" && p.objective_id ? p.objective_id : null;
+  const pref = (p.resource_preference ?? {}) as { avoid?: unknown };
+  return {
+    jobId: job.id,
+    agentRunId,
+    objectiveId,
+    projectId: typeof p.project_id === "string" ? p.project_id : null,
+    taskId: typeof p.task_id === "string" ? p.task_id : null,
+    taskClass: typeof p.task_class === "string" ? p.task_class : classifyTaskClass(String(p.title ?? job.type), String(p.description ?? "")),
+    workerRef: job.agent_id ? workerRef(job.agent_id) : null,
+    useSelection: job.type === "work_engine_task" && objectiveId !== null,
+    avoid: Array.isArray(pref.avoid) ? pref.avoid.map(String) : [],
+    stepKind: typeof p.rectification_of === "string" ? "rectification" : "task_execution",
+  };
+}
+
+/** Records a deterministic tool execution (e.g. research.run) as evidence. */
+async function recordToolStep(tool: string, status: string, startedAt: number, error?: string | null): Promise<void> {
+  const ctx = jobContext;
+  if (!ctx) return;
+  try {
+    await supabase.from("fkaios_execution_steps").insert({
+      objective_id: ctx.objectiveId, project_id: ctx.projectId, task_id: ctx.taskId, job_id: ctx.jobId, agent_run_id: ctx.agentRunId,
+      step_kind: ctx.stepKind, task_class: ctx.taskClass, resource_ref: toolRef("fkaios", tool), tool_ref: toolRef("fkaios", tool),
+      worker_ref: ctx.workerRef, started_at: new Date(startedAt).toISOString(), finished_at: new Date().toISOString(),
+      duration_ms: Date.now() - startedAt, outcome: status === "success" ? "completed" : "failed", error: error ?? null,
+    });
+  } catch { /* telemetry only */ }
+}
 
 // PHASE 0.1 EXECUTION TRUTH LAYER (2026-07-27): executeJob() has never had a
 // persistence step for ANY job type — it calls an LLM, parses the JSON it
@@ -1039,11 +1095,13 @@ const taskText = [job.payload?.title, job.payload?.description].filter((v) => ty
 if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true || (typeof job.payload?.objective_id === "string" && job.payload.objective_id.length > 0))) {
   const researchNeeded = /\b(research|market|facts?|sources?|verify|distributor|competitor|industry|trends?|data collection)\b/i.test(taskText);
   if (researchNeeded && taskText) {
+    const researchStartedAt = Date.now();
     const research = await executeCapability(
       "research.run",
       { query: taskText.slice(0, 1200), requested_by: "fkaios-orchestrator" },
       cid,
     );
+    await recordToolStep("research.run", research.status, researchStartedAt, research.status === "success" ? null : String(research.error ?? research.status));
     if (research.status !== "success") {
       throw new NonRetryableJobError(
         `Founder research task could not acquire real external evidence: ${research.error ?? research.status}`,
@@ -1239,32 +1297,48 @@ async function updateProviderHealthFromAttempts(attempts: AttemptRecord[], cid: 
   }
 }
 
+/** Continuations allowed when a response stops at the output-token limit. */
+const MAX_CONTINUATIONS = 2;
+
 async function callLLM(systemPrompt: string, userContent: string, cid: string, toolSchema?: unknown): Promise<LLMResult> {
-  const unavailable = await getUnavailableProviders(cid);
+  const ctx = jobContext;
   const allProviders = buildDefaultRouterConfig();
-  const candidateProviders = allProviders.providers.filter((p) => !unavailable.has(p.name));
-  // Fail OPEN if suppression would remove every candidate — an honest
-  // real-provider failure beats a router that can never call anyone. Keep
-  // Anthropic available: in practice this only ever trims a provider with
-  // zero remaining candidates (e.g. OpenAI alone configured and suppressed).
-  const config = { ...allProviders, providers: candidateProviders.length > 0 ? candidateProviders : allProviders.providers };
-  if (unavailable.size > 0) {
-    structuredLog("INFO", "Provider health gate suppressed candidates for this call", { suppressed: [...unavailable], remaining: config.providers.map((p) => p.name) }, cid);
-  }
+  const request = { systemPrompt, userContent, toolSchema, functionName: "ai-engine", functionClass: "background_agent" as const };
 
-  const result = await routedCallLLM(
-    {
-      systemPrompt,
-      userContent,
-      toolSchema,
-      functionName: "ai-engine",
-      functionClass: "background_agent",
-    },
-    config,
-  );
+  // Objective work: model-level resource selection (routing policy, per-model
+  // health, verified-outcome learning). Everything else keeps the existing
+  // provider-order routing, but every attempt is still recorded as evidence.
+  const route = async (req: typeof request, stepKind: StepKind) => {
+    const startedAt = new Date();
+    let selection: SelectionDecision | null = null;
+    let result;
+    if (ctx?.useSelection && !req.toolSchema) {
+      selection = await selectResources(supabase, ctx.taskClass, { avoid: ctx.avoid });
+      result = selection.resources.length > 0
+        ? await callLLMOnResources(req, allProviders, selection.resources)
+        : null;
+      // Nothing in the selection was callable in this runtime: fall back to provider-order routing.
+      if (result && result.log.attempts.length === 0) result = null;
+    }
+    if (!result) {
+      const unavailable = await getUnavailableProviders(cid);
+      const candidateProviders = allProviders.providers.filter((p) => !unavailable.has(p.name));
+      // Fail OPEN if suppression would remove every candidate — an honest
+      // real-provider failure beats a router that can never call anyone.
+      const config = { ...allProviders, providers: candidateProviders.length > 0 ? candidateProviders : allProviders.providers };
+      if (unavailable.size > 0) {
+        structuredLog("INFO", "Provider health gate suppressed candidates for this call", { suppressed: [...unavailable], remaining: config.providers.map((p) => p.name) }, cid);
+      }
+      result = await routedCallLLM(req, config);
+    }
+    await updateProviderHealthFromAttempts(result.log.attempts, cid);
+    if (ctx) {
+      await recordLLMAttempts(supabase, { objectiveId: ctx.objectiveId, projectId: ctx.projectId, taskId: ctx.taskId, jobId: ctx.jobId, agentRunId: ctx.agentRunId, stepKind, taskClass: ctx.taskClass, workerRef: ctx.workerRef }, result.log, selection, result.content ?? null, startedAt);
+    }
+    return result;
+  };
 
-  await updateProviderHealthFromAttempts(result.log.attempts, cid);
-
+  let result = await route(request, ctx?.stepKind ?? "task_execution");
   if (result.status !== "success") {
     structuredLog("ERROR", "LLM call failed via router", { status: result.status, log: result.log }, cid);
     throw new Error(
@@ -1272,6 +1346,33 @@ async function callLLM(systemPrompt: string, userContent: string, cid: string, t
         ? `LLM returned no usable response across all configured providers: ${result.log.failure_reason ?? "unknown"}`
         : `All configured LLM providers failed: ${result.log.failure_reason ?? "unknown"}`,
     );
+  }
+
+  // OUTPUT-LIMIT CONTINUATION: a response cut off at the token limit is a
+  // checkpoint, not a result. The partial output is handed to the next call
+  // (whichever resource selection picks, possibly a different model) with an
+  // instruction to continue exactly where it stopped, never to restart.
+  let text = result.content ?? "";
+  let inputTokens = result.log.token_usage?.input ?? 0;
+  let outputTokens = result.log.token_usage?.output ?? 0;
+  let continuations = 0;
+  while (result.truncated && !toolSchema && continuations < MAX_CONTINUATIONS) {
+    continuations++;
+    structuredLog("INFO", "Response hit the output-token limit; continuing from checkpoint", { continuation: continuations, chars: text.length, model: result.model }, cid);
+    const next = await route({
+      ...request,
+      userContent: `${userContent}\n\n[CONTINUATION CHECKPOINT ${continuations}] Your previous response was cut off at the output-token limit. The partial output so far is below between the markers. Continue EXACTLY from the last character. Do not repeat anything already written and do not restart.\n<<<PARTIAL_OUTPUT\n${text}\nPARTIAL_OUTPUT>>>`,
+    }, "continuation");
+    if (next.status !== "success") {
+      throw new Error(`Output was truncated and continuation ${continuations} failed: ${next.log.failure_reason ?? next.status}`);
+    }
+    text += next.content ?? "";
+    inputTokens += next.log.token_usage?.input ?? 0;
+    outputTokens += next.log.token_usage?.output ?? 0;
+    result = next;
+  }
+  if (result.truncated && !toolSchema) {
+    throw new Error(`Output still truncated after ${MAX_CONTINUATIONS} continuations (${text.length} chars); task needs decomposition.`);
   }
 
   if (result.log.attempted_providers.length > 1) {
@@ -1287,19 +1388,9 @@ async function callLLM(systemPrompt: string, userContent: string, cid: string, t
   const provider = (result.log.successful_provider ?? "anthropic") as TokenPricingProvider;
   // TELEMETRY FIX (production-fix pass, item 1): the model is whatever the
   // router says actually answered — never re-derived from `provider` here.
-  // This is the exact bug that mislabeled every anthropic call as the
-  // deprecated "claude-3-haiku-20240307" while claude-haiku-4-5-20251001 was
-  // the model actually being billed and answering.
   const model = result.model ?? result.log.successful_model ?? "unknown";
 
-  return {
-    text: result.content ?? "",
-    toolCall: result.toolCall,
-    inputTokens: result.log.token_usage?.input ?? 0,
-    outputTokens: result.log.token_usage?.output ?? 0,
-    model,
-    provider,
-  };
+  return { text, toolCall: result.toolCall, inputTokens, outputTokens, model, provider };
 }
 
 async function chatWithAgent(agentId: string, message: string, cid: string) {
@@ -1468,6 +1559,7 @@ async function runJobs(cid: string) {
 
     const agentRunStartedAt = Date.now();
     const agentRunId = await startAgentRun(job, cid);
+    jobContext = buildJobContext(job, agentRunId);
     try {
       let result: Record<string, unknown>;
       // GENERATE_PROPOSAL / SCHEDULE_MEETING (items 4/5): real capability
@@ -1569,6 +1661,8 @@ async function runJobs(cid: string) {
       // 'running' forever (66 such rows were found on 2026-10-07).
       await finishAgentRun(agentRunId, "failed", { error: errorMessage, kernel_disposition: disposition, will_retry: newStatus === "retry" }, agentRunStartedAt, cid);
       results.push({ job_id: job.id, status: newStatus, error: errorMessage });
+    } finally {
+      jobContext = null;
     }
   }
   return { processed: results.length, results };
