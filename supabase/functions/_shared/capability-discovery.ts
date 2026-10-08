@@ -57,6 +57,9 @@ export function parseGeminiSpeechModels(body: unknown): DiscoveredSpeechResource
     const methods = Array.isArray(m.supportedGenerationMethods) ? m.supportedGenerationMethods.map(String) : [];
     if (!name || !methods.includes("generateContent")) continue;
     if (/tts/i.test(name)) out.push({ capability: "text_to_speech", provider: "gemini", model: name, displayName: String(m.displayName ?? name) });
+    // Gemini Flash text models accept audio input: each is a speech_to_text
+    // candidate (tested before use like any other discovered resource).
+    else if (/^gemini-.*flash/i.test(name) && !NON_TEXT.test(name)) out.push({ capability: "speech_to_text", provider: "gemini", model: name, displayName: `${String(m.displayName ?? name)} (audio input)` });
   }
   return out;
 }

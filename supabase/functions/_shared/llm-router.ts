@@ -681,6 +681,8 @@ const MODEL_UNAVAILABLE_PATTERNS = [
   /not_found_error/i,
 ];
 
+const OVERLOAD_PATTERNS = [/high demand/i, /overloaded/i, /try again later/i, /"status"\s*:\s*"UNAVAILABLE"/i];
+
 const AUTH_FAILURE_STATUS = new Set([401, 403]);
 const OUTAGE_STATUS_MIN = 500;
 
@@ -703,6 +705,14 @@ export function classifyLLMFailure(response: RawProviderResponse | null, error?:
 
   if (CREDIT_EXHAUSTION_PATTERNS.some((p) => p.test(bodyText))) {
     return { category: "credit_exhaustion", detail: bodyText.slice(0, 300), shouldFailover: true };
+  }
+
+  // A 503/529 "high demand" / "overloaded" is one model at capacity, not the
+  // provider down: treat it like a rate limit (model-scoped, short cooldown) so
+  // the provider's other models stay usable. Seen in production 8 Oct 2026:
+  // gemini-3.5-flash-lite 503 "This model is currently experiencing high demand".
+  if ((response.httpStatus === 503 || response.httpStatus === 529) && OVERLOAD_PATTERNS.some((p) => p.test(bodyText))) {
+    return { category: "rate_limit", detail: bodyText.slice(0, 300), shouldFailover: true };
   }
 
   if (response.httpStatus === 429) {

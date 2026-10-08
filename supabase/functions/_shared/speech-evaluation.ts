@@ -21,13 +21,20 @@ export const SPEECH_SENTENCES = [
 export const SPEECH_WER_PASS = 0.2;
 const EVAL_INTERVAL_MIN = 30;
 const RETEST_AFTER_HOURS = 24;
+/** A run that failed on the partner leg says nothing about the candidate: retry soon. */
+const PARTNER_RETRY_MIN = 30;
 
 type Env = (k: string) => string | undefined;
 
 /** The next resource to evaluate: untested, configured, not paid, not tried in the last day. */
 export function pickSpeechCandidate(rows: SpeechResourceRow[], env: Env, now = new Date()): SpeechResourceRow | null {
   const due = rows.filter((r) => ["discovered", "available"].includes(r.lifecycle_state) && r.tier !== "paid_premium" && credentialPresent(r.credential_ref, env)
-    && (() => { const last = (r.metadata as Record<string, unknown> | null)?.last_eval_at; return !last || now.getTime() - new Date(String(last)).getTime() > RETEST_AFTER_HOURS * 3600_000; })());
+    && (() => {
+      const meta = (r.metadata as Record<string, unknown> | null) ?? {};
+      if (!meta.last_eval_at) return true;
+      const waitMs = meta.last_eval_result === "partner_unavailable" ? PARTNER_RETRY_MIN * 60_000 : RETEST_AFTER_HOURS * 3600_000;
+      return now.getTime() - new Date(String(meta.last_eval_at)).getTime() > waitMs;
+    })());
   const tierOrder = ["local", "self_hosted", "internal", "free_external", "low_cost_external"];
   due.sort((a, b) => tierOrder.indexOf(a.tier) - tierOrder.indexOf(b.tier) || a.resource_ref.localeCompare(b.resource_ref));
   return due[0] ?? null;
@@ -56,13 +63,14 @@ export async function runSpeechEvaluationTick(db: Db, env: Env = (k) => Deno.env
   let candidateMs = 0;
   let partnerRef: string | null = null;
   let failure: string | null = null;
+  let partnerFailed = false;
   for (const text of SPEECH_SENTENCES) {
     const tts = await synthesize(db, text, null, candidate.capability === "text_to_speech" ? forceCandidate : partnerOpts, ctx, env);
     stepIds.push(...tts.stepIds);
-    if (tts.status !== "success" || !tts.output) { failure = `text_to_speech: ${tts.failure}`; break; }
+    if (tts.status !== "success" || !tts.output) { failure = `text_to_speech: ${tts.failure}`; partnerFailed = candidate.capability !== "text_to_speech"; break; }
     const stt = await transcribe(db, { bytes: tts.output.audio, mimeType: tts.output.mimeType, languageHint: "en" }, candidate.capability === "speech_to_text" ? forceCandidate : partnerOpts, ctx, env);
     stepIds.push(...stt.stepIds);
-    if (stt.status !== "success" || !stt.output) { failure = `speech_to_text: ${stt.failure}`; break; }
+    if (stt.status !== "success" || !stt.output) { failure = `speech_to_text: ${stt.failure}`; partnerFailed = candidate.capability !== "speech_to_text"; break; }
     const candLeg = candidate.capability === "text_to_speech" ? tts : stt;
     if (candLeg.resourceRef !== candidate.resource_ref) { failure = `candidate leg was served by ${candLeg.resourceRef}`; break; }
     candidateMs += candLeg.attempts.at(-1)?.durationMs ?? 0;
@@ -84,8 +92,8 @@ export async function runSpeechEvaluationTick(db: Db, env: Env = (k) => Deno.env
   }).select("id").single();
   const evidenceId = ev?.id ?? null;
   await markStepsVerified(db, { stepIds }, passed ? "verified" : "rejected", evidenceId, Math.max(0, 1 - meanWer));
-  const meta = { ...((candidate.metadata ?? {}) as Record<string, unknown>), last_eval_at: now.toISOString(), last_wer: failure ? null : meanWer, last_latency_ms: results.length ? Math.round(candidateMs / results.length) : null, last_eval_evidence: evidenceId, last_eval_result: passed ? "passed" : failure ? "error" : "failed" };
+  const meta = { ...((candidate.metadata ?? {}) as Record<string, unknown>), last_eval_at: now.toISOString(), last_wer: failure ? null : meanWer, last_latency_ms: results.length ? Math.round(candidateMs / results.length) : null, last_eval_evidence: evidenceId, last_eval_result: passed ? "passed" : partnerFailed ? "partner_unavailable" : failure ? "error" : "failed" };
   await db.from("fkaios_resource_capabilities").update({ metadata: meta, ...(passed ? { lifecycle_state: "verified", evidence_id: evidenceId } : {}), updated_at: new Date().toISOString() })
     .eq("capability", candidate.capability).eq("resource_ref", candidate.resource_ref);
-  return { candidate: candidate.resource_ref, capability: candidate.capability, passed, mean_wer: meanWer, failure, comparison, evidence: evidenceId };
+  return { candidate: candidate.resource_ref, capability: candidate.capability, passed, mean_wer: meanWer, failure, partner_failed: partnerFailed, comparison, evidence: evidenceId };
 }

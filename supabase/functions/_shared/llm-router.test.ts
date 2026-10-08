@@ -788,3 +788,10 @@ Deno.test("structured output: any provider's JSON reply is parsed and must satis
   if (parseStructuredOutput("not json", schema) !== null) throw new Error("non-JSON must be rejected");
   if (structuredOutputInstruction(undefined) !== "") throw new Error("no schema, no instruction");
 });
+
+Deno.test("a 503 'high demand' is one model at capacity (model-scoped rate_limit), not a provider outage", () => {
+  const overloaded = classifyLLMFailure({ ok: false, httpStatus: 503, rawBody: { error: { code: 503, message: "This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.", status: "UNAVAILABLE" } }, latencyMs: 10, model: "m" });
+  if (overloaded.category !== "rate_limit") throw new Error(`got ${overloaded.category}`);
+  const down = classifyLLMFailure({ ok: false, httpStatus: 503, rawBody: "upstream connect error", latencyMs: 10, model: "m" });
+  if (down.category !== "provider_outage") throw new Error(`got ${down.category}`);
+});
