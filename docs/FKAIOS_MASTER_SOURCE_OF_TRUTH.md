@@ -75,6 +75,7 @@ This is the reference document for FKAIOS. Before changing anything:
 - **Drift guard:** `.github/tools/check_migration_drift.py` and `.github/workflows/check-migration-drift.yml`.
   - Against the live list: 118 live migrations, 0 unrecorded.
   - An injected unknown version fails the check.
+  - **Blocked on founder action:** the CI `SUPABASE_ACCESS_TOKEN` lacks the `database_migrations_read` permission (HTTP 403 on the PR #47 run). Until the token has it, PR runs warn "Drift check NOT RUN" and scheduled runs fail.
 
 **Next (re-audit sequence):**
 1. Canonical project state, written on every task transition.

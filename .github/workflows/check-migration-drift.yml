@@ -37,6 +37,18 @@ jobs:
           status=$(curl -sS -o /tmp/live.json -w '%{http_code}' \
             "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/database/migrations" \
             -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}")
+          if [ "$status" = "403" ] && grep -q database_migrations_read /tmp/live.json; then
+            # The token cannot read migration history, so the check could not run.
+            # Scheduled and manual runs fail so this stays visible; PRs are not blocked by it.
+            msg="Drift check NOT RUN: SUPABASE_ACCESS_TOKEN lacks the database_migrations_read permission."
+            echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$GITHUB_EVENT_NAME" = "schedule" ] || [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+              echo "::error::$msg"; exit 1
+            fi
+            echo "::warning::$msg"
+            echo "skip=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
           if [ "$status" != "200" ]; then
             echo "::error::Listing production migrations returned HTTP $status"
             head -c 500 /tmp/live.json
@@ -44,4 +56,5 @@ jobs:
           fi
 
       - name: Compare with repository
+        if: env.skip != '1'
         run: python3 .github/tools/check_migration_drift.py /tmp/live.json
