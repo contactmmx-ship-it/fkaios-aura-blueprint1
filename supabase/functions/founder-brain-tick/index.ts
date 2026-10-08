@@ -37,6 +37,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { runDiscoveryIfDue } from "../_shared/capability-discovery.ts";
 import { runEvaluationTick } from "../_shared/capability-evaluation.ts";
 import { runSelfTestIfRequested } from "../_shared/self-test.ts";
+import { executeApprovedCommunications } from "../_shared/communications.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -147,7 +148,9 @@ Deno.serve(async (req: Request) => {
     const evaluation = Promise.all([
       runEvaluationTick(serviceClient),
       runSelfTestIfRequested(serviceClient),
-    ]).then(([evaluationResult, selfTest]) => ({ ...evaluationResult, selfTest }))
+      // Only founder-approved external_communication rows are ever sent.
+      executeApprovedCommunications(serviceClient).catch((err) => [{ error: err instanceof Error ? err.message : String(err) }]),
+    ]).then(([evaluationResult, selfTest, communications]) => ({ ...evaluationResult, selfTest, communications }))
       .then((r) => console.log(JSON.stringify({ level: "INFO", source: "capability-evaluation", ...r })))
       .catch((err) => console.error("founder-brain-tick: capability evaluation failed (non-blocking)", err instanceof Error ? err.message : String(err)));
     // deno-lint-ignore no-explicit-any
