@@ -494,6 +494,8 @@ function buildOpenAICompatibleAdapter(
   modelResolver: (fc?: FunctionClass) => string,
   baseUrl: string,
   extraHeaders: Record<string,string> = {},
+  /** Local servers (Ollama, llama.cpp, vLLM) usually need no key: the base URL is the credential. */
+  keyOptional = false,
 ): ProviderAdapter {
   return {
     name,
@@ -501,11 +503,12 @@ function buildOpenAICompatibleAdapter(
     async call(request) {
       const apiKey = envKey();
       const model = request.model ?? modelResolver(request.functionClass);
-      if (!apiKey) return {ok:false,httpStatus:401,rawBody:{error:"API key not configured"},latencyMs:0,model};
+      if (!baseUrl) return {ok:false,httpStatus:401,rawBody:{error:"base URL not configured"},latencyMs:0,model};
+      if (!apiKey && !keyOptional) return {ok:false,httpStatus:401,rawBody:{error:"API key not configured"},latencyMs:0,model};
       const start=Date.now();
       const response=await fetch(baseUrl+"/chat/completions",{
         method:"POST",
-        headers:{Authorization:"Bearer "+apiKey,"Content-Type":"application/json",...extraHeaders},
+        headers:{...(apiKey?{Authorization:"Bearer "+apiKey}:{}),"Content-Type":"application/json",...extraHeaders},
         body:JSON.stringify({model,max_tokens:request.maxTokens??4096,messages:[{role:"system",content:request.systemPrompt},{role:"user",content:request.userContent}],temperature:request.temperature}),
       });
       const latencyMs=Date.now()-start;
@@ -579,7 +582,9 @@ export const selfHostedAdapter: ProviderAdapter = buildOpenAICompatibleAdapter(
   "self_hosted",
   getSelfHostedApiKey,
   getSelfHostedModel,
-  getSelfHostedBaseUrl(),
+  getSelfHostedBaseUrl().replace(/\/+$/, ""),
+  {},
+  true,
 );
 
 /**
