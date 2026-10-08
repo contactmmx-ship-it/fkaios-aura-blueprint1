@@ -69,19 +69,60 @@ function getClient() {
 // inside it, even if their score is higher — availability and fit come
 // before raw performance). Among department matches: fewer active jobs
 // wins (workload), then higher success_rate wins (performance).
+export async function selectBestEmployeeWithEvidence(
+  workforce: EmployeeSummary[],
+  departmentCode: string | null,
+  capability: string | null,
+): Promise<EmployeeSummary | null> {
+  const client = getClient();
+  const pool = departmentCode
+    ? workforce.filter((e) => (e.department ?? "").toUpperCase() === departmentCode.toUpperCase())
+    : workforce;
+  const candidates = (pool.length > 0 ? pool : workforce).filter(
+    (e) => e.isActive && e.status !== "error" && e.status !== "offline",
+  );
+  if (candidates.length === 0) return null;
+
+  // Performance evidence is a tie-breaker, never a permission/availability bypass.
+  // Unknown resources remain eligible; they simply have no measured advantage.
+  let ranked: Record<string, { verified_count?: number; success_pct?: number; avg_cost_usd?: number }> = {};
+  if (capability) {
+    try {
+      const { data } = await client.rpc("fkaios_rank_capability_resources", { p_capability: capability });
+      const rows = Array.isArray(data?.ranked_resources) ? data.ranked_resources : [];
+      for (const row of rows) ranked[String(row.resource_ref)] = row;
+    } catch (err) {
+      console.error("work-engine: capability ranking unavailable; using baseline workforce selection", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  return candidates.reduce((best, e) => {
+    if (!best) return e;
+    const score = (employee: EmployeeSummary) => {
+      const evidence = ranked["worker:" + employee.id] ?? ranked[employee.id];
+      const verified = Number(evidence?.verified_count ?? 0);
+      const success = Number(evidence?.success_pct ?? 0);
+      const workload = Number(employee.activeJobs ?? 0);
+      return { verified, success, workload, declared: Number(employee.successRate ?? 0) };
+    };
+    const a = score(e), b = score(best);
+    if (a.verified !== b.verified) return a.verified > b.verified ? e : best;
+    if (a.success !== b.success) return a.success > b.success ? e : best;
+    if (a.workload !== b.workload) return a.workload < b.workload ? e : best;
+    return a.declared > b.declared ? e : best;
+  }, null as EmployeeSummary | null);
+}
+
 export function selectBestEmployee(workforce: EmployeeSummary[], departmentCode: string | null): EmployeeSummary | null {
   const pool = departmentCode
     ? workforce.filter((e) => (e.department ?? "").toUpperCase() === departmentCode.toUpperCase())
     : workforce;
   const candidates = (pool.length > 0 ? pool : workforce).filter((e) => e.isActive && e.status !== "error" && e.status !== "offline");
   if (candidates.length === 0) return null;
-
   return candidates.reduce((best, e) => {
     if (!best) return e;
-    if (e.activeJobs !== best.activeJobs) return e.activeJobs < best.activeJobs ? e : best; // less busy wins
-    const eRate = e.successRate ?? 0;
-    const bRate = best.successRate ?? 0;
-    return eRate > bRate ? e : best; // then higher performance wins
+    if (e.activeJobs !== best.activeJobs) return e.activeJobs < best.activeJobs ? e : best;
+    return (e.successRate ?? 0) > (best.successRate ?? 0) ? e : best;
   }, null as EmployeeSummary | null);
 }
 
@@ -99,7 +140,8 @@ export async function allocateTask(task: { id: string; title: string; descriptio
   const workforce = await getWorkforce();
   if (workforce.length === 0) return { taskId: task.id, jobId: null, agentId: null, agentName: null, error: "no active AI employees available" };
 
-  const employee = selectBestEmployee(workforce, task.departmentCode);
+  const capability = (task.description.match(/(?:capability|skill)\s*[:=]\s*([a-z0-9_.-]+)/i)?.[1] ?? null);
+  const employee = await selectBestEmployeeWithEvidence(workforce, task.departmentCode, capability);
   if (!employee) return { taskId: task.id, jobId: null, agentId: null, agentName: null, error: "no suitable employee found" };
 
   // Sequential evidence handoff: later tasks must receive the actual recorded
