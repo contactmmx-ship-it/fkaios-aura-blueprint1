@@ -94,7 +94,7 @@ export interface AllocationResult {
   error?: string;
 }
 
-export async function allocateTask(task: { id: string; title: string; description: string; departmentCode: string | null; objectiveId?: string | null; projectId?: string | null; founderSubmitted?: boolean }): Promise<AllocationResult> {
+export async function allocateTask(task: { id: string; title: string; description: string; departmentCode: string | null; objectiveId?: string | null; projectId?: string | null; founderSubmitted?: boolean; extraPayload?: Record<string, unknown> }): Promise<AllocationResult> {
   const client = getClient();
   const workforce = await getWorkforce();
   if (workforce.length === 0) return { taskId: task.id, jobId: null, agentId: null, agentName: null, error: "no active AI employees available" };
@@ -139,6 +139,7 @@ export async function allocateTask(task: { id: string; title: string; descriptio
         founder_submitted: task.founderSubmitted === true,
         work_package_id: task.objectiveId ? (await client.from("work_packages").select("id").eq("objective_id", task.objectiveId).eq("state->>task_id", task.id).maybeSingle()).data?.id ?? null : null,
         prior_completed_tasks: priorCompletedTasks,
+        ...(task.extraPayload ?? {}),
       },
       status: "pending",
     })
@@ -189,7 +190,8 @@ export async function allocateProjectWork(projectId: string): Promise<{ allocate
 
   const results: AllocationResult[] = [];
   for (const t of tasks) {
-    const r = await allocateTask({ id: t.id, title: t.title, description: t.description ?? "", departmentCode, objectiveId, projectId: t.project_id, founderSubmitted: objectiveFounderSubmitted });
+    const extraPayload = /^Rectify:/i.test(String(t.title ?? "")) ? await rectificationPayload(client, t.id) : undefined;
+    const r = await allocateTask({ id: t.id, title: t.title, description: t.description ?? "", departmentCode, objectiveId, projectId: t.project_id, founderSubmitted: objectiveFounderSubmitted, extraPayload });
     results.push(r);
   }
   return { allocated: results.filter((r) => r.jobId).length, results };
@@ -415,7 +417,8 @@ export async function returnCompletedWork(): Promise<{ returned: number; dispatc
       }
     }
 
-    await client.from("orchestration_tasks").update({ status: "done", output: JSON.stringify(finalOutput).slice(0, 5000) }).eq("id", task.id);
+    // 20000 chars: a full deliverable (e.g. a rectified report) must survive intact for verification.
+    await client.from("orchestration_tasks").update({ status: "done", output: JSON.stringify(finalOutput).slice(0, 20000) }).eq("id", task.id);
     try {
       // EVOLUTION AUDIT FINDING (2026-07-18): this previously hardcoded
       // success:true unconditionally, even when a Company OS dispatch
@@ -443,4 +446,85 @@ export async function getWorkVelocity(): Promise<{ last24h: number; last7d: numb
     client.from("ai_jobs").select("id", { count: "exact", head: true }).eq("status", "completed").eq("type", "work_engine_task").gte("updated_at", week),
   ]);
   return { last24h: last24h ?? 0, last7d: last7d ?? 0 };
+}
+
+// ── Checkpoint resume ─────────────────────────────────────────────────
+// A task whose job failed (all resources exhausted, quota, timeout, output
+// that failed a worker-side check) is resumed, not replanned: a new job for
+// the SAME task carries a checkpoint (what failed, on which resources, the
+// prior completed evidence) and asks resource selection to try other
+// resources first. Completed sibling tasks are never redone.
+export const MAX_TASK_RESUMES = 2;
+const NOT_RESUMABLE = /no_data_source|NO_DATA_SOURCE|not authorized|no verified deployed_url/i;
+
+export async function resumeTaskFromCheckpoint(taskId: string, objectiveId: string): Promise<{ resumed: boolean; jobId?: string; reason: string }> {
+  const client = getClient();
+  const { data: task } = await client.from("orchestration_tasks").select("id,title,description,status,project_id,attempts,output").eq("id", taskId).maybeSingle();
+  if (!task || task.status !== "rework") return { resumed: false, reason: "task is not awaiting recovery" };
+  const attempts = Number(task.attempts ?? 0);
+  if (attempts >= MAX_TASK_RESUMES) return { resumed: false, reason: `resume budget exhausted (${attempts}/${MAX_TASK_RESUMES})` };
+  const outputText = String(task.output ?? "");
+  const { data: lastJob } = await client.from("ai_jobs").select("id,status,error,retry_count,agent_id").eq("type", "work_engine_task").eq("payload->>task_id", taskId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  const lastError = String(lastJob?.error ?? outputText).slice(0, 600);
+  if (NOT_RESUMABLE.test(lastError) || NOT_RESUMABLE.test(outputText)) return { resumed: false, reason: "failure is not recoverable by another resource" };
+
+  const { data: failedSteps } = await client.from("fkaios_execution_steps").select("resource_ref,failure_category,error").eq("task_id", taskId).eq("outcome", "failed").order("created_at", { ascending: false }).limit(20);
+  const { data: producedSteps } = await client.from("fkaios_execution_steps").select("resource_ref").eq("task_id", taskId).eq("outcome", "completed").limit(20);
+  const avoid = [...new Set([...(failedSteps ?? []), ...(producedSteps ?? [])].map((s) => String(s.resource_ref ?? "")).filter((r) => r.startsWith("model:")))];
+  const checkpoint = {
+    resume_number: attempts + 1,
+    previous_job_id: lastJob?.id ?? null,
+    previous_error: lastError,
+    failed_resources: (failedSteps ?? []).slice(0, 8).map((s) => ({ resource: s.resource_ref, category: s.failure_category })),
+    instruction: "Resume this task from the checkpoint: the previous attempt failed for the reason above. Prior completed tasks' evidence is attached and is the source of truth; do not redo them. Produce this task's complete output.",
+  };
+
+  const { data: project } = await client.from("orchestration_projects").select("request").eq("id", task.project_id).maybeSingle();
+  const { data: objective } = await client.from("orchestrator_requests").select("department_code, classification").eq("id", objectiveId).maybeSingle();
+  const alloc = await allocateTask({
+    id: task.id, title: task.title, description: task.description ?? "", departmentCode: objective?.department_code ?? null,
+    objectiveId, projectId: task.project_id, founderSubmitted: objective?.classification === "founder_objective",
+    extraPayload: { checkpoint, resource_preference: { avoid } },
+  });
+  if (!alloc.jobId) return { resumed: false, reason: alloc.error ?? "allocation failed" };
+  await client.from("orchestration_tasks").update({ attempts: attempts + 1 }).eq("id", task.id);
+  await client.from("provider_handoffs").insert({
+    objective_id: objectiveId, ai_job_id: alloc.jobId,
+    from_provider: avoid[0] ?? (lastJob?.agent_id ? `worker:${lastJob.agent_id}` : "unknown"),
+    to_provider: "resource-selection (avoiding failed resources)",
+    reason: `checkpoint resume ${attempts + 1}/${MAX_TASK_RESUMES}: ${lastError.slice(0, 200)}`,
+    handoff_packet: { task_id: task.id, project: project?.request?.slice(0, 120) ?? null, checkpoint, avoid },
+    status: "dispatched", attempt: attempts + 1,
+  });
+  return { resumed: true, jobId: alloc.jobId, reason: checkpoint.instruction };
+}
+
+// ── Rectification ─────────────────────────────────────────────────────
+// When independent verification rejects the deliverable, a rectification
+// task is added to the SAME project. Its job receives the verifier's issues,
+// the rejected deliverable and the producing resources (to avoid), and must
+// return the complete corrected deliverable.
+export async function createRectificationTask(input: { projectId: string; objectiveId: string; round: number; issues: string[]; failedCriteria: string[]; deliverable: string; producerRefs: string[] }): Promise<string | null> {
+  const client = getClient();
+  const { data, error } = await client.from("orchestration_tasks").insert({
+    project_id: input.projectId,
+    role: "rectifier",
+    title: `Rectify: corrected final deliverable (round ${input.round})`,
+    description: "Independent verification rejected the deliverable. Produce the COMPLETE corrected final deliverable for the original objective, fixing every listed issue, using only the evidence recorded in the prior completed tasks. Return JSON with a 'deliverable' string.",
+    status: "pending",
+    output: JSON.stringify({ rectification: { round: input.round, issues: input.issues.slice(0, 15), failed_criteria: input.failedCriteria.slice(0, 15), rejected_deliverable: input.deliverable.slice(0, 12000), avoid: input.producerRefs } }),
+  }).select("id").single();
+  if (error) throw new Error(`rectification task insert failed: ${error.message}`);
+  return data?.id ?? null;
+}
+
+async function rectificationPayload(client: ReturnType<typeof getClient>, taskId: string): Promise<Record<string, unknown> | undefined> {
+  const { data } = await client.from("orchestration_tasks").select("output").eq("id", taskId).maybeSingle();
+  try {
+    const r = JSON.parse(String(data?.output ?? "{}")).rectification;
+    if (!r) return undefined;
+    return { rectification_of: "objective_deliverable", task_class: "writing", verification_feedback: { issues: r.issues, failed_criteria: r.failed_criteria }, rejected_deliverable: r.rejected_deliverable, resource_preference: { avoid: r.avoid ?? [] } };
+  } catch {
+    return undefined;
+  }
 }

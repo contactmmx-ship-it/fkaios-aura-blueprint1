@@ -1092,8 +1092,11 @@ let researchResultAttempts = 0;
 // taskText is also read by the downstream verification gate below, so it is
 // declared at function scope rather than inside the research branch.
 const taskText = [job.payload?.title, job.payload?.description].filter((v) => typeof v === "string").join("\n").trim();
+// Rectification revises a deliverable built from evidence prior tasks already
+// recorded: no new paid research, and not the research-fact output contract.
+const isRectification = typeof job.payload?.rectification_of === "string";
 if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true || (typeof job.payload?.objective_id === "string" && job.payload.objective_id.length > 0))) {
-  const researchNeeded = /\b(research|market|facts?|sources?|verify|distributor|competitor|industry|trends?|data collection)\b/i.test(taskText);
+  const researchNeeded = !isRectification && /\b(research|market|facts?|sources?|verify|distributor|competitor|industry|trends?|data collection)\b/i.test(taskText);
   if (researchNeeded && taskText) {
     const researchStartedAt = Date.now();
     const research = await executeCapability(
@@ -1143,7 +1146,7 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
       const priorEvidence = Array.isArray(job.payload?.prior_completed_tasks)
         ? "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(job.payload.prior_completed_tasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
         : "";
-      const verificationContract = priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)
+      const verificationContract = !isRectification && priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)
         ? "\n\nThis is a downstream verification/report task. Return ONLY JSON with verified_facts (at least 3 when the objective asks for three facts), report, and sources. Every verified_fact must include fact, source_url, source_title, and verification_note. Every source_url must appear in the supplied prior evidence. Do not include unsupported facts."
         : "";
       const systemPrompt = `${agent.prompt}${groundedContext}${principlesBlock}\n\nYou will receive a job payload as JSON.\nExecute the task and respond with ONLY a valid JSON object.\nNo prose.\nNo markdown fences.\n${NO_FABRICATED_PERSISTENCE_BLOCK}\n${invoiceSchemaBlock}${capabilityBlock}`;
@@ -1161,7 +1164,7 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
         ? parseAndValidateInvoicePayload(llmResult.toolCall, llmResult.text)
         : asJSONObject(extractJSONFromText(llmResult.text.replace(/```json|```/g, "").trim()), `Job ${job.id} (${job.type})`);
 
-      if (priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)) {
+      if (!isRectification && priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)) {
         const facts = Array.isArray(parsed.verified_facts) ? parsed.verified_facts : [];
         const sourceUrls = new Set(priorEvidence.split(/\s+/).filter((u) => u.startsWith("http://") || u.startsWith("https://")).map((u) => u.replace(/[),.;\]}"]+$/, "")));
         const validFacts = facts.filter((f) => {

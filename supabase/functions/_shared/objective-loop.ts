@@ -1,9 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { reason } from "./founder-brain.ts";
 import { planObjective } from "./executive-planner.ts";
-import { allocateProjectWork, returnCompletedWork } from "./work-engine.ts";
+import { allocateProjectWork, createRectificationTask, resumeTaskFromCheckpoint, returnCompletedWork } from "./work-engine.ts";
+import { contractCriteria, verifyObjective } from "./objective-verifier.ts";
+import { readObjectiveState, syncObjectiveState } from "./objective-state.ts";
 import { assessCurrentTaskSet, assessObjectiveTasks, formatBlockedSummary, type TaskEvidenceRecord } from "./fact-grounding.ts";
-import { buildObjectiveDeliverable, isRerunRequested, OBJECTIVE_LOOP, projectUpdateForObjective } from "./objective-rerun.ts";
+import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP, projectUpdateForObjective } from "./objective-rerun.ts";
 import { completionContract } from "./objective-contract.ts";
 
 type ObjectiveLoopResult = {
@@ -31,9 +33,15 @@ type ObjectiveEvaluation = {
   // distinguishes "we checked and it's not done" from "we had nothing to
   // check against". Optional so no existing consumer of this type breaks.
   verificationUnavailable?: boolean;
+  /** The independent verifier could not run (no model answered); retry next cycle instead of replanning. */
+  verifierUnavailable?: boolean;
+  /** Verification rejected the deliverable: what a rectification pass must fix. */
+  rectify?: { projectId: string; issues: string[]; failedCriteria: string[]; deliverable: string; producerRefs: string[] };
+  verification?: Record<string, unknown>;
 };
 
 const MAX_REPLAN_ATTEMPTS = 5;
+export const MAX_RECTIFICATION_ROUNDS = 2;
 
 function getSupabaseAdmin() {
   const url = Deno.env.get("SUPABASE_URL");
@@ -359,133 +367,79 @@ async function evaluateObjective(
     };
   }
 
-  const prompt = `
-You are the Objective Evaluator for FKAIOS.
-
-Your job is NOT to judge whether the tasks merely finished.
-Your job is to determine whether the ORIGINAL BUSINESS OBJECTIVE has actually been achieved.
-
-Original objective:
-${String(objective.raw_request ?? "")}
-
-Current projects:
-${JSON.stringify(projects, null, 2)}
-
-Current task execution records:
-${JSON.stringify(tasks, null, 2)}
-
-FKAIOS OBJECTIVE CONTRACT (the acceptance authority for this objective):
-${JSON.stringify(objectiveContract ?? contract, null, 2)}
-
-DETERMINISTIC EXECUTION EVIDENCE (measured fact — real downstream capability
-dispatch results, extracted directly from task output, not anyone's
-interpretation):
-${
-    deterministicEvidence.length > 0
-      ? JSON.stringify(deterministicEvidence, null, 2)
-      : "None available for this objective's tasks."
-  }
-
-Evaluate using only the evidence supplied above.
-
-Rules:
-1. completed tasks do NOT automatically mean the objective is achieved.
-2. If evidence shows the business objective is achieved, return achieved=true.
-3. If work is still required and another executable cycle should happen, return achieved=false, blocked=false, failed=false.
-4. If execution cannot continue without a human decision/approval, return blocked=true.
-5. If the objective cannot reasonably be completed because of a terminal failure, return failed=true.
-6. Never invent business facts.
-7. If evidence is insufficient, prefer achieved=false and blocked=false.
-8. If the deterministic execution evidence above shows ANY failed capability dispatch, you MUST NOT return achieved=true — real downstream execution has not succeeded, whatever a task's own narrative claims.
-9. If an FKAIOS Objective Contract exists, every mandatory acceptance criterion must have direct evidence before achieved=true. Do not infer a pass from task completion alone.
-10. Preserve continuity requirements when the contract says existing work must be continued; a technically working replacement that discards required existing alignment is not achieved.
-11. Return ONLY valid JSON.
-
-Schema:
-{
-  "achieved": boolean,
-  "blocked": boolean,
-  "failed": boolean,
-  "reason": string,
-  "next_action": string
-}
-`;
-
-  const response = await reason(
-    "You are the FKAIOS Objective Evaluator. Evaluate whether the original business objective has actually been achieved using only the supplied execution evidence.",
-    prompt,
-    800,
-    correlationId,
-  );
-
-  if (!response || typeof response.text !== "string" || response.text.trim().length === 0) {
-    return {
-      achieved: false,
-      blocked: false,
-      failed: false,
-      reason: "Objective evaluation returned no response.",
-      next_action: "Continue execution and evaluate again.",
-    };
-  }
-
-  const parsed = extractJsonObject(response.text);
-
-  if (!parsed) {
-    return {
-      achieved: false,
-      blocked: false,
-      failed: false,
-      reason: "Objective evaluation returned invalid JSON.",
-      next_action: "Retry evaluation on the next cycle.",
-    };
-  }
-
-  const evaluation: ObjectiveEvaluation = {
-    achieved: parsed.achieved === true,
-    blocked: parsed.blocked === true,
-    failed: parsed.failed === true,
-    reason: String(parsed.reason ?? ""),
-    next_action: String(parsed.next_action ?? ""),
-  };
-
-  // VERIFICATION GATE: an evaluator's achieved=true is honored only when
-  // every task in the objective's current task set has verified evidence
-  // (terminal success plus output, and a successful capability dispatch for
-  // any task that needs real-world facts). Evidence on some tasks never
-  // stands in for the rest.
-  if (evaluation.achieved && !taskGate.allVerified) {
+  // Task-level gate: every task in the current planning pass must carry
+  // verified evidence before the objective itself is judged.
+  if (!taskGate.allVerified) {
     return {
       achieved: false,
       blocked: false,
       failed: false,
       verificationUnavailable: true,
-      reason: `Not achieved: ${taskGate.reason}. Evaluator's own reasoning: ${evaluation.reason || "(none given)"}`,
-      next_action: "Complete and verify every task in the objective before re-evaluating.",
+      reason: `Not achieved: ${taskGate.reason}`,
+      next_action: "Recover the failed task(s) from their checkpoints, or replan if they cannot be recovered.",
     };
   }
 
-  if (evaluation.achieved) {
-    const evidenceState = await syncDeterministicVerificationEvidence(
-      String(objective.id),
-      projects,
-      tasks,
-    );
-    if (evidenceState.required > 0) {
-      const { data: completionAllowed } = await getSupabaseAdmin()
-        .rpc("fkaios_objective_completion_allowed", {
-          p_objective_id: String(objective.id),
-        });
+  // INDEPENDENT OBJECTIVE VERIFICATION: the deliverable is judged against the
+  // original objective and its criteria by a model other than the producers
+  // wherever one exists, with quotes checked against the deliverable.
+  const latestProjectId = String(projects[0]?.id ?? "");
+  const currentTasks = tasks.filter((t) => String(t.project_id ?? "") === latestProjectId);
+  const deliverable = buildCurrentDeliverable("", currentTasks as Parameters<typeof buildCurrentDeliverable>[1]);
+  const supabase = getSupabaseAdmin();
+  const taskIds = currentTasks.map((t) => String(t.id));
+  const { data: producerSteps } = taskIds.length
+    ? await supabase.from("fkaios_execution_steps").select("resource_ref").in("task_id", taskIds).eq("outcome", "completed").like("resource_ref", "model:%")
+    : { data: [] };
+  const producerRefs = [...new Set(((producerSteps ?? []) as Array<{ resource_ref: string }>).map((r) => r.resource_ref))];
+  const evidence = currentTasks
+    .filter((t) => !/^Rectify:/i.test(String(t.title ?? "")))
+    .map((t) => `[${String(t.title ?? "task")}]\n${String(t.output ?? "").slice(0, 2500)}`)
+    .join("\n\n");
+  const verdict = await verifyObjective(supabase, {
+    objectiveId: String(objective.id),
+    projectId: latestProjectId || null,
+    objective: String(objective.raw_request ?? ""),
+    criteria: contractCriteria((objectiveContract as Record<string, unknown> | null)?.acceptance_criteria),
+    deliverable,
+    evidence,
+    producerRefs,
+    producingTaskIds: taskIds,
+  });
+  const verification = { passed: verdict.passed, quality: verdict.quality, independence: verdict.independence, verifier: verdict.verifierRef, evidence_id: verdict.evidenceId ?? null, issues: verdict.issues.slice(0, 10), criteria: verdict.criteria.map((c) => ({ criterion: c.criterion, met: c.met })), at: new Date().toISOString() };
 
-      if (completionAllowed !== true) {
-        return {
-          achieved: false,
-          blocked: false,
-          failed: false,
-          verificationUnavailable: true,
-          reason: `Evaluator proposed completion, but independent verification is incomplete: ${evidenceState.passed}/${evidenceState.required} evidence requirements passed.`,
-          next_action: "Create the missing independent evidence (including visual/functional/acceptance checks where required) before completion.",
-        };
-      }
+  if (!verdict.available) {
+    return { achieved: false, blocked: false, failed: false, verificationUnavailable: true, verifierUnavailable: true, verification, reason: verdict.issues[0] ?? "Independent verifier unavailable.", next_action: "Retry independent verification next cycle." };
+  }
+  if (verdict.needsHumanDecision) {
+    return { achieved: false, blocked: true, failed: false, verification, reason: `Human decision required: ${verdict.humanDecisionReason}`, next_action: "Founder decision required before the objective can be completed." };
+  }
+  if (!verdict.passed) {
+    return {
+      achieved: false, blocked: false, failed: false, verification,
+      rectify: { projectId: latestProjectId, issues: verdict.issues, failedCriteria: verdict.criteria.filter((c) => !c.met).map((c) => c.criterion), deliverable, producerRefs },
+      reason: `Independent verification rejected the deliverable: ${verdict.issues.slice(0, 3).join(" | ")}`,
+      next_action: "Rectify the deliverable against the verifier's issues, then verify again.",
+    };
+  }
+
+  const evaluation: ObjectiveEvaluation = {
+    achieved: true, blocked: false, failed: false, verification,
+    reason: `Independently verified: ${verdict.criteria.length} criteria met, quality ${verdict.quality.toFixed(2)}, verifier ${verdict.verifierRef} (${verdict.independence}).`,
+    next_action: "",
+  };
+
+  // Contract evidence requirements (deterministic observations) still apply.
+  const evidenceState = await syncDeterministicVerificationEvidence(String(objective.id), projects, tasks);
+  if (evidenceState.required > 0) {
+    const { data: completionAllowed } = await getSupabaseAdmin()
+      .rpc("fkaios_objective_completion_allowed", { p_objective_id: String(objective.id) });
+    if (completionAllowed !== true) {
+      return {
+        achieved: false, blocked: false, failed: false, verificationUnavailable: true, verification,
+        reason: `Verifier passed, but contract evidence is incomplete: ${evidenceState.passed}/${evidenceState.required} evidence requirements passed.`,
+        next_action: "Create the missing contract evidence before completion.",
+      };
     }
   }
 
@@ -642,7 +596,7 @@ async function markObjective(
     const completionProject = (projects as Record<string, unknown>[]).find((p) => String(p.id) === completionProjectId);
     deliverable = completionProject?.output_type === "html"
       ? undefined
-      : buildObjectiveDeliverable(boundedSummary, completionTasks);
+      : buildCurrentDeliverable(boundedSummary, completionTasks);
 
     const { error: markProjectError } = await supabase
       .from("orchestration_projects")
@@ -884,6 +838,21 @@ export async function runObjectiveLoop(
         }
       }
 
+      // CHECKPOINT RESUME: a task whose execution failed is resumed from a
+      // checkpoint on another resource (same task, prior evidence kept) before
+      // anything is replanned. Only the current planning pass is resumed.
+      const firstProject = (state.projects as Record<string, unknown>[])[0];
+      const latestProjectId = firstProject?.id ? String(firstProject.id) : null;
+      for (const task of state.tasks) {
+        if (String(task.status ?? "") !== "rework" || String(task.project_id ?? "") !== latestProjectId) continue;
+        try {
+          const resumed = await resumeTaskFromCheckpoint(String(task.id), String(objective.id));
+          if (resumed.resumed) task.status = "assigned";
+        } catch (err) {
+          console.error("objective-loop: checkpoint resume failed (non-blocking)", err instanceof Error ? err.message : String(err));
+        }
+      }
+
       // Only assigned/running work is actively executing. Pending tasks are
       // intentionally held back so the project executes as an evidence chain:
       // research -> verification -> report, never parallel independent answers.
@@ -916,6 +885,7 @@ export async function runObjectiveLoop(
        * after the previous task has returned verified evidence.
        */
       if (activeTasks.length > 0) {
+        await syncObjectiveState(supabase, { id: String(objective.id), status: "processing", raw_request: String(objective.raw_request ?? "") });
         results.push({
           objectiveId: String(objective.id),
           action: "continue_execution",
@@ -963,6 +933,7 @@ export async function runObjectiveLoop(
           "completed",
           evaluation.reason || "Objective achieved.",
         );
+        await syncObjectiveState(supabase, { id: String(objective.id), status: "completed", raw_request: String(objective.raw_request ?? "") }, { phase: "completed", reason: evaluation.reason, patch: { verification: evaluation.verification ?? {}, next_action: null, blocked_reason: null } });
 
         results.push({
           objectiveId: String(objective.id),
@@ -983,6 +954,7 @@ export async function runObjectiveLoop(
           "awaiting_approval",
           evaluation.reason || evaluation.next_action,
         );
+        await syncObjectiveState(supabase, { id: String(objective.id), status: "awaiting_approval", raw_request: String(objective.raw_request ?? "") }, { phase: "blocked", reason: evaluation.reason, patch: { verification: evaluation.verification ?? {}, blocked_reason: evaluation.reason, next_action: evaluation.next_action } });
 
         results.push({
           objectiveId: String(objective.id),
@@ -1031,6 +1003,27 @@ export async function runObjectiveLoop(
        * blocker in this codebase is surfaced — a stuck objective is a
        * real one, not silently dropped.
        */
+      if (evaluation.verifierUnavailable) {
+        await syncObjectiveState(supabase, { id: String(objective.id), status: "processing", raw_request: String(objective.raw_request ?? "") }, { phase: "verifying", reason: evaluation.reason, patch: { next_action: evaluation.next_action } });
+        results.push({ objectiveId: String(objective.id), action: "no_action", projectId: latestProjectId, summary: `Verification pending: ${evaluation.reason}` });
+        continue;
+      }
+
+      // RECTIFICATION LOOP: a rejected deliverable is corrected in the same
+      // project (verifier issues in, producing models avoided), then verified
+      // again — before any replan and long before the founder is involved.
+      if (evaluation.rectify) {
+        const current = await readObjectiveState(supabase, String(objective.id));
+        const round = (current?.rectification_round ?? 0) + 1;
+        if (round <= MAX_RECTIFICATION_ROUNDS) {
+          await createRectificationTask({ projectId: evaluation.rectify.projectId, objectiveId: String(objective.id), round, issues: evaluation.rectify.issues, failedCriteria: evaluation.rectify.failedCriteria, deliverable: evaluation.rectify.deliverable, producerRefs: evaluation.rectify.producerRefs });
+          const allocation = await allocateProjectWork(evaluation.rectify.projectId);
+          await syncObjectiveState(supabase, { id: String(objective.id), status: "processing", raw_request: String(objective.raw_request ?? "") }, { phase: "rectifying", reason: evaluation.reason, patch: { rectification_round: round, verification: evaluation.verification ?? {}, next_action: evaluation.next_action } });
+          results.push({ objectiveId: String(objective.id), action: "continue_execution", projectId: evaluation.rectify.projectId, tasksCreated: allocation.allocated, summary: `Verification rejected the deliverable; rectification round ${round}/${MAX_RECTIFICATION_ROUNDS} started.` });
+          continue;
+        }
+      }
+
       if (state.projects.length >= MAX_REPLAN_ATTEMPTS) {
         await markObjective(
           supabase,
@@ -1062,6 +1055,7 @@ export async function runObjectiveLoop(
         continue;
       }
 
+      await syncObjectiveState(supabase, { id: String(objective.id), status: "processing", raw_request: String(objective.raw_request ?? "") }, { phase: "planning", reason: `replan: ${evaluation.reason}`.slice(0, 500), patch: { rectification_round: 0, verification: evaluation.verification ?? {}, next_action: "Execute the new plan." } });
       results.push({
         objectiveId: String(objective.id),
         action: "replan",

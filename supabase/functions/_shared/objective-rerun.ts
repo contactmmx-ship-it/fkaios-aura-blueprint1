@@ -108,3 +108,19 @@ export function buildObjectiveDeliverable(summary: string, tasks: DeliverableTas
     ? `${text.slice(0, MAX_DELIVERABLE_CHARS)}\n\n…(truncated at ${MAX_DELIVERABLE_CHARS} characters; full task outputs remain in orchestration_tasks)\n`
     : text;
 }
+
+/**
+ * The deliverable as it stands now. Once a rectification task has produced a
+ * corrected deliverable, that corrected version IS the result (the rejected
+ * draft must not be presented alongside it); otherwise every completed task's
+ * work product, in order.
+ */
+export function buildCurrentDeliverable(summary: string, tasks: DeliverableTask[]): string {
+  const rectified = tasks
+    .filter((t) => /^Rectify:/i.test(String(t.title ?? "")) && typeof t.output === "string" && String(t.output).trim() &&
+      ["completed", "done", "verified", "approved"].includes(String(t.status ?? "").toLowerCase()))
+    .sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
+  if (!rectified.length) return buildObjectiveDeliverable(summary, tasks);
+  const text = `# Result\n\n${summary.trim() ? summary.trim() + "\n\n" : ""}${taskWorkProduct(String(rectified[0].output))}\n`;
+  return text.length > MAX_DELIVERABLE_CHARS ? text.slice(0, MAX_DELIVERABLE_CHARS) : text;
+}
