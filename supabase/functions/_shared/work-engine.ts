@@ -376,7 +376,7 @@ export async function returnCompletedWork(): Promise<{ returned: number; dispatc
   for (let k = 0; k < openTaskIds.length; k += 100) {
     const { data: chunk, error: jobErr } = await client
       .from("ai_jobs")
-      .select("id, payload, result")
+      .select("id, agent_id, payload, result, created_at, updated_at")
       .eq("status", "completed")
       .eq("type", "work_engine_task")
       .in("payload->>objective_id", activeObjectiveIds)
@@ -449,6 +449,42 @@ export async function returnCompletedWork(): Promise<{ returned: number; dispatc
     }
 
     await client.from("orchestration_tasks").update({ status: "done", output: JSON.stringify(finalOutput).slice(0, 5000) }).eq("id", task.id);
+
+    // Record measured capability outcome after execution has been persisted.
+    // This is learning evidence, not a claim of success.
+    if (resultObj?.capability) {
+      try {
+        const dispatchStatus = (finalOutput as { companyOsDispatch?: { status?: string; attempts?: number; data?: unknown; error?: string } }).companyOsDispatch;
+        const dispatchSucceeded = dispatchStatus ? dispatchStatus.status === "success" : true;
+        const verified = dispatchSucceeded && ["research.run", "product.deploy", "product.verify", "knowledge.search"].includes(resultObj.capability);
+        const verificationStatus = verified ? "verified" : dispatchSucceeded ? "unverified" : "failed";
+        const startedAt = Date.parse(String((job as { created_at?: string }).created_at ?? ""));
+        const finishedAt = Date.parse(String((job as { updated_at?: string }).updated_at ?? ""));
+        const latencyMs = Number.isFinite(startedAt) && Number.isFinite(finishedAt) && finishedAt >= startedAt ? finishedAt - startedAt : null;
+        await client.rpc("fkaios_record_capability_outcome", {
+          p_capability: resultObj.capability,
+          p_resource_ref: "company-os:" + resultObj.capability,
+          p_provider: "fkaios-company-os",
+          p_worker_ref: String((job as { agent_id?: string }).agent_id ?? "unknown"),
+          p_project_id: payload.project_id ?? null,
+          p_objective_id: payload.objective_id ?? null,
+          p_task_id: payload.task_id,
+          p_job_id: job.id,
+          p_success: dispatchSucceeded,
+          p_verified: verified,
+          p_verification_status: verificationStatus,
+          p_latency_ms: latencyMs,
+          p_estimated_cost_usd: null,
+          p_evidence: {
+            source: "work-engine:returnCompletedWork",
+            dispatch_status: dispatchStatus?.status ?? "llm_task_only",
+            attempts: Number(dispatchStatus?.attempts ?? resultObj.capability_attempts ?? 1),
+          },
+        });
+      } catch (learningErr) {
+        console.error("work-engine: capability outcome recording failed (non-blocking)", learningErr instanceof Error ? learningErr.message : String(learningErr));
+      }
+    }
     try {
       // EVOLUTION AUDIT FINDING (2026-07-18): this previously hardcoded
       // success:true unconditionally, even when a Company OS dispatch
