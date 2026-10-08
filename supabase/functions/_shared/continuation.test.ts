@@ -1,5 +1,5 @@
 /// <reference lib="deno.ns" />
-import { callWithContinuation, continuationPrompt, stitch } from "./continuation.ts";
+import { callWithContinuation, checkpointText, continuationPrompt, stitch } from "./continuation.ts";
 import type { LLMRequest, LLMResult } from "./llm-router.ts";
 
 function assert(condition: boolean, message = "assertion failed"): void {
@@ -41,14 +41,34 @@ Deno.test("continuation: prompt keeps the original request and the partial outpu
   assert(p.startsWith("ORIGINAL") && p.includes("PARTIAL") && p.includes("CHECKPOINT 1"));
 });
 
-Deno.test("continuation: seams are stitched on the repeated anchor, not glued", () => {
-  // the production failure: partial cut after "branch", continuation drops its leading space
-  assert(stitch("open individual branch", "open individual branch locations under the brand") === "open individual branch locations under the brand");
-  assert(stitch("profits are then", "profits are then reinvested.") === "profits are then reinvested.");
-  // mid-word cut: the anchor carries the partial word
-  assert(stitch("the franch", "the franchise grows") === "the franchise grows");
-  // no anchor: appended unchanged (never drops content)
+Deno.test("continuation: the checkpoint ends on whitespace so seams cannot glue words", () => {
+  assert(checkpointText("open individual branch") === "open individual ");
+  assert(checkpointText("training manuals for owners.") === "training manuals for ");
+  assert(checkpointText("line one\nline tw") === "line one\nline ");
+  assert(checkpointText("owners.\n3") === "owners.\n");
+  assert(checkpointText("ends with space ") === "ends with space ");
+  const blob = "x".repeat(300);
+  assert(checkpointText(`a ${blob}`) === `a ${blob}`); // never discard a long fragment
+});
+
+Deno.test("continuation: repeats are merged away, everything else appended", () => {
+  // production failures, replayed against checkpoints
+  assert(stitch("open individual ", "branch locations") === "open individual branch locations");
+  assert(stitch("for incoming business ", "owners.\n3. Capital") === "for incoming business owners.\n3. Capital");
+  assert(stitch("as the network ", "network expands.") === "as the network expands.");
+  assert(stitch("as the network ", " network expands.") === "as the network expands.");
+  // a repeat is only recognised from a word start
+  assert(stitch("the artwork ", "work continues") === "the artwork work continues");
+  // a repeated last word counts as a repeat; overlaps under 4 chars are not trusted
+  assert(stitch("the end ", "end of it") === "the end of it");
+  assert(stitch("go to ", "to be") === "go to to be");
   assert(stitch("abc", " def") === "abc def");
-  // a short accidental overlap is not trusted
-  assert(stitch("the end", "end of it") === "the endend of it");
+});
+
+Deno.test("continuation: a cut-off word is regenerated, not duplicated", async () => {
+  const parts = [result("1. The franchise netw", true), result("network grows.\nEND", false)];
+  const prompts: string[] = [];
+  const out = await callWithContinuation(async (req) => { prompts.push(req.userContent); return parts.shift()!; }, base);
+  assert(out.text === "1. The franchise network grows.\nEND", out.text);
+  assert(prompts[1].includes("1. The franchise \nPARTIAL_OUTPUT>>>"));
 });
