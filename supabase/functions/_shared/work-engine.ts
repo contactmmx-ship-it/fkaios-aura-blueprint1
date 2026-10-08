@@ -270,12 +270,27 @@ export async function reassignStuckWork(): Promise<{ reassigned: number }> {
       const { data: wp } = wpId
         ? await client.from("work_packages").select("id,objective_id,selected_provider,contract_snapshot,acceptance_criteria,input_artifacts,required_outputs,state,handoff_notes").eq("id",wpId).maybeSingle()
         : { data: null };
+      // Universal continuity packet: FKAIOS project state travels with the work.
+      // The replacement worker does not need the previous worker's conversation.
+      let canonicalState: Record<string, unknown> = {};
+      if (payload.project_id) {
+        const { data: projectState } = await client
+          .from("fkaios_project_state")
+          .select("id, objective, desired_outcome, status, current_strategy, current_architecture, current_implementation, current_task_id, current_task_summary, next_action, completed_work, pending_work, blocked_work, unknown_work, decisions, discoveries, errors, tests, artifacts, workers_used, capabilities_used, last_verified_at, last_verified_by, state_version, provenance")
+          .eq("orchestration_project_id", payload.project_id)
+          .maybeSingle();
+        canonicalState = projectState ?? {};
+      }
+
       const handoffPacket = {
+        packet_type: "fkaios_work_continuity_v1",
         objective_id: payload.objective_id ?? null,
+        project_id: payload.project_id ?? null,
         task_id: payload.task_id,
         work_package_id: wp?.id ?? null,
         original_provider: wp?.selected_provider ?? previousAgent?.name ?? job.agent_id,
         new_provider: alternative.name,
+        canonical_project_state: canonicalState,
         contract_snapshot: wp?.contract_snapshot ?? {},
         acceptance_criteria: wp?.acceptance_criteria ?? [],
         input_artifacts: wp?.input_artifacts ?? [],
@@ -283,7 +298,7 @@ export async function reassignStuckWork(): Promise<{ reassigned: number }> {
         state: wp?.state ?? {},
         prior_job_id: job.id,
         prior_result: null,
-        handoff_rule: "continue from recorded state; do not regenerate completed work or reinterpret the contract",
+        continuity_rule: "continue from canonical recorded state; preserve verified work; do not regenerate completed work or reinterpret the contract",
       };
       const { data: handoff } = await client.from("provider_handoffs").insert({
         objective_id: payload.objective_id ?? null,
