@@ -36,6 +36,7 @@ import { COGNITIVE_CYCLE_ACTION, cognitiveIntervalMinutes, shouldRunCognitiveCyc
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { runDiscoveryIfDue } from "../_shared/capability-discovery.ts";
 import { runEvaluationTick } from "../_shared/capability-evaluation.ts";
+import { runSelfTestIfRequested } from "../_shared/self-test.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -143,7 +144,10 @@ Deno.serve(async (req: Request) => {
     // Controlled evaluation, governed adoption and post-adoption monitoring.
     // Runs after the response (EdgeRuntime.waitUntil) so a slow model call
     // never delays the objective loop; the test queue lease keeps ticks apart.
-    const evaluation = runEvaluationTick(serviceClient)
+    const evaluation = Promise.all([
+      runEvaluationTick(serviceClient),
+      runSelfTestIfRequested(serviceClient),
+    ]).then(([evaluationResult, selfTest]) => ({ ...evaluationResult, selfTest }))
       .then((r) => console.log(JSON.stringify({ level: "INFO", source: "capability-evaluation", ...r })))
       .catch((err) => console.error("founder-brain-tick: capability evaluation failed (non-blocking)", err instanceof Error ? err.message : String(err)));
     // deno-lint-ignore no-explicit-any

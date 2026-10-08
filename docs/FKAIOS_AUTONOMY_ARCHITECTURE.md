@@ -27,7 +27,7 @@ objective ─► objective_contracts (understanding) ─► fkaios_objective_sta
 | Execution evidence | `_shared/execution-evidence.ts`, ai-engine | `fkaios_execution_steps` (one row per attempt: resource, timing, tokens, cost, failure, switch, verification status) |
 | Model-level routing | `_shared/llm-router.ts` `callLLMOnResources` | quota/missing-model failures are model-scoped; credit/auth/outage are provider-scoped |
 | Resource selection | `_shared/resource-selection.ts` | `fkaios_routing_policies` (active policy), `provider_health_state`, `v_fkaios_resource_performance` (min 5 verified samples before learning reorders) |
-| Output-limit continuation | ai-engine `callLLM` | a truncated response becomes a checkpoint handed to the next call |
+| Output-limit continuation | `_shared/continuation.ts`, used by ai-engine `callLLM` | a truncated response becomes a checkpoint handed to the next call (any resource); max 2 continuations, then the task fails for decomposition |
 | Canonical objective state | `fkaios_objective_state_apply` (SQL) | `fkaios_objective_state`, `fkaios_objective_state_history`; compare-and-swap version and an explicit phase state machine |
 | Capability graph | `v_fkaios_capability_graph` | derived from policies, registry and verified performance; never hand-maintained |
 | Discovery | `_shared/capability-discovery.ts`, hourly from founder-brain-tick | Gemini, Anthropic and OpenAI model APIs and the OpenRouter public catalog → `model_registry`, `capability_discovery_candidates`, `capability_test_queue` |
@@ -37,6 +37,7 @@ objective ─► objective_contracts (understanding) ─► fkaios_objective_sta
 | Rectification | objective-loop, `work-engine.createRectificationTask` | a rejected deliverable gets up to 2 rectification rounds in the same project (verifier issues in, producers avoided), then a replan, then the founder |
 | Golden evaluation and executor | `_shared/capability-evaluation.ts`, background in founder-brain-tick | suite `fkaios_core` v1 (8 cases, 8 task classes, scored by code); resumable leased executor; budget cap; the incumbent is what production routes each class to today |
 | Governed adoption and rollback | `fkaios_adopt_routing`, `fkaios_rollback_routing` (SQL, atomic) | autonomous only under policy v1 (no extra cost, configured, no regressions, score ≥ 0.75); otherwise a founder approval (`approvals.action_type = capability_adoption`); 72 h monitoring; automatic rollback on degradation |
+| Production self-test | `_shared/self-test.ts`, background in founder-brain-tick | a `fkaios_self_tests` row (status `requested`) makes the next tick run model failover, continuation, verifier reject and verifier pass on real models through the real code paths; no objective, no approval gate |
 | Leased test queue | `fkaios_claim_capability_test`, `fkaios_finish_capability_test` | `capability_test_queue` (lease, SKIP LOCKED, owner-checked finish, crash reclaim) |
 
 ## Governance rules built into the schema
@@ -44,6 +45,7 @@ objective ─► objective_contracts (understanding) ─► fkaios_objective_sta
 - `capability_benchmarks.verified = true` requires a `verification_evidence_id`.
 - Adoption proposals in state approve or adopted require an approval row; every decision records who and when.
 - Only one active routing policy per task class. Every policy version records its reason, its evidence and its rollback target.
+- Evaluation and self-test evidence may have no objective (`requirement_key` `eval:` / `self_test:`); all other verification evidence must name its objective.
 - Discovered models are never routed in production until they have been evaluated.
 - A model that production routing depends on is never auto-retired. It becomes `degraded`.
 
@@ -52,3 +54,5 @@ objective ─► objective_contracts (understanding) ─► fkaios_objective_sta
 - **8 Oct, foundation:** schema applied to production as migrations `20261008141652`–`20261008142810`. Each repo file is byte-identical to what production ran. Code is in PR-1. Operational status is recorded per component after the deploy has been verified.
 - **8 Oct, foundation deployed** (CI run 93, PR #48). The first production discovery run listed 25 Gemini models (key configured), 14 Anthropic and 48 OpenAI models (keys present, no credit) and 18 free OpenRouter models (no key). They went into `model_registry` and `capability_discovery_candidates`.
 - **8 Oct, execution and evolution layers:** migrations `20261008153814` (eval suite) and `20261008153959` (adoption functions) are applied and byte-identical in the repo. Code is in PR-2.
+- **8 Oct, PR-2 deployed** (PR #49), plus the fix in PR #50: the evaluator selected the nonexistent column `model_registry.id`, so every candidate was cancelled as unregistered. The voided test was annotated and its candidate restored.
+- **8 Oct, evidence and self-test:** migration `20261008154853` (applied, byte-identical) lets eval and self-test evidence exist without an objective. Without it, benchmark evidence could not have been written, so no benchmark could have been verified. Also adds the `fkaios_self_tests` harness. Continuation logic moved into `_shared/continuation.ts`.

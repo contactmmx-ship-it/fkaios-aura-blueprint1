@@ -160,7 +160,9 @@ export function independenceLevel(verifierRef: string | null, producerRefs: stri
 }
 
 export async function verifyObjective(db: Db, input: {
-  objectiveId: string;
+  /** null only for self-tests (evidence key self_test:...). */
+  objectiveId: string | null;
+  requirementKey?: string;
   projectId: string | null;
   objective: string;
   criteria: string[];
@@ -194,7 +196,7 @@ export async function verifyObjective(db: Db, input: {
   const { data: ev } = await db.from("fkaios_verification_evidence").insert({
     objective_id: input.objectiveId,
     project_id: input.projectId,
-    requirement_key: VERIFIER_VERSION,
+    requirement_key: input.requirementKey ?? VERIFIER_VERSION,
     evidence_type: "independent_objective_verification",
     verifier: verifierRef ?? "unknown",
     status: verdict.passed ? "passed" : "failed",
