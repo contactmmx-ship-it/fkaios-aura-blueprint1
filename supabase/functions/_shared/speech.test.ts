@@ -71,7 +71,7 @@ Deno.test("discovery registers provider speech models as text_to_speech candidat
     { name: "models/gemini-9-flash", supportedGenerationMethods: ["generateContent"] },
     { name: "models/embedding-9", supportedGenerationMethods: ["embedContent"] },
   ] };
-  assertEquals(parseGeminiSpeechModels(body).map((m) => [m.capability, m.model]), [["text_to_speech", "gemini-9-flash-preview-tts"]]);
+  assertEquals(parseGeminiSpeechModels(body).map((m) => [m.capability, m.model]), [["text_to_speech", "gemini-9-flash-preview-tts"], ["speech_to_text", "gemini-9-flash"]]);
 });
 
 // ---- failover through a fake database and stubbed provider HTTP --------
@@ -164,4 +164,13 @@ Deno.test("speech evaluation picks configured, untested, unpaid resources, local
   assertEquals(pickSpeechCandidate(rows, env({ GEMINI_API_KEY: "k", SELF_HOSTED_SPEECH_BASE_URL: "h" }), now)?.resource_ref, "tool:self_hosted:kokoro");
   const triedToday = rows.map((r) => r.resource_ref === "model:gemini:tts" ? { ...r, metadata: { last_eval_at: "2026-10-08T06:00:00Z" } } : r);
   assertEquals(pickSpeechCandidate(triedToday, env({ GEMINI_API_KEY: "k" }), now), null);
+});
+
+Deno.test("speech evaluation: a partner-leg failure does not hold the candidate back for a day", () => {
+  const now = new Date("2026-10-08T12:00:00Z");
+  const base = { ...row("model:gemini:tts", { lifecycle_state: "discovered", credential_ref: "GEMINI_API_KEY" }), capability: "text_to_speech" };
+  const partnerFailed = { ...base, metadata: { last_eval_at: "2026-10-08T11:20:00Z", last_eval_result: "partner_unavailable" } };
+  assertEquals(pickSpeechCandidate([partnerFailed], env({ GEMINI_API_KEY: "k" }), now)?.resource_ref, "model:gemini:tts");
+  const ownFailure = { ...base, metadata: { last_eval_at: "2026-10-08T11:20:00Z", last_eval_result: "failed" } };
+  assertEquals(pickSpeechCandidate([ownFailure], env({ GEMINI_API_KEY: "k" }), now), null);
 });
