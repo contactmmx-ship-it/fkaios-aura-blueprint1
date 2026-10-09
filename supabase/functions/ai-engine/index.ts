@@ -52,6 +52,8 @@ import { parseJSONCandidate } from "../_shared/json-parse.ts";
 import {
   checkWorkerGrounding,
   needsResearchBeforeAnswer,
+  parsePriorCompletedTasks,
+  summarizePriorEvidence,
   buildNoDataSourceResult,
   NO_DATA_SOURCE,
   NO_DATA_SOURCE_DISPOSITION,
@@ -1138,7 +1140,8 @@ let researchResultData: unknown = null;
 let researchResultAttempts = 0;
 const taskText = [job.payload?.title, job.payload?.description].filter((v) => typeof v === "string").join("\n").trim();
 const isRectification = typeof job.payload?.rectification_of === "string";
-const hasPriorCompletedEvidence = Array.isArray(job.payload?.prior_completed_tasks) && job.payload.prior_completed_tasks.length > 0;
+const priorCompletedTasks = parsePriorCompletedTasks(job.payload?.prior_completed_tasks);
+const hasPriorCompletedEvidence = priorCompletedTasks.length > 0;
 if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true || (typeof job.payload?.objective_id === "string" && job.payload.objective_id.length > 0))) {
   const researchNeeded = !isRectification && !hasPriorCompletedEvidence && needsResearchBeforeAnswer({ title: job.payload?.title, description: job.payload?.description });
   if (researchNeeded && taskText) {
@@ -1184,8 +1187,9 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
       const invoiceSchemaBlock = job.type === "GENERATE_INVOICE"
         ? `\nThis is a GENERATE_INVOICE job. Respond with ONLY this JSON structure:\n\n{\n  "line_items": [\n    {\n      "description": "string",\n      "quantity": number,\n      "unit_price_inr": number\n    }\n  ]\n}\n\nRules:\n- Use only real payload/lead/brand data.\n- Never invent products, services, or amounts.\n- If no real billable data exists, return:\n{\n  "line_items": []\n}`
         : "";
-      const priorEvidence = Array.isArray(job.payload?.prior_completed_tasks)
-        ? "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(job.payload.prior_completed_tasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
+      const priorTasks = parsePriorCompletedTasks(job.payload?.prior_completed_tasks);
+      const priorEvidence = priorTasks.length > 0
+        ? "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(priorTasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
         : "";
       const verificationContract = !isRectification && priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)
         ? "\n\nThis is a downstream verification/report task. Return ONLY JSON with verified_facts (at least 3 when the objective asks for three facts), report, and sources. Every verified_fact must include fact, source_url, source_title, and verification_note. Every source_url must appear in the supplied prior evidence. Do not include unsupported facts. If prior evidence lacks suitable sources, state the exact missing evidence."
@@ -1238,8 +1242,9 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
   // No agent prompt — generic path. THIS is where 5,970 fabrications came from.
   // There is NO simulation fallback any more. If the LLM cannot run, the job FAILS.
   const principlesBlock = await getFounderPrinciplesBlock("ai-engine");
-  const priorEvidence = Array.isArray(job.payload?.prior_completed_tasks)
-    ? "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(job.payload.prior_completed_tasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
+  const priorTasks = parsePriorCompletedTasks(job.payload?.prior_completed_tasks);
+  const priorEvidence = priorTasks.length > 0
+    ? "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(priorTasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
     : "";
   const verificationContract = !isRectification && priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)
     ? "\n\nThis is a downstream verification/report task. Return ONLY JSON with verified_facts, report, and sources. Every verified_fact must include fact, source_url, source_title, and verification_note. Every source_url must appear in the supplied prior evidence. Do not include unsupported facts. If prior evidence lacks suitable sources, say so clearly and list the exact missing evidence instead of substituting unrelated sources."
