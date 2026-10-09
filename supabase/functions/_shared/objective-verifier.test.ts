@@ -1,4 +1,4 @@
-import { assert, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { buildVerifierPrompt } from "./objective-verifier.ts";
 
 Deno.test("missing client inputs requested by the objective are report findings, not human blockers", () => {
