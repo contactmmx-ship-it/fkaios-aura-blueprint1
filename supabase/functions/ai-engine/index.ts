@@ -1124,33 +1124,23 @@ function compactResearchEvidence(data: unknown, query: string): Record<string, u
     const organic = Array.isArray(row.organicResults) ? row.organicResults : [];
     const sources = organic.slice(0, 8).map((entry) => {
       const source = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
-      return { url: source.url ?? null, title: source.title ?? source.websiteTitle ?? null, date: source.date ?? null, description: typeof source.description === "string" ? source.description.slice(0, 700) : null };
+      return { url: source.url ?? null, title: source.title ?? source.websiteTitle ?? null, date: source.date ?? source.publishedDate ?? null, description: typeof source.description === "string" ? source.description.slice(0, 700) : null };
     }).filter((source) => typeof source.url === "string" && typeof source.title === "string");
-    return { query: typeof row.searchQuery === "object" && row.searchQuery ? (row.searchQuery as Record<string, unknown>).term ?? query : query, sources };
+    const searchQuery = row.searchQuery && typeof row.searchQuery === "object" ? row.searchQuery as Record<string, unknown> : {};
+    return { query: typeof searchQuery.term === "string" ? searchQuery.term : query, sources };
   });
   return { actor: root.actor ?? null, query, run_id: root.run_id ?? null, results };
 }
 
-// Founder-submitted research tasks get a real evidence acquisition pass BEFORE
-// the LLM is asked to draft the answer. This closes the previous failure mode
-// where the model could correctly say "no_data_source" even though the approved
-// research.run capability existed. The orchestrator has already established
-// founderSubmitted in the job payload; resource intelligence inside
-// executeCapability() decides whether a configured research resource is available.
-// No research is triggered for non-founder work or non-research tasks.
+// Founder-submitted research tasks acquire actual external evidence before the LLM drafts.
 let researchEvidence = "";
 let researchResultData: unknown = null;
 let researchResultAttempts = 0;
-// taskText is also read by the downstream verification gate below, so it is
-// declared at function scope rather than inside the research branch.
 const taskText = [job.payload?.title, job.payload?.description].filter((v) => typeof v === "string").join("\n").trim();
-// Rectification revises a deliverable built from evidence prior tasks already
-// recorded: no new paid research, and not the research-fact output contract.
 const isRectification = typeof job.payload?.rectification_of === "string";
+const hasPriorCompletedEvidence = Array.isArray(job.payload?.prior_completed_tasks) && job.payload.prior_completed_tasks.length > 0;
 if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true || (typeof job.payload?.objective_id === "string" && job.payload.objective_id.length > 0))) {
-  const hasPriorCompletedEvidence = Array.isArray(job.payload?.prior_completed_tasks) && job.payload.prior_completed_tasks.length > 0;
-  const isDownstreamSynthesisTask = hasPriorCompletedEvidence && /\b(compile|final report|synthesis|verify|verification)\b/i.test(taskText);
-  const researchNeeded = !isRectification && !hasPriorCompletedEvidence && !isDownstreamSynthesisTask && needsResearchBeforeAnswer({ title: job.payload?.title, description: job.payload?.description });
+  const researchNeeded = !isRectification && !hasPriorCompletedEvidence && needsResearchBeforeAnswer({ title: job.payload?.title, description: job.payload?.description });
   if (researchNeeded && taskText) {
     const researchTitle = typeof job.payload?.title === "string" ? job.payload.title : taskText;
     const researchDescription = typeof job.payload?.description === "string" ? job.payload.description : "";
@@ -1168,7 +1158,116 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
     }
     researchResultData = researchResults.length === 1 ? researchResults[0] : { queries: researchResults };
     researchEvidence = `\n\n[REAL EXTERNAL RESEARCH EVIDENCE — USE ONLY THIS DATA; DO NOT FABRICATE]\n${JSON.stringify(researchResultData).slice(0, 12000)}\n[/REAL EXTERNAL RESEARCH EVIDENCE]`;
-    structuredLog("INFO", "Founder research evidence acquired before task generation", { objectiveId: job.payload?.objective_id, taskId: job.payload?.task_id, capability: "research.run", queryCount: researchQueries.length }, cid);
+    structuredLog("INFO", "Founder research evidence acquired before task generation", { objectiveId: job.payload?.objective_id ?? null, taskId: job.payload?.task_id ?? null, capability: "research.run", queryCount: researchQueries.length }, cid);
+  }
+}
+
+  if (job.agent_id) {
+    await checkRateLimit(job.agent_id, cid);
+    const { data: agent } = await supabase.from("ai_agents").select("*").eq("id", job.agent_id).single();
+    if (agent?.prompt) {
+      let groundedContext = "";
+      if (job.payload?.lead_id) {
+        const { data: lead } = await supabase.from("leads").select("*, brands(name, investment_range, royalty, sector)").eq("id", job.payload.lead_id as string).maybeSingle();
+        if (lead) groundedContext = `\n\n[REAL DATA CONTEXT — DO NOT FABRICATE]\nLead: ${JSON.stringify(lead)}\n[/REAL DATA CONTEXT]`;
+      }
+      if (job.payload?.brand_id) {
+        const { data: brand } = await supabase.from("brands").select("*").eq("id", job.payload.brand_id as string).maybeSingle();
+        if (brand) groundedContext += `\n\n[REAL BRAND DATA — DO NOT FABRICATE]\nBrand: ${JSON.stringify(brand)}\n[/REAL BRAND DATA]`;
+      }
+      const principlesBlock = await getFounderPrinciplesBlock("ai-engine");
+      // GENERATE_INVOICE persistence (writeInvoicePersistence) parses a specific
+      // shape (result.line_items[]). Without telling the LLM that shape, its
+      // free-form JSON almost never matches it and the job fails honestly
+      // instead of ever persisting — this closes that gap without touching any
+      // other job type's prompt.
+      const invoiceSchemaBlock = job.type === "GENERATE_INVOICE"
+        ? `\nThis is a GENERATE_INVOICE job. Respond with ONLY this JSON structure:\n\n{\n  "line_items": [\n    {\n      "description": "string",\n      "quantity": number,\n      "unit_price_inr": number\n    }\n  ]\n}\n\nRules:\n- Use only real payload/lead/brand data.\n- Never invent products, services, or amounts.\n- If no real billable data exists, return:\n{\n  "line_items": []\n}`
+        : "";
+      const priorEvidence = Array.isArray(job.payload?.prior_completed_tasks)
+        ? "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(job.payload.prior_completed_tasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
+        : "";
+      const verificationContract = !isRectification && priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)
+        ? "\n\nThis is a downstream verification/report task. Return ONLY JSON with verified_facts (at least 3 when the objective asks for three facts), report, and sources. Every verified_fact must include fact, source_url, source_title, and verification_note. Every source_url must appear in the supplied prior evidence. Do not include unsupported facts. If prior evidence lacks suitable sources, state the exact missing evidence."
+        : "";
+      const researchCitationContract = researchEvidence
+        ? "\n\nRESEARCH CITATION CONTRACT: Use only specific sources contained in the attached research results. For every external factual claim, include a source URL and source title from an organic result; never cite a Google search-results URL as proof. Include a sources array with title, url, published_date (null if unavailable), and claims_supported. Separate verified facts, estimates, assumptions, and recommendations. Treat all numeric KPIs as proposed targets unless explicitly substantiated by a source. If the evidence does not support a claim, label it unverified or omit it. Never invent source names, URLs, dates, market sizes, competitor outlet counts, franchise fees, or returns."
+        : "";
+      const systemPrompt = `${agent.prompt}${groundedContext}${principlesBlock}${researchCitationContract}${verificationContract}\n\nYou will receive a job payload as JSON.\nExecute the task and respond with ONLY a valid JSON object.\nNo prose.\nNo markdown fences.\n${NO_FABRICATED_PERSISTENCE_BLOCK}\n${invoiceSchemaBlock}${capabilityBlock}`;      const userContent = JSON.stringify({ type: job.type, payload: job.payload }) + researchEvidence + priorEvidence + researchCitationContract + verificationContract;
+      // NOTE: any failure here THROWS. runJobs() records retry/failed with the real
+      // error. It does NOT invent a result. This is the fix.
+      // GENERATE_INVOICE gets a forced structured-output tool schema (see
+      // INVOICE_TOOL_SCHEMA) so Anthropic answers via tool_choice instead of
+      // free text that can carry trailing prose — the documented live
+      // failure ("Unexpected non-whitespace character after JSON at
+      // position 25"). Other job types are unaffected.
+      const llmResult = await callLLM(systemPrompt, userContent, cid, job.type === "GENERATE_INVOICE" ? INVOICE_TOOL_SCHEMA : undefined);
+      await trackTokenUsage(agent.id, llmResult.model, llmResult.inputTokens, llmResult.outputTokens, llmResult.provider, cid);
+      const parsed = job.type === "GENERATE_INVOICE"
+        ? parseAndValidateInvoicePayload(llmResult.toolCall, llmResult.text)
+        : asJSONObject(extractJSONFromText(llmResult.text.replace(/```json|```/g, "").trim()), `Job ${job.id} (${job.type})`);
+
+      if (!isRectification && priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)) {
+        const facts = Array.isArray(parsed.verified_facts) ? parsed.verified_facts : [];
+        const sourceUrls = new Set(priorEvidence.split(/\s+/).filter((u) => u.startsWith("http://") || u.startsWith("https://")).map((u) => u.replace(/[),.;\]}"]+$/, "")));
+        const validFacts = facts.filter((f) => {
+          if (!f || typeof f !== "object") return false;
+          const row = f as Record<string, unknown>;
+          return typeof row.fact === "string" && row.fact.trim().length > 10 && typeof row.source_url === "string" && sourceUrls.has(row.source_url.replace(/[),.;]+$/, ""));
+        });
+        if (validFacts.length < 3) throw new Error(`Research verification failed: expected at least 3 source-grounded verified_facts, received ${validFacts.length}.`);
+      }
+      validateGrounding(llmResult.text, `${systemPrompt}\n${userContent}`, cid);
+      await supabase.from("ai_agents").update({ total_tasks_completed: (agent.total_tasks_completed ?? 0) + 1, last_active_at: new Date().toISOString() }).eq("id", agent.id);
+      await supabase.from("agent_activity_log").insert({ agent_id: agent.id, activity_type: "task", title: `Completed: ${job.type}`, description: typeof parsed === "object" ? JSON.stringify(parsed).slice(0, 200) : String(parsed).slice(0, 200), job_id: job.id, metadata: { automated: true, tokens: { input: llmResult.inputTokens, output: llmResult.outputTokens } } });
+      structuredLog("INFO", `Job ${job.id} completed via agent`, { agentId: agent.id }, cid);
+      // Objective research tasks already acquired real external evidence above.
+      // Persist that measured dispatch even when the LLM does not echo the capability.
+      if (researchEvidence) {
+        return {
+          ...parsed,
+          capability: "research.run",
+          capability_result: researchResultData,
+          capability_attempts: researchResultAttempts,
+        };
+      }
+      return await executeRequestedCapability(job, parsed, cid);
+    }
+  }
+
+  // No agent prompt — generic path. THIS is where 5,970 fabrications came from.
+  // There is NO simulation fallback any more. If the LLM cannot run, the job FAILS.
+  const principlesBlock = await getFounderPrinciplesBlock("ai-engine");
+  const priorEvidence = Array.isArray(job.payload?.prior_completed_tasks)
+    ? "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(job.payload.prior_completed_tasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
+    : "";
+  const verificationContract = !isRectification && priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)
+    ? "\n\nThis is a downstream verification/report task. Return ONLY JSON with verified_facts, report, and sources. Every verified_fact must include fact, source_url, source_title, and verification_note. Every source_url must appear in the supplied prior evidence. Do not include unsupported facts. If prior evidence lacks suitable sources, say so clearly and list the exact missing evidence instead of substituting unrelated sources."
+    : "";
+  const researchCitationContract = researchEvidence
+    ? "\n\nRESEARCH CITATION CONTRACT: Use only specific sources contained in the attached research results. For every external factual claim, include a source URL and source title from an organic result; never cite a Google search-results URL as proof. Include a sources array with title, url, published_date (null if unavailable), and claims_supported. Separate verified facts, estimates, assumptions, and recommendations. Treat all numeric KPIs as proposed targets unless explicitly substantiated by a source. If the evidence does not support a claim, label it unverified or omit it. Never invent source names, URLs, dates, market sizes, competitor outlet counts, franchise fees, or returns."
+    : "";
+  const systemPrompt = `You are an AI engine. Job type: ${job.type}. Respond with ONLY a valid JSON object. No prose, no markdown fences. Never invent data.\n${NO_FABRICATED_PERSISTENCE_BLOCK}${capabilityBlock}${principlesBlock}${researchCitationContract}${verificationContract}`;
+  const userContent = JSON.stringify({ type: job.type, payload: job.payload }) + researchEvidence + priorEvidence + researchCitationContract + verificationContract;
+  const llmResult = await callLLM(
+    `You are an AI engine. Job type: ${job.type}. Respond with ONLY a valid JSON object. No prose, no markdown fences. Never invent data.\n${NO_FABRICATED_PERSISTENCE_BLOCK}${capabilityBlock}${principlesBlock}`,
+    JSON.stringify({ type: job.type, payload: job.payload }),
+    cid,
+    job.type === "GENERATE_INVOICE" ? INVOICE_TOOL_SCHEMA : undefined,
+  );
+  await trackTokenUsage(null, llmResult.model, llmResult.inputTokens, llmResult.outputTokens, llmResult.provider, cid);
+  try {
+    const parsed = job.type === "GENERATE_INVOICE"
+      ? parseAndValidateInvoicePayload(llmResult.toolCall, llmResult.text)
+      : asJSONObject(extractJSONFromText(llmResult.text.replace(/```json|```/g, "").trim()), `Job ${job.id} (${job.type})`);
+    validateGrounding(llmResult.text, `${systemPrompt}\n${userContent}`, cid);
+    if (researchEvidence) {
+      return { ...parsed, capability: "research.run", capability_result: researchResultData, capability_attempts: researchResultAttempts };
+    }
+    return parsed;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(`Job ${job.id} (${job.type}): ${detail}`);
   }
 }
 
