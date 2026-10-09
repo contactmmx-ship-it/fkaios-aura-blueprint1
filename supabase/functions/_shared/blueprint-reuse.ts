@@ -129,13 +129,15 @@ export function verifyAdaptation(source: SourceArtifact, sourceSections: string[
   };
 }
 
-export interface ReuseResult { ok: boolean; source: string; target: string; title: string | null; sections: AdaptedSection[]; unverified: string[]; checks: ReuseChecks; resources: string[]; evidence: string | null; stored: string | null; failure: string | null }
+export const MAX_CORRECTION_ROUNDS = 2;
+
+export interface ReuseResult { rounds: Array<{ round: number; failed: string[] }>; ok: boolean; source: string; target: string; title: string | null; sections: AdaptedSection[]; unverified: string[]; checks: ReuseChecks; resources: string[]; evidence: string | null; stored: string | null; failure: string | null }
 
 export async function reuseBlueprint(db: Db, input: { source: SourceRef; targetBrand: string; store?: boolean; requestedBy?: string }): Promise<ReuseResult> {
   const source = await loadSource(db, input.source);
   const target = await loadTarget(db, input.targetBrand);
   const resources: string[] = [];
-  const fail = (failure: string): ReuseResult => ({ ok: false, source: source.ref, target: target.name, title: null, sections: [], unverified: [], checks: {}, resources, evidence: null, stored: null, failure });
+  const fail = (failure: string): ReuseResult => ({ rounds: [], ok: false, source: source.ref, target: target.name, title: null, sections: [], unverified: [], checks: {}, resources, evidence: null, stored: null, failure });
 
   const analysis = await routedStructuredCall(db, {
     engine: "blueprint-reuse", taskClass: "reasoning", toolSchema: ANALYSE, maxTokens: 3000,
@@ -147,27 +149,38 @@ export async function reuseBlueprint(db: Db, input: { source: SourceRef; targetB
   const sections = analysis.input!.sections as Array<{ heading: string; reusable_method: string; brand_specific_facts: string[] }>;
 
   const facts = [`Brand: ${target.name}`, target.sector && `Sector: ${target.sector}`, target.type && `Model: ${target.type}`, target.investment_range && `Investment range: ${target.investment_range}`, target.royalty && `Royalty: ${target.royalty}`, target.description && `Description: ${target.description}`].filter(Boolean).join("\n");
-  const adapt = await routedStructuredCall(db, {
-    engine: "blueprint-reuse", taskClass: "writing", toolSchema: ADAPT, maxTokens: 5000,
-    system: [
-      "You build a new deliverable for the TARGET brand from a proven SOURCE deliverable.",
-      "Keep every source section, in order, and its method; set inherited_from to the source section heading exactly.",
-      "Replace every source-specific fact. Never mention the source brand or the source counterparty.",
-      "Use ONLY the target facts given. Any name, place, figure, date or claim the target facts do not contain must be written as [TO VERIFY: what is needed] and also listed in unverified.",
-      "Where the source addressed a named counterparty, address [PROSPECT] instead.",
-    ].join("\n"),
-    user: `TARGET FACTS (recorded by the founder):\n${facts}\n\nSOURCE SECTIONS:\n${JSON.stringify(sections, null, 1).slice(0, 8000)}\n\nSOURCE TEXT:\n${source.text.slice(0, 10000)}`,
-  });
-  if (!adapt.ok || !Array.isArray(adapt.input?.sections)) return fail(`adaptation: ${adapt.failure}`);
-  if (adapt.resourceRef) resources.push(adapt.resourceRef);
-  const adapted = { title: String(adapt.input!.title ?? ""), sections: adapt.input!.sections as AdaptedSection[] };
-  const unverified = Array.isArray(adapt.input!.unverified) ? (adapt.input!.unverified as unknown[]).map(String) : [];
+  const system = [
+    "You build a new deliverable for the TARGET brand from a proven SOURCE deliverable.",
+    "Keep every source section, in order, and its method; set inherited_from to the source section heading exactly.",
+    "Replace every source-specific fact. Never mention the source brand or the source counterparty.",
+    "Use ONLY the target facts given. Any name, place, figure, date or claim the target facts do not contain must be written as [TO VERIFY: what is needed] and also listed in unverified.",
+    "Where the source addressed a named counterparty, address [PROSPECT] instead.",
+  ].join("\n");
+  const baseUser = `TARGET FACTS (recorded by the founder):\n${facts}\n\nSOURCE SECTIONS:\n${JSON.stringify(sections, null, 1).slice(0, 8000)}\n\nSOURCE TEXT:\n${source.text.slice(0, 10000)}`;
 
-  const checks = verifyAdaptation(source, sections.map((s) => s.heading), target, adapted);
+  // Write, verify by code, and route each failed check back as a correction —
+  // never declare success until every check passes (bounded rounds).
+  let adapted = { title: "", sections: [] as AdaptedSection[] };
+  let unverified: string[] = [];
+  let checks: ReuseChecks = {};
+  const rounds: Array<{ round: number; failed: string[] }> = [];
+  for (let round = 0; round <= MAX_CORRECTION_ROUNDS; round++) {
+    const failedNow = Object.entries(checks).filter(([, c]) => !c.ok);
+    const correction = round === 0 ? "" : `\n\nYOUR PREVIOUS DRAFT FAILED THESE CHECKS — fix exactly these and keep everything else:\n${failedNow.map(([k, c]) => `- ${k}: ${JSON.stringify(c.detail ?? "failed")}`).join("\n")}\n(For figures: replace each listed number with [TO VERIFY: …] unless it is a recorded target fact.)\n\nPREVIOUS DRAFT:\n${JSON.stringify(adapted).slice(0, 9000)}`;
+    const adapt = await routedStructuredCall(db, { engine: "blueprint-reuse", taskClass: "writing", toolSchema: ADAPT, maxTokens: 5000, system, user: baseUser + correction });
+    if (!adapt.ok || !Array.isArray(adapt.input?.sections)) return fail(`adaptation (round ${round}): ${adapt.failure}`);
+    if (adapt.resourceRef) resources.push(adapt.resourceRef);
+    adapted = { title: String(adapt.input!.title ?? ""), sections: adapt.input!.sections as AdaptedSection[] };
+    unverified = Array.isArray(adapt.input!.unverified) ? (adapt.input!.unverified as unknown[]).map(String) : [];
+    checks = verifyAdaptation(source, sections.map((s) => s.heading), target, adapted);
+    const failed = Object.entries(checks).filter(([, c]) => !c.ok).map(([k]) => k);
+    rounds.push({ round, failed });
+    if (failed.length === 0) break;
+  }
   const ok = Object.values(checks).every((c) => c.ok);
   const { data: ev } = await db.from("fkaios_verification_evidence").insert({
     requirement_key: "knowledge:blueprint_reuse", evidence_type: "deterministic_check", verifier: "deterministic:blueprint_reuse_checks", status: ok ? "passed" : "failed",
-    observed_result: { source: source.ref, target: target.name, checks, resources, sections: adapted.sections.map((s) => ({ heading: s.heading, inherited_from: s.inherited_from, changed: s.changed })), unverified },
+    observed_result: { source: source.ref, target: target.name, checks, rounds, resources, sections: adapted.sections.map((s) => ({ heading: s.heading, inherited_from: s.inherited_from, changed: s.changed })), unverified },
     verification_notes: `${source.ref} → ${target.name}: ${Object.entries(checks).map(([k, v]) => `${k}=${v.ok ? "ok" : "FAIL"}`).join(", ")}`,
     verified_at: new Date().toISOString(),
   }).select("id").single();
@@ -180,5 +193,5 @@ export async function reuseBlueprint(db: Db, input: { source: SourceRef; targetB
     const r = await ingestText(db, doc, { title: adapted.title, sourceKind: "proposal", brand: target.name, projectRef: target.name, copyrightClass: "owned", provenance: `derived from ${source.ref} by blueprint reuse; evidence ${ev?.id ?? "n/a"}; requested by ${input.requestedBy ?? "FKAIOS"}` });
     stored = r.sourceId;
   }
-  return { ok, source: source.ref, target: target.name, title: adapted.title, sections: adapted.sections, unverified, checks, resources, evidence: ev?.id ?? null, stored, failure: ok ? null : "one or more deterministic checks failed" };
+  return { rounds, ok, source: source.ref, target: target.name, title: adapted.title, sections: adapted.sections, unverified, checks, resources, evidence: ev?.id ?? null, stored, failure: ok ? null : "one or more deterministic checks failed" };
 }

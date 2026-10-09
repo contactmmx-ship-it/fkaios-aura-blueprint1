@@ -154,6 +154,6 @@ export async function blueprintReuseScenario(db: Db): Promise<ScenarioResult> {
   const { data: src } = await db.from("client_projects").select("id").ilike("title", "%Mr. Chick'n Franchise Partnership Proposal%").order("created_at").limit(1).maybeSingle();
   if (!src) return { scenario: "blueprint_reuse", passed: false, details: { error: "source proposal not found" } };
   const r = await reuseBlueprint(db, { source: { kind: "client_project", id: src.id }, targetBrand: "Chaat Masters", store: false });
-  return { scenario: "blueprint_reuse", passed: r.ok, details: { source: r.source, target: r.target, title: r.title, checks: r.checks, resources: r.resources, evidence: r.evidence, failure: r.failure,
+  return { scenario: "blueprint_reuse", passed: r.ok, details: { source: r.source, target: r.target, title: r.title, rounds: r.rounds, checks: r.checks, resources: r.resources, evidence: r.evidence, failure: r.failure,
     sections: r.sections.map((s) => ({ heading: s.heading, inherited_from: s.inherited_from, changed: s.changed.slice(0, 4), excerpt: s.text.slice(0, 160) })), unverified: r.unverified.slice(0, 10) } };
 }
