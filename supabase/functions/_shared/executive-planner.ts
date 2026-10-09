@@ -148,7 +148,7 @@ export async function planObjective(objective: Objective, correlationId?: string
   // task for synthesis and source-grounded quality checks so the objective
   // cannot finish with only raw tool envelopes.
   if (contract.objectiveType === "information") {
-    const synthesisPattern = /\\b(synthesi[sz]e|consolidat(e|ed|ion)|final report|decision-ready report|compile the report|final deliverable)\\b/i;
+    const synthesisPattern = /\b(synthesi[sz]e|consolidat(e|ed|ion)|final report|decision-ready report|compile the report|final deliverable)\b/i;
     const researchTasks = taskDrafts.filter((task) => !synthesisPattern.test(task.title + " " + task.description)).slice(0, 3);
     taskDrafts = [
       ...researchTasks,
@@ -163,7 +163,7 @@ export async function planObjective(objective: Objective, correlationId?: string
           "Original objective: " + objective.raw_request,
           "Completion contract: " + JSON.stringify(contract),
           "Objective contract and acceptance criteria: " + JSON.stringify(discoveryContract).slice(0, 5000),
-        ].join("\\n\\n"),
+        ].join("\n\n"),
       },
     ];
   }
