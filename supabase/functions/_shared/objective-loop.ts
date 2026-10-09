@@ -653,6 +653,67 @@ async function markObjective(
   }
 }
 
+/**
+ * Retire the objective's live planning pass(es) before a new pass is created.
+ * orchestration_projects has a guard (trg_prevent_duplicate_active_orchestration_project)
+ * that rejects a second active project for the same request, so a new pass can
+ * only be planned once the old one is closed. Queued jobs of the retired pass
+ * are failed with the reason; open tasks move to 'rework' with the reason and
+ * stay as history. If any of its jobs is mid-execution the pass is left alone
+ * and the caller waits for the next run instead of interrupting it.
+ */
+export async function retireLivePasses(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  objectiveId: string,
+  reason: string,
+): Promise<{ waiting: boolean; retired: string[] }> {
+  const { data: live, error: liveErr } = await supabase
+    .from("orchestration_projects")
+    .select("id")
+    .like("request", `[objective:${objectiveId}]%`)
+    .in("status", ["planning", "working", "reviewing", "reworking", "merging"]);
+  if (liveErr) throw new Error(`Failed loading live plans: ${liveErr.message}`);
+  const projectIds = (live ?? []).map((p: { id: unknown }) => String(p.id));
+  if (projectIds.length === 0) return { waiting: false, retired: [] };
+
+  const { data: passTasks } = await supabase
+    .from("orchestration_tasks")
+    .select("id, status")
+    .in("project_id", projectIds);
+  const openTaskIds = (passTasks ?? [])
+    .filter((t: { status?: unknown }) => ["pending", "assigned", "rework"].includes(String(t.status ?? "")))
+    .map((t: { id: unknown }) => String(t.id));
+  if (openTaskIds.length > 0) {
+    const { data: running } = await supabase
+      .from("ai_jobs")
+      .select("id")
+      .eq("type", "work_engine_task")
+      .eq("status", "running")
+      .in("payload->>task_id", openTaskIds)
+      .limit(1);
+    if ((running ?? []).length > 0) return { waiting: true, retired: [] };
+    const { error: jobErr } = await supabase
+      .from("ai_jobs")
+      .update({ status: "failed", error: `superseded: ${reason}`.slice(0, 1000), updated_at: new Date().toISOString() })
+      .eq("type", "work_engine_task")
+      .in("status", ["pending", "retry"])
+      .in("payload->>task_id", openTaskIds);
+    if (jobErr) throw new Error(`Failed retiring queued jobs: ${jobErr.message}`);
+    const { error: taskErr } = await supabase
+      .from("orchestration_tasks")
+      .update({ status: "rework", output: JSON.stringify({ status: "superseded", reason }) })
+      .in("id", openTaskIds);
+    if (taskErr) throw new Error(`Failed retiring open tasks: ${taskErr.message}`);
+  }
+  const { error: projErr } = await supabase
+    .from("orchestration_projects")
+    .update({ status: "failed", error_message: reason.slice(0, 1000) })
+    .in("id", projectIds);
+  if (projErr) throw new Error(`Failed retiring live plan: ${projErr.message}`);
+  return { waiting: false, retired: projectIds };
+}
+
 async function createContinuationProject(
   objective: Record<string, unknown>,
   correlationId?: string,
@@ -752,6 +813,16 @@ export async function runObjectiveLoop(
        * objective is judged on the new pass from here on.
        */
       if (isRerunRequested(objective)) {
+        // The founder asked for a fresh pass: close the current one first, or
+        // the duplicate-active-project guard rejects the new plan on every run
+        // (Kids DPS 20cbf892, 9 Oct 12:58–13:11 UTC: "DUPLICATE_ACTIVE_
+        // ORCHESTRATION_PROJECT" each minute while project 927854fa stayed
+        // 'working' under a blocked objective).
+        const retire = await retireLivePasses(supabase, String(objective.id), `Superseded by the founder's re-run request (${String(objective.result_summary ?? "").slice(0, 120)})`);
+        if (retire.waiting) {
+          results.push({ objectiveId: String(objective.id), action: "no_action", summary: "Re-run requested; waiting for a running job of the current plan to finish before replanning." });
+          continue;
+        }
         const continuation = await createContinuationProject(objective, correlationId);
         if (!continuation.projectId) {
           results.push({
@@ -796,43 +867,11 @@ export async function runObjectiveLoop(
       if (planContractMismatch(livePass, String(objective.raw_request ?? ""))) {
         const expected = projectOutputType(classifyObjective(String(objective.raw_request ?? "")));
         const reasonText = `Plan ${livePass!.id} was created for output '${livePass!.output_type}', but the objective contract now requires '${expected}'. Retired and replanned.`;
-        const { data: passTasks } = await supabase
-          .from("orchestration_tasks")
-          .select("id, status")
-          .eq("project_id", livePass!.id);
-        const openTaskIds = (passTasks ?? [])
-          .filter((t) => ["pending", "assigned", "rework"].includes(String(t.status ?? "")))
-          .map((t) => String(t.id));
-        if (openTaskIds.length > 0) {
-          const { data: running } = await supabase
-            .from("ai_jobs")
-            .select("id")
-            .eq("type", "work_engine_task")
-            .eq("status", "running")
-            .in("payload->>task_id", openTaskIds)
-            .limit(1);
-          if ((running ?? []).length > 0) {
-            results.push({ objectiveId: String(objective.id), action: "no_action", summary: "Stale plan detected; waiting for its running job to finish before replanning." });
-            continue;
-          }
-          const { error: jobErr } = await supabase
-            .from("ai_jobs")
-            .update({ status: "failed", error: `superseded: ${reasonText}`.slice(0, 1000), updated_at: new Date().toISOString() })
-            .eq("type", "work_engine_task")
-            .in("status", ["pending", "retry"])
-            .in("payload->>task_id", openTaskIds);
-          if (jobErr) throw new Error(`Failed retiring stale-plan jobs: ${jobErr.message}`);
-          const { error: taskErr } = await supabase
-            .from("orchestration_tasks")
-            .update({ status: "rework", output: JSON.stringify({ status: "superseded", reason: reasonText }) })
-            .in("id", openTaskIds);
-          if (taskErr) throw new Error(`Failed retiring stale-plan tasks: ${taskErr.message}`);
+        const retire = await retireLivePasses(supabase, String(objective.id), reasonText);
+        if (retire.waiting) {
+          results.push({ objectiveId: String(objective.id), action: "no_action", summary: "Stale plan detected; waiting for its running job to finish before replanning." });
+          continue;
         }
-        const { error: projErr } = await supabase
-          .from("orchestration_projects")
-          .update({ status: "failed", error_message: reasonText.slice(0, 1000) })
-          .eq("id", livePass!.id);
-        if (projErr) throw new Error(`Failed retiring stale plan: ${projErr.message}`);
         const continuation = await createContinuationProject(objective, correlationId);
         if (!continuation.projectId) {
           results.push({ objectiveId: String(objective.id), action: "no_action", summary: `Stale plan retired but replanning failed: ${continuation.error ?? "unknown"}. Will retry next run.` });
