@@ -273,20 +273,20 @@ export function compactDispatchForStorage(dispatch: unknown): Record<string, unk
   }
   if (d.capability === "research.run" && d.data && typeof d.data === "object") {
     const data = d.data as Record<string, unknown>;
-    const queries = Array.isArray(data.queries) ? data.queries : [data];
+    const queries = (Array.isArray(data.queries) ? data.queries : [data]).slice(0, 3);
     const compactQueries = queries.slice(0, 6).map((query) => {
       const q = query && typeof query === "object" ? query as Record<string, unknown> : {};
-      const results = (Array.isArray(q.results) ? q.results : []).slice(0, 3).map((result) => {
+      const results = (Array.isArray(q.results) ? q.results : []).slice(0, 2).map((result) => {
         const r = result && typeof result === "object" ? result as Record<string, unknown> : {};
-        const sources = (Array.isArray(r.sources) ? r.sources : []).slice(0, 8).map((source) => {
+        const sources = (Array.isArray(r.sources) ? r.sources : []).slice(0, 6).map((source) => {
           const src = source && typeof source === "object" ? source as Record<string, unknown> : {};
-          return { url: src.url ?? null, title: src.title ?? null, date: src.date ?? null, description: typeof src.description === "string" ? src.description.slice(0, 350) : null };
+          return { url: src.url ?? null, title: src.title ?? null, date: src.date ?? null };
         });
         return { query: r.query ?? null, sources };
       });
       return { query: q.query ?? null, results };
     });
-    base.data_excerpt = JSON.stringify({ queries: compactQueries }).slice(0, 9000);
+    base.data_excerpt = JSON.stringify({ queries: compactQueries });
   } else if (d.data !== undefined) {
     base.data_excerpt = JSON.stringify(d.data).slice(0, 1500);
   }
