@@ -35,6 +35,7 @@ import { runObjectiveLoop } from "../_shared/objective-loop.ts";
 import { COGNITIVE_CYCLE_ACTION, cognitiveIntervalMinutes, shouldRunCognitiveCycle } from "../_shared/cognitive-budget.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { runDiscoveryIfDue } from "../_shared/capability-discovery.ts";
+import { runScheduledDiscoveryIfDue } from "../_shared/ecosystem-discovery.ts";
 import { runEvaluationTick } from "../_shared/capability-evaluation.ts";
 import { runSelfTestIfRequested } from "../_shared/self-test.ts";
 import { executeApprovedCommunications } from "../_shared/communications.ts";
@@ -152,7 +153,9 @@ Deno.serve(async (req: Request) => {
       // Only founder-approved external_communication rows are ever sent.
       executeApprovedCommunications(serviceClient).catch((err) => [{ error: err instanceof Error ? err.message : String(err) }]),
       runSpeechEvaluationTick(serviceClient).catch((err) => ({ error: err instanceof Error ? err.message : String(err) })),
-    ]).then(([evaluationResult, selfTest, communications, speech]) => ({ ...evaluationResult, selfTest, communications, speech }))
+      // Daily ecosystem discovery (once per IST day after 06:00): metadata only, nothing is installed.
+      runScheduledDiscoveryIfDue(serviceClient).catch((err) => ({ error: err instanceof Error ? err.message : String(err) })),
+    ]).then(([evaluationResult, selfTest, communications, speech, ecosystem]) => ({ ...evaluationResult, selfTest, communications, speech, ecosystem }))
       .then((r) => console.log(JSON.stringify({ level: "INFO", source: "capability-evaluation", ...r })))
       .catch((err) => console.error("founder-brain-tick: capability evaluation failed (non-blocking)", err instanceof Error ? err.message : String(err)));
     // deno-lint-ignore no-explicit-any
