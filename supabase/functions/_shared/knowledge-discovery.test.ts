@@ -99,3 +99,25 @@ Deno.test("GitHub token is optional and only sent when configured", () => {
   assert(withTok.some((s) => s.headers?.Authorization === "Bearer t"));
   assert(without.every((s) => !s.url.includes("token")));
 });
+
+import { unsupportedFigures, verifyAdaptation } from "./blueprint-reuse.ts";
+
+Deno.test("blueprint checks: figures must be recorded facts or marked to verify", () => {
+  assertEquals(unsupportedFigures("Investment 10L - 30L, royalty 8%. Step 3 of 5.", ["10L - 30L", "8%"]), []);
+  assertEquals(unsupportedFigures("Expect 45 outlets by 2027 [TO VERIFY: 2028 target]", ["10L - 30L"]), ["45", "2027"]);
+});
+
+Deno.test("blueprint checks: leakage, coverage and recorded facts", () => {
+  const source = { ref: "client_projects:x", title: "t", text: "Mr. Chick'n for Five Star", brand: "Mr. Chick'n", counterparty: "Five Star Chicken India" };
+  const target = { name: "Chaat Masters", sector: "QSR", type: "franchise", investment_range: "10L - 30L", royalty: "8%", description: null };
+  const good = verifyAdaptation(source, ["Scope", "Deliverables"], target, { title: "Chaat Masters partnership", sections: [
+    { heading: "Scope", inherited_from: "Scope", text: "Chaat Masters will engage [PROSPECT]. Investment 10L - 30L, royalty 8%.", changed: [] },
+    { heading: "Deliverables", inherited_from: "Deliverables", text: "Qualification call.", changed: [] }] });
+  assert(Object.values(good).every((c) => c.ok), JSON.stringify(good));
+  const bad = verifyAdaptation(source, ["Scope", "Deliverables"], target, { title: "Mr. Chick'n copy", sections: [
+    { heading: "Scope", inherited_from: "Scope", text: "Engage Five Star Chicken India for 120 outlets.", changed: [] }] });
+  assertEquals(bad.no_source_names.ok, false);
+  assertEquals(bad.sections_carried_over.ok, false);
+  assertEquals(bad.no_unsupported_figures.ok, false);
+  assertEquals(bad.target_named.ok, false);
+});
