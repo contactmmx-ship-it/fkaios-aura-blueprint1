@@ -27,7 +27,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { reason, getGoals, founderMemory, type Goal, getImaginationHistory, type ImaginationEntry, FOUNDER_BRAIN_DEPARTMENT, getFounderIdentity, getFounderPrinciples, type FounderIdentitySnapshot, type FounderPrincipleSnapshot } from "./founder-brain.ts";
 import { CAPABILITY_REGISTRY } from "./company-os.ts";
 import { prepareObjectiveContract } from "./objective-discovery.ts";
-import { completionContract } from "./objective-contract.ts";
+import { completionContract, projectOutputType } from "./objective-contract.ts";
 
 function getClient() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
@@ -144,12 +144,12 @@ export async function planObjective(objective: Objective, correlationId?: string
 
   const { data: proj, error: pErr } = await client
     .from("orchestration_projects")
-    .insert({ request: `[objective:${objective.id}] ${objective.raw_request}`.slice(0, 2000), status: "working", output_type: contract.objectiveType === "product_creation" ? "product" : contract.objectiveType === "software_build" ? "software" : contract.objectiveType === "information" ? "report" : "business_outcome" })
+    .insert({ request: `[objective:${objective.id}] ${objective.raw_request}`.slice(0, 2000), status: "working", output_type: projectOutputType(contract.objectiveType) })
     .select("id")
     .single();
   if (pErr || !proj) return { projectId: null, tasksCreated: 0, error: pErr?.message ?? "project insert failed" };
 
-  const tasks = taskDrafts.slice(0, 4).map((t) => ({
+  const tasks = taskDrafts.slice(0, 5).map((t) => ({
     project_id: proj.id,
     role: "general", // orchestration_tasks.role is a software-persona field (frontend/backend/.../general); business objectives stay 'general' — department assignment is already tracked on the objective itself, not duplicated here.
     title: String(t.title ?? "Task").slice(0, 200),

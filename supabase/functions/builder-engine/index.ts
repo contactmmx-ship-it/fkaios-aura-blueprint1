@@ -1,47 +1,9 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-// ── __LLM_FALLBACK__ v1 (injected) ─────────────────────────────────────────
-// Drop-in replacement for the raw Anthropic fetch: primary claude-sonnet-4-6,
-// fallback gemini-2.5-flash via GEMINI_API_KEY on ANY Anthropic failure
-// (credit exhaustion 400, 401, 429, 529, network). On fallback it returns an
-// ANTHROPIC-SHAPED response body ({content:[{text}], usage:{...}, model}) so
-// every existing parse site downstream works unchanged. model field carries
-// the model that actually served.
-async function llmFetch(apiKey: string, payload: Record<string, unknown>): Promise<Response> {
-  let errMsg = '';
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (res.ok) return res;
-    errMsg = `Anthropic ${res.status}: ${(await res.text()).slice(0, 200)}`;
-  } catch (e) {
-    errMsg = e instanceof Error ? e.message : String(e);
-  }
-  const gKey = Deno.env.get('GEMINI_API_KEY');
-  if (!gKey) return new Response(JSON.stringify({ error: errMsg }), { status: 502, headers: { 'content-type': 'application/json' } });
-  console.log('LLM FALLBACK to gemini-2.5-flash \u2014', errMsg.slice(0, 150));
-  const sys = typeof payload.system === 'string' ? payload.system : '';
-  const msgs = Array.isArray(payload.messages) ? payload.messages : [];
-  const contents = msgs.map((m: any) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) }] }));
-  const gRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
-    method: 'POST',
-    headers: { 'x-goog-api-key': gKey, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      ...(sys ? { systemInstruction: { parts: [{ text: sys }] } } : {}),
-      contents,
-      generationConfig: { maxOutputTokens: Number(payload.max_tokens ?? 1024) + 256, thinkingConfig: { thinkingBudget: 0 } },
-    }),
-  });
-  if (!gRes.ok) return new Response(JSON.stringify({ error: `${errMsg} | Gemini ${gRes.status}: ${(await gRes.text()).slice(0, 200)}` }), { status: 502, headers: { 'content-type': 'application/json' } });
-  const g = await gRes.json() as any;
-  const text = (g.candidates?.[0]?.content?.parts ?? []).map((p: any) => p.text ?? '').join('');
-  const shaped = { model: 'gemini-2.5-flash', content: [{ type: 'text', text }], usage: { input_tokens: g.usageMetadata?.promptTokenCount ?? 0, output_tokens: g.usageMetadata?.candidatesTokenCount ?? 0 } };
-  return new Response(JSON.stringify(shaped), { status: 200, headers: { 'content-type': 'application/json' } });
-}
-// ── end __LLM_FALLBACK__ ───────────────────────────────────────────────────
+import { authenticateCaller } from '../_shared/internal-auth.ts';
+import { buildDefaultRouterConfig, callLLMOnResources, type LLMRequest } from '../_shared/llm-router.ts';
+import { selectResources } from '../_shared/resource-selection.ts';
+import { callWithContinuation } from '../_shared/continuation.ts';
 
 
 const CORS = {
@@ -54,7 +16,6 @@ const CORS = {
 function ok(data: unknown) { return new Response(JSON.stringify(data), { status: 200, headers: CORS }); }
 function err(msg: string, status = 500) { return new Response(JSON.stringify({ error: msg }), { status, headers: CORS }); }
 
-const MODEL = 'claude-sonnet-4-6';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
@@ -62,27 +23,34 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseAnon = Deno.env.get('SUPABASE_ANON_KEY');
-    const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY');
-    console.log('ENV CHECK', { hasUrl: !!supabaseUrl, hasAnon: !!supabaseAnon, hasAnthropic: !!anthropicKey });
-    if (!supabaseUrl || !supabaseAnon) return err('Missing SUPABASE_URL or SUPABASE_ANON_KEY');
-    if (!anthropicKey) return err('Missing ANTHROPIC_API_KEY secret');
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    if (!supabaseUrl || !supabaseAnon || !serviceKey) return err('Missing SUPABASE_URL, SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY');
 
-    const authHeader = req.headers.get('Authorization') ?? '';
-    if (!authHeader.startsWith('Bearer ')) return err('Unauthorized', 401);
-    const token = authHeader.slice(7);
-    const parts = token.split('.');
-    if (parts.length !== 3) return err('Invalid JWT', 401);
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-    console.log('JWT PAYLOAD', { sub: payload.sub, exp: payload.exp });
-    if (payload.exp && payload.exp < Date.now() / 1000) return err('JWT expired', 401);
-    const isServiceRole = payload.role === 'service_role';
-    const userId = isServiceRole ? null : (payload.sub as string);
+    // Internal FKAIOS callers (ai-engine's product.build) present the
+    // project's server-side key; the founder's Console presents a user access
+    // token, validated by Supabase Auth. See _shared/internal-auth.ts.
+    const authClient = createClient(supabaseUrl, supabaseAnon, { auth: { persistSession: false } });
+    const auth = await authenticateCaller(req.headers.get('Authorization'), {
+      serviceKeys: [serviceKey, Deno.env.get('SUPABASE_SECRET_KEY')],
+      getUser: async (token) => {
+        const { data, error } = await authClient.auth.getUser(token);
+        return error || !data?.user ? null : { id: data.user.id };
+      },
+    });
+    if (!auth.ok) return err(auth.error, auth.status);
+    const caller = auth.caller;
+    const userId = caller.kind === 'user' ? caller.userId : null;
 
     const body = await req.json() as any;
-    console.log('BODY', JSON.stringify(body).slice(0, 200));
     const { action, build_type, requirements, brand_id, brand_name_override } = body;
+    console.log('REQUEST', { caller: caller.kind, action: action ?? 'build', build_type });
 
-    const db = createClient(supabaseUrl, supabaseAnon, { global: { headers: { Authorization: authHeader } } });
+    // Service callers use the server-side client; user callers act under
+    // their own identity, so RLS applies to them.
+    const svc = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
+    const db = caller.kind === 'service'
+      ? svc
+      : createClient(supabaseUrl, supabaseAnon, { global: { headers: { Authorization: `Bearer ${caller.token}` } }, auth: { persistSession: false } });
 
     if (action === 'list') {
       const { data, error } = await db.from('build_projects').select('id, brand_name, build_type, status, deployed_url, created_at, error_message').order('created_at', { ascending: false }).limit(20);
@@ -141,39 +109,32 @@ STRICT RULES: no iframes, no external embeds, no opacity-0 fade-in animations th
 
     const userPrompt = `Build a ${build_type} for: ${brandName}.${brandContext}\n\nRequirements: ${requirements}`;
 
-    console.log('CALLING ANTHROPIC', { model: MODEL, promptLen: userPrompt.length });
-    // TRUNCATION FIX: builds hitting the 8000-token cap were stored cut mid-tag
-    // (verified: 'Franchisee Kart website' build ended inside an <a> attribute).
-    // Now we continue the generation (up to 3 extra segments) whenever
-    // stop_reason === 'max_tokens', stitching segments together.
-    const genMessages: { role: string; content: string }[] = [{ role: 'user', content: userPrompt }];
-    let fullText = '';
-    let genUsage = { input: 0, output: 0, model: MODEL as string, provider: 'anthropic' };
-    for (let seg = 0; seg < 4; seg++) {
-      const segRes = await llmFetch(anthropicKey, { model: MODEL, max_tokens: 8000, system: systemPrompt, messages: genMessages });
-      if (!segRes.ok) { const t = await segRes.text(); throw new Error(`LLM failed: ${t.slice(0, 300)}`); }
-      const segData = await segRes.json() as any;
-      const segText = segData.content?.[0]?.text ?? '';
-      fullText += segText;
-      genUsage.input += segData.usage?.input_tokens ?? 0;
-      genUsage.output += segData.usage?.output_tokens ?? 0;
-      genUsage.model = segData.model ?? MODEL;
-      genUsage.provider = String(segData.model ?? '').startsWith('gemini') ? 'gemini' : 'anthropic';
-      if (segData.stop_reason !== 'max_tokens') break;
-      console.log(`CONTINUATION ${seg + 1}: output truncated at cap, continuing`);
-      genMessages.push({ role: 'assistant', content: segText });
-      genMessages.push({ role: 'user', content: 'Continue EXACTLY from where you stopped. Do not repeat anything, do not add commentary — output only the remaining content.' });
+    // Generation goes through FKAIOS resource selection (task class
+    // "coding"), the same routed path every other engine uses, instead of a
+    // hard-wired Anthropic model with an unverified fallback. Truncated output
+    // is continued, not stored cut mid-tag.
+    let generatedText = '';
+    let genUsage = { input: 0, output: 0, model: '', provider: '' };
+    try {
+      const selection = await selectResources(svc, 'coding');
+      if (selection.resources.length === 0) throw new Error('no usable coding resource is registered');
+      const config = buildDefaultRouterConfig();
+      const request: LLMRequest = { systemPrompt, userContent: userPrompt, maxTokens: 16000, functionName: 'builder-engine', functionClass: 'business_agent' };
+      let lastResource: { provider: string; model: string } | undefined;
+      const continued = await callWithContinuation(async (r) => {
+        const res = await callLLMOnResources(r, config, selection.resources);
+        if (res.resource) lastResource = { provider: res.resource.provider, model: res.resource.model };
+        return res;
+      }, request);
+      if (continued.last.status !== 'success') throw new Error(continued.last.log.failure_reason ?? continued.last.status);
+      generatedText = continued.text;
+      genUsage = { input: continued.inputTokens, output: continued.outputTokens, model: continued.last.model ?? lastResource?.model ?? '', provider: lastResource?.provider ?? '' };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.log('GENERATION FAILED', msg.slice(0, 300));
+      await db.from('build_projects').update({ status: 'failed', error_message: `Generation failed: ${msg.slice(0, 300)}` }).eq('id', buildId);
+      return err(`Generation failed: ${msg.slice(0, 300)}`, 502);
     }
-    const anthropicRes = new Response(JSON.stringify({ content: [{ type: 'text', text: fullText }], usage: { input_tokens: genUsage.input, output_tokens: genUsage.output }, model: genUsage.model }), { status: 200, headers: { 'content-type': 'application/json' } });
-    console.log('ANTHROPIC STATUS', anthropicRes.status);
-    if (!anthropicRes.ok) {
-      const errText = await anthropicRes.text();
-      console.log('ANTHROPIC ERROR', errText.slice(0, 500));
-      await db.from('build_projects').update({ status: 'failed', error_message: `Anthropic error ${anthropicRes.status}: ${errText.slice(0, 200)}` }).eq('id', buildId);
-      return err(`Anthropic API error ${anthropicRes.status}: ${errText.slice(0, 200)}`, 502);
-    }
-    const anthropicData = await anthropicRes.json() as any;
-    const generatedText = anthropicData.content?.[0]?.text ?? '';
     console.log('GENERATED', { len: generatedText.length });
 
     let outputHtml: string | null = null;

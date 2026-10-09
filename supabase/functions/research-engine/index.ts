@@ -9,6 +9,7 @@
 //
 // Actions: status | run { query, actor?, city? }
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { authenticateCaller, timingSafeEqual } from '../_shared/internal-auth.ts';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type, x-heartbeat-secret', 'Content-Type': 'application/json' };
 const ok = (d: unknown) => new Response(JSON.stringify(d), { status: 200, headers: CORS });
@@ -41,12 +42,30 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
   const t0 = Date.now();
   try {
-    const secret = Deno.env.get('HEARTBEAT_SECRET');
-    const provided = req.headers.get('x-heartbeat-secret') ?? new URL(req.url).searchParams.get('secret');
-    const authHeader = req.headers.get('Authorization');
-    if (secret && provided !== secret && !authHeader) return err('Unauthorized', 401);
+    // 'run' spends Apify credits, so the caller must be proven: the
+    // scheduler's heartbeat secret in a header, an FKAIOS function holding the
+    // project's server-side key, or a signed-in user validated by Supabase
+    // Auth. Previously ANY Authorization header was accepted — including the
+    // public anon key — and the secret was also read from the URL query.
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const heartbeat = Deno.env.get('HEARTBEAT_SECRET');
+    const providedHeartbeat = req.headers.get('x-heartbeat-secret');
+    const heartbeatOk = !!heartbeat && !!providedHeartbeat && timingSafeEqual(providedHeartbeat, heartbeat);
+    if (!heartbeatOk) {
+      const anon = Deno.env.get('SUPABASE_ANON_KEY')!;
+      const authClient = createClient(supabaseUrl, anon, { auth: { persistSession: false } });
+      const auth = await authenticateCaller(req.headers.get('Authorization'), {
+        serviceKeys: [serviceKey, Deno.env.get('SUPABASE_SECRET_KEY')],
+        getUser: async (token) => {
+          const { data, error } = await authClient.auth.getUser(token);
+          return error || !data?.user ? null : { id: data.user.id };
+        },
+      });
+      if (!auth.ok) return err('Unauthorized', 401);
+    }
 
-    const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_ANON_KEY')!);
+    const db = createClient(supabaseUrl, serviceKey);
     const body = await req.json().catch(() => ({}));
     const action = body.action ?? 'status';
 

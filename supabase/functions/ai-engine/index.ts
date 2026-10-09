@@ -47,6 +47,7 @@ import { recordLLMAttempts, type StepKind } from "../_shared/execution-evidence.
 import { classifyTaskClass, toolRef, workerRef } from "../_shared/resource-identity.ts";
 import { callWithContinuation } from "../_shared/continuation.ts";
 import { executeCapability } from "../_shared/company-os.ts";
+import { classifyObjective } from "../_shared/objective-contract.ts";
 import {
   checkWorkerGrounding,
   buildNoDataSourceResult,
@@ -1074,8 +1075,23 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
   const productLifecycleTask = job.type === "work_engine_task" &&
     (job.payload?.founder_submitted === true || typeof job.payload?.objective_id === "string") &&
     /^(deploy|verify)\b/i.test(String(job.payload?.title ?? ""));
-  if (productBuildTask) return await executeProductBuild(job, cid);
-  if (productLifecycleTask) return await executeProductLifecycle(job, cid);
+  // Product routing follows the objective's CURRENT contract, not the task
+  // title alone. A plan created under the old substring classifier (Kids DPS
+  // 20cbf892: a research report planned as a website build) must not reach
+  // builder-engine, and a "Verify the sources" step of a report objective is
+  // ordinary work, not a deployed-URL check. The objective loop retires and
+  // replans such a plan; this guard covers jobs already queued from it.
+  let objectiveIsProduct = true;
+  const contractObjectiveId = typeof job.payload?.objective_id === "string" ? job.payload.objective_id : "";
+  if ((productBuildTask || productLifecycleTask) && contractObjectiveId) {
+    const { data: objectiveRow } = await supabase.from("orchestrator_requests").select("raw_request").eq("id", contractObjectiveId).maybeSingle();
+    if (objectiveRow) objectiveIsProduct = classifyObjective(String(objectiveRow.raw_request ?? "")) === "product_creation";
+    if (!objectiveIsProduct && productBuildTask) {
+      throw new NonRetryableJobError(`superseded: objective ${contractObjectiveId} is not a product objective under the current contract; this build task belongs to a stale plan and will be replanned.`, "SUPERSEDED");
+    }
+  }
+  if (productBuildTask && objectiveIsProduct) return await executeProductBuild(job, cid);
+  if (productLifecycleTask && objectiveIsProduct) return await executeProductLifecycle(job, cid);
 
   structuredLog("INFO", `Executing job ${job.id} (type: ${job.type})`, { jobId: job.id, agentId: job.agent_id }, cid);
   const capabilityBlock = job.type === "work_engine_task" ? WORK_ENGINE_CAPABILITIES_BLOCK : "";
