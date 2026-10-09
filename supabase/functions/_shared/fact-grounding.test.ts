@@ -10,6 +10,7 @@ import {
   buildNoDataSourceResult,
   checkWorkerGrounding,
   NO_DATA_SOURCE,
+  needsResearchBeforeAnswer,
   requiresExternalFacts,
 } from "./fact-grounding.ts";
 
@@ -195,4 +196,19 @@ Deno.test("D4: a sales task backed by a relevant sourced vault match is verified
     companyOsDispatch: { capability: "knowledge.search", status: "success", evidence: { matches: [{ chunk_id: "c1", document_id: "d1", similarity: 0.91, excerpt: "Q2 sales report" }] } },
   });
   assert(assessTaskEvidence({ id: "s", ...SALES_TASK, status: "done", output }).verdict === "verified", "real sourced sales evidence must verify");
+});
+
+// ── E: Kids DPS research dispatch regression ─────────────────────────────
+const KIDS_DPS_ACTION_PLAN_TASK = {
+  title: "90-Day Action Plan, KPIs, Dependencies, and Missing Information List",
+  description: "Build a preschool franchise action plan and list competitors, regulatory requirements, and market evidence needed to validate the opportunity.",
+};
+
+Deno.test("E1: Kids DPS action-plan task triggers research before generic worker answer", () => {
+  assert(needsResearchBeforeAnswer(KIDS_DPS_ACTION_PLAN_TASK), "the exact Kids DPS action-plan wording must trigger research.run");
+  assert(requiresExternalFacts(KIDS_DPS_ACTION_PLAN_TASK), "competitor and regulatory evidence must be treated as external facts");
+});
+
+Deno.test("E2: internal rectification task does not trigger a new research pass", () => {
+  assert(!needsResearchBeforeAnswer({ title: "Rectify: 90-Day Action Plan", description: "Revise the existing deliverable using evidence already recorded." }), "rectification must reuse existing evidence rather than dispatch new research");
 });
