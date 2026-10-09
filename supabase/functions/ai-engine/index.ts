@@ -1235,7 +1235,12 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
           capability_attempts: researchResultAttempts,
         };
       }
-      return await executeRequestedCapability(job, parsed, cid);
+      const requestedResult = await executeRequestedCapability(job, parsed, cid);
+      const priorSummary = summarizePriorEvidence(job.payload?.prior_completed_tasks);
+      if (priorSummary.verified && requestedResult && typeof requestedResult === "object" && !Array.isArray(requestedResult) && !(typeof (requestedResult as Record<string, unknown>).capability === "string")) {
+        return { ...(requestedResult as Record<string, unknown>), prior_evidence: priorSummary };
+      }
+      return requestedResult;
     }
   }
 
@@ -1266,10 +1271,12 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
       ? parseAndValidateInvoicePayload(llmResult.toolCall, llmResult.text)
       : asJSONObject(extractJSONFromText(llmResult.text.replace(/```json|```/g, "").trim()), `Job ${job.id} (${job.type})`);
     validateGrounding(llmResult.text, `${systemPrompt}\n${userContent}`, cid);
+    const priorSummary = summarizePriorEvidence(job.payload?.prior_completed_tasks);
+    const resultWithPriorEvidence = !researchEvidence && priorSummary.verified ? { ...parsed, prior_evidence: priorSummary } : parsed;
     if (researchEvidence) {
       return { ...parsed, capability: "research.run", capability_result: researchResultData, capability_attempts: researchResultAttempts };
     }
-    return parsed;
+    return resultWithPriorEvidence;
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     throw new Error(`Job ${job.id} (${job.type}): ${detail}`);
