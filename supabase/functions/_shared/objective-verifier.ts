@@ -94,6 +94,7 @@ Instructions:
 2. For each criterion decide met true/false. If met, copy an exact short quote (5-30 words) from the DELIVERABLE that shows it. If not met, describe the concrete issue.
 3. Add a criterion "No claims unsupported by the recorded evidence" and judge it.
 4. Set needs_human_decision true ONLY if completing the objective requires a decision, approval, payment, credential or physical action that no AI system can take.
+5. IMPORTANT: Do NOT set needs_human_decision merely because the report identifies missing client information, unknown financials, unconfirmed IP/trademark status, or unanswered questions. If the ORIGINAL OBJECTIVE explicitly asks to list missing information, that list is a deliverable, not a blocker. Verify the report and mark those items as outstanding assumptions/inputs; require a human decision only if the requested deliverable itself cannot be produced without that action.
 5. quality: 0.0-1.0 overall quality of the deliverable for the objective.
 
 JSON schema:
