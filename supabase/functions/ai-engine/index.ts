@@ -1098,6 +1098,20 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
   structuredLog("INFO", `Executing job ${job.id} (type: ${job.type})`, { jobId: job.id, agentId: job.agent_id }, cid);
   const capabilityBlock = job.type === "work_engine_task" ? WORK_ENGINE_CAPABILITIES_BLOCK : "";
 
+function buildFounderResearchQuery(taskTitle: string, taskDescription: string): string {
+  const text = (taskTitle + "\n" + taskDescription).toLowerCase();
+  const preschool = /preschool|early childhood|kids dps|pre-primary/.test(text);
+  if (preschool) {
+    const market = /market|competitor|franchise|demand|growth|benchmark/.test(text);
+    const regulatory = /regulat|compliance|law|safety|ncpcr|nep/.test(text);
+    if (market && regulatory) return "India preschool franchise market competitors demand Kidzee EuroKids Bachpan Little Millennium; official preschool regulation NEP 2020 NCPCR state registration safety guidelines";
+    if (regulatory) return "India preschool regulatory requirements official NEP 2020 NCPCR state registration child safety guidelines";
+    if (market) return "India preschool franchise market competitors Kidzee EuroKids Bachpan Little Millennium franchise models demand official sources";
+    return "India preschool early childhood education official market and regulatory sources";
+  }
+  return (taskTitle + " " + taskDescription.slice(0, 160)).replace(/\s+/g, " ").trim().slice(0, 240);
+}
+
 // Founder-submitted research tasks get a real evidence acquisition pass BEFORE
 // the LLM is asked to draft the answer. This closes the previous failure mode
 // where the model could correctly say "no_data_source" even though the approved
@@ -1115,12 +1129,17 @@ const taskText = [job.payload?.title, job.payload?.description].filter((v) => ty
 // recorded: no new paid research, and not the research-fact output contract.
 const isRectification = typeof job.payload?.rectification_of === "string";
 if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true || (typeof job.payload?.objective_id === "string" && job.payload.objective_id.length > 0))) {
-  const researchNeeded = !isRectification && needsResearchBeforeAnswer({ title: job.payload?.title, description: job.payload?.description });
+  const hasPriorCompletedEvidence = Array.isArray(job.payload?.prior_completed_tasks) && job.payload.prior_completed_tasks.length > 0;
+  const isDownstreamSynthesisTask = hasPriorCompletedEvidence && /\b(compile|final report|synthesis|verify|verification)\b/i.test(taskText);
+  const researchNeeded = !isRectification && !isDownstreamSynthesisTask && needsResearchBeforeAnswer({ title: job.payload?.title, description: job.payload?.description });
   if (researchNeeded && taskText) {
     const researchStartedAt = Date.now();
+    const researchTitle = typeof job.payload?.title === "string" ? job.payload.title : taskText;
+    const researchDescription = typeof job.payload?.description === "string" ? job.payload.description : "";
+    const researchQuery = buildFounderResearchQuery(researchTitle, researchDescription);
     const research = await executeCapability(
       "research.run",
-      { query: taskText.slice(0, 1200), requested_by: "fkaios-orchestrator" },
+      { query: researchQuery, requested_by: "fkaios-orchestrator" },
       cid,
     );
     await recordToolStep("research.run", research.status, researchStartedAt, research.status === "success" ? null : String(research.error ?? research.status));
