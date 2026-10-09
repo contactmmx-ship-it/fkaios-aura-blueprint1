@@ -15,6 +15,7 @@
 // never invented), and one grouped 'ceo' review. Re-runs are idempotent.
 // ============================================================
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { authenticateCaller, timingSafeEqual } from "../_shared/internal-auth.ts";
 import { routedStructuredCall } from "../_shared/structured-reasoning.ts";
 
 const ENGINE = "workday-engine";
@@ -75,14 +76,28 @@ Deno.serve(async (req) => {
     const providedSecret = req.headers.get("x-heartbeat-secret") ?? new URL(req.url).searchParams.get("secret");
     // deno-lint-ignore no-explicit-any
     let db: any;
-    if (hbSecret && providedSecret === hbSecret && serviceKey) {
+    // The query-string secret is still read because the pg_cron jobs send it
+    // that way until the rotation + header cutover in
+    // docs/FKAIOS_P0_CRON_SECRET_PLAN.md. Any other caller must be proven:
+    // previously any "Bearer <anything>" passed, and with gateway JWT
+    // verification off for this function that let anyone start a workday run.
+    if (hbSecret && providedSecret && serviceKey && timingSafeEqual(providedSecret, hbSecret)) {
       db = createClient(supabaseUrl, serviceKey);
     } else {
-      const authHeader = req.headers.get("Authorization") ?? "";
-      if (!authHeader.startsWith("Bearer ")) return err("Unauthorized", 401);
-      db = createClient(supabaseUrl, supabaseAnon, { global: { headers: { Authorization: authHeader } } });
+      const authClient = createClient(supabaseUrl, supabaseAnon, { auth: { persistSession: false } });
+      const auth = await authenticateCaller(req.headers.get("Authorization"), {
+        serviceKeys: [serviceKey, Deno.env.get("SUPABASE_SECRET_KEY")],
+        getUser: async (token) => {
+          const { data, error } = await authClient.auth.getUser(token);
+          return error || !data?.user ? null : { id: data.user.id };
+        },
+      });
+      if (!auth.ok) return err("Unauthorized", 401);
+      db = auth.caller.kind === "service"
+        ? createClient(supabaseUrl, serviceKey!)
+        : createClient(supabaseUrl, supabaseAnon, { global: { headers: { Authorization: `Bearer ${auth.caller.token}` } } });
     }
-    // Resource selection and evidence rows need the service role; only the caller's identity check above uses their token.
+    // Resource selection and evidence rows need the service role; the caller was authenticated above.
     const routerDb = serviceKey ? createClient(supabaseUrl, serviceKey) : db;
 
     // deno-lint-ignore no-explicit-any

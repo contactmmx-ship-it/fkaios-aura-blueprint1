@@ -6,7 +6,7 @@ import { contractCriteria, verifyObjective } from "./objective-verifier.ts";
 import { readObjectiveState, syncObjectiveState } from "./objective-state.ts";
 import { assessCurrentTaskSet, assessObjectiveTasks, formatBlockedSummary, type TaskEvidenceRecord } from "./fact-grounding.ts";
 import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP, projectUpdateForObjective } from "./objective-rerun.ts";
-import { completionContract } from "./objective-contract.ts";
+import { classifyObjective, completionContract, planContractMismatch, projectOutputType } from "./objective-contract.ts";
 
 type ObjectiveLoopResult = {
   objectiveId: string;
@@ -773,6 +773,73 @@ export async function runObjectiveLoop(
           tasksCreated: continuation.tasksCreated,
           summary: "Re-run requested by the founder: new planning pass created.",
         });
+        continue;
+      }
+
+      /*
+       * STALE-CONTRACT RECOVERY: the live planning pass was created under a
+       * classification the current contract no longer gives this objective
+       * (e.g. a research report planned as a website build). Executing it
+       * would deliver the wrong kind of result, so the pass is retired and
+       * the objective replanned. Queued jobs of the retired pass are failed
+       * with the reason; a job that is mid-execution is waited for (next
+       * run) rather than interrupted. Retired tasks and their outputs stay
+       * as history.
+       */
+      const { data: livePass } = await supabase
+        .from("orchestration_projects")
+        .select("id, status, output_type")
+        .like("request", `[objective:${objective.id}]%`)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (planContractMismatch(livePass, String(objective.raw_request ?? ""))) {
+        const expected = projectOutputType(classifyObjective(String(objective.raw_request ?? "")));
+        const reasonText = `Plan ${livePass!.id} was created for output '${livePass!.output_type}', but the objective contract now requires '${expected}'. Retired and replanned.`;
+        const { data: passTasks } = await supabase
+          .from("orchestration_tasks")
+          .select("id, status")
+          .eq("project_id", livePass!.id);
+        const openTaskIds = (passTasks ?? [])
+          .filter((t) => ["pending", "assigned", "rework"].includes(String(t.status ?? "")))
+          .map((t) => String(t.id));
+        if (openTaskIds.length > 0) {
+          const { data: running } = await supabase
+            .from("ai_jobs")
+            .select("id")
+            .eq("type", "work_engine_task")
+            .eq("status", "running")
+            .in("payload->>task_id", openTaskIds)
+            .limit(1);
+          if ((running ?? []).length > 0) {
+            results.push({ objectiveId: String(objective.id), action: "no_action", summary: "Stale plan detected; waiting for its running job to finish before replanning." });
+            continue;
+          }
+          const { error: jobErr } = await supabase
+            .from("ai_jobs")
+            .update({ status: "failed", error: `superseded: ${reasonText}`.slice(0, 1000), updated_at: new Date().toISOString() })
+            .eq("type", "work_engine_task")
+            .in("status", ["pending", "retry"])
+            .in("payload->>task_id", openTaskIds);
+          if (jobErr) throw new Error(`Failed retiring stale-plan jobs: ${jobErr.message}`);
+          const { error: taskErr } = await supabase
+            .from("orchestration_tasks")
+            .update({ status: "rework", output: JSON.stringify({ status: "superseded", reason: reasonText }) })
+            .in("id", openTaskIds);
+          if (taskErr) throw new Error(`Failed retiring stale-plan tasks: ${taskErr.message}`);
+        }
+        const { error: projErr } = await supabase
+          .from("orchestration_projects")
+          .update({ status: "failed", error_message: reasonText.slice(0, 1000) })
+          .eq("id", livePass!.id);
+        if (projErr) throw new Error(`Failed retiring stale plan: ${projErr.message}`);
+        const continuation = await createContinuationProject(objective, correlationId);
+        if (!continuation.projectId) {
+          results.push({ objectiveId: String(objective.id), action: "no_action", summary: `Stale plan retired but replanning failed: ${continuation.error ?? "unknown"}. Will retry next run.` });
+          continue;
+        }
+        await syncObjectiveState(supabase, { id: String(objective.id), status: "processing", raw_request: String(objective.raw_request ?? "") }, { phase: "planning", reason: reasonText.slice(0, 500), patch: { rectification_round: 0, next_action: "Execute the new plan." } });
+        results.push({ objectiveId: String(objective.id), action: "replan", projectId: continuation.projectId, tasksCreated: continuation.tasksCreated, summary: reasonText });
         continue;
       }
 
