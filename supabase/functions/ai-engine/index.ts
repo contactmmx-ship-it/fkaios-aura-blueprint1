@@ -48,6 +48,7 @@ import { classifyTaskClass, toolRef, workerRef } from "../_shared/resource-ident
 import { callWithContinuation } from "../_shared/continuation.ts";
 import { executeCapability } from "../_shared/company-os.ts";
 import { classifyObjective } from "../_shared/objective-contract.ts";
+import { parseJSONCandidate } from "../_shared/json-parse.ts";
 import {
   checkWorkerGrounding,
   needsResearchBeforeAnswer,
@@ -470,7 +471,7 @@ export function extractJSONFromText(text: string): unknown {
       stack.pop();
       if (stack.length === 0) {
         const candidate = trimmed.slice(start, i + 1);
-        return JSON.parse(candidate);
+        return parseJSONCandidate(candidate);
       }
     }
   }
