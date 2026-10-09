@@ -11,7 +11,9 @@ import {
   checkWorkerGrounding,
   NO_DATA_SOURCE,
   needsResearchBeforeAnswer,
+  parsePriorCompletedTasks,
   requiresExternalFacts,
+  summarizePriorEvidence,
 } from "./fact-grounding.ts";
 
 function assert(condition: boolean, message: string): void {
@@ -211,4 +213,32 @@ Deno.test("E1: Kids DPS action-plan task triggers research before generic worker
 
 Deno.test("E2: internal rectification task does not trigger a new research pass", () => {
   assert(!needsResearchBeforeAnswer({ title: "Rectify: 90-Day Action Plan", description: "Revise the existing deliverable using evidence already recorded." }), "rectification must reuse existing evidence rather than dispatch new research");
+});
+
+// ── F: Downstream report reuses source-linked prior task evidence ─────────
+Deno.test("F1: stringified prior_completed_tasks are parsed and source evidence is summarized", () => {
+  const prior = JSON.stringify([{
+    title: "Market and Regulatory Research",
+    output: {
+      companyOsDispatch: { status: "success", capability: "research.run" },
+      llmResult: { sources: [{ url: "https://example.gov.in/guideline", title: "Official guideline" }] },
+    },
+  }]);
+  assert(parsePriorCompletedTasks(prior).length === 1, "stringified prior task array must be parsed");
+  const summary = summarizePriorEvidence(prior);
+  assert(summary.verified && summary.source_count === 1, "successful research with a source URL must be reusable");
+});
+
+Deno.test("F2: report passes grounding only when its citations are in verified prior evidence", () => {
+  const prior = JSON.stringify([{
+    output: { companyOsDispatch: { status: "success", capability: "research.run" }, llmResult: { sources: [{ url: "https://example.gov.in/guideline", title: "Official guideline" }] } },
+  }]);
+  const prior_evidence = summarizePriorEvidence(prior);
+  const task = { title: "Compile and verify the final report", description: "Use prior research and cite sources." };
+  const good = { sources: [{ url: "https://example.gov.in/guideline", title: "Official guideline" }], prior_evidence };
+  const bad = { sources: [{ url: "https://unrelated.example/claim", title: "Unrelated page" }], prior_evidence };
+  assert(checkWorkerGrounding(task, good).ok, "report using a verified prior source must pass");
+  assert(!checkWorkerGrounding(task, bad).ok, "report citing an unrelated source must fail");
+  const verdict = assessTaskEvidence({ ...task, status: "done", output: JSON.stringify({ llmResult: good }) });
+  assert(verdict.verdict === "verified", "completed report with valid prior-evidence citations must be verified");
 });
