@@ -242,3 +242,8 @@ Deno.test("F2: report passes grounding only when its citations are in verified p
   const verdict = assessTaskEvidence({ ...task, status: "done", output: JSON.stringify({ llmResult: good }) });
   assert(verdict.verdict === "verified", "completed report with valid prior-evidence citations must be verified");
 });
+
+Deno.test("F3: an unmeasured capability label is not grounding evidence", () => {
+  const task = { title: "Compile market research", description: "Verify competitor counts and regulations." };
+  assert(!checkWorkerGrounding(task, { capability: "research.run" }).ok, "a model-written capability label without measured result data must fail");
+});
