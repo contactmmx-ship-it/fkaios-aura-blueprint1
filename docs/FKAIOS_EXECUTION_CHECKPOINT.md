@@ -72,3 +72,43 @@ Superseded by later decisions: the fixed "41 permanent agents" model (H12), "Ope
 3. Task #9: ecosystem discovery (MCP registry, GitHub, Hugging Face, public model lists) as a daily scheduled run, with dedup, run records and evidence. It is only called operational after a real scheduled run.
 4. Task #8: generate the inventory, connector registry and agent catalog from live tables.
 5. 04:45 UTC: verify the executive engines' scheduled runs.
+
+## Cycle 2 — 9 Oct 2026, 03:05 UTC: knowledge library and daily discovery
+
+### Done (evidence)
+
+**PR #70 merged (main 8a3119a); CI deploy run 111 succeeded.**
+
+**Migrations:**
+- `20261009024803` adds the knowledge and discovery tables. md5 is identical to the live statement.
+- `20261009030452` makes `/`, `_` and `\` separate words in search. It was applied without DROP COLUMN, because a DROP COLUMN through the connector hung twice and both attempts rolled back.
+
+**Daily discovery: VERIFIED.**
+- The first real **scheduled** run fired at 02:51 UTC (08:21 IST): 6 of 6 sources, 180 candidates, evidence 6818b1c1.
+- Self-test reruns found 0 new candidates, so dedup holds.
+
+**Histories ingested in production** (self-test `history_ingest`):
+- `3a1f14b4`: 1525 lines, 26 segments.
+- `c9f742e0`: 5330 lines, 89 segments.
+- SHA-256 matches both supplied files.
+
+**Exact-page retrieval** (self-test `knowledge_pages`) passed 8 of 9 checks. The scanned page OCR returned empty and was recorded honestly as `uncertain`.
+
+**Inventory, connector registry and agent catalog** were written from live data:
+- `docs/FKAIOS_PROJECT_AND_ARTIFACT_INVENTORY.md`
+- `docs/fkaios_project_inventory.csv`
+- `docs/FKAIOS_CONNECTOR_REGISTRY.md`
+- `docs/FKAIOS_AGENT_CATALOG.md`
+
+### Found
+
+- **`hunt_leads` fails** (14 in 7 days) because lead-discovery calls research-engine with no auth header. This path **spends Apify credits**, so it is left stopped pending a founder decision; it is not "fixed" into spending.
+- **9 `build_projects` are stuck in `generating`**, and 24 `orchestration_projects` are non-terminal.
+- **OpenAI and Anthropic have no credit**, while the `connectors` seed still says "connected".
+
+### Next actions
+
+1. Ship the OCR fix (empty readings fail over to the next model; new prompt) and the corrected `history_retrieval` query. Re-run `knowledge_pages` and `history_retrieval`.
+2. 04:45 UTC: verify the executive engines' scheduled runs.
+3. Add a bounded timeout to stale `generating` builds and non-terminal orchestration rows.
+4. Write SECURITY_AND_RECOVERY, OPERATIONS_RUNBOOK and CURRENT_STATE.

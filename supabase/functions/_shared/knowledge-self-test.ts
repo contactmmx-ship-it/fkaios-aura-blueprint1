@@ -125,11 +125,12 @@ export async function historyRetrieval(db: Db): Promise<ScenarioResult> {
   const hits = await searchKnowledge(db, "Syros OPD EMR master state \"do not use\" old prototype", "conversation", 3);
   const top = hits[0];
   const ok = !!top && String(top.title).includes("c9f742e0") && Number(top.line_start) <= 2440 && Number(top.line_end) >= 2440;
-  const hits2 = await searchKnowledge(db, "AURA recovery ZIP orchestrator ai_jobs executor", "conversation", 3);
-  const ok2 = !!hits2[0] && String(hits2[0].title).includes("3a1f14b4");
+  // The 7 Oct transfer: the recovered system generated pending jobs but no executor had been found (line 141).
+  const hits2 = await searchKnowledge(db, "pending jobs consumer executor located", "conversation", 3);
+  const ok2 = !!hits2[0] && String(hits2[0].title).includes("3a1f14b4") && Number(hits2[0].line_start) <= 141 && Number(hits2[0].line_end) >= 141;
   return { scenario: "history_retrieval", passed: ok && ok2, details: {
     syros: top ? { title: top.title, lines: `${top.line_start}-${top.line_end}`, excerpt: String(top.excerpt).slice(0, 200) } : null,
-    aura: hits2[0] ? { title: hits2[0].title, lines: `${hits2[0].line_start}-${hits2[0].line_end}`, excerpt: String(hits2[0].excerpt).slice(0, 200) } : null,
+    executor_gap: hits2[0] ? { title: hits2[0].title, lines: `${hits2[0].line_start}-${hits2[0].line_end}`, excerpt: String(hits2[0].excerpt).slice(0, 200) } : null,
   } };
 }
 
