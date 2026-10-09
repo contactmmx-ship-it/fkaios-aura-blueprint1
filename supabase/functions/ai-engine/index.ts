@@ -1250,8 +1250,8 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
   const systemPrompt = `You are an AI engine. Job type: ${job.type}. Respond with ONLY a valid JSON object. No prose, no markdown fences. Never invent data.\n${NO_FABRICATED_PERSISTENCE_BLOCK}${capabilityBlock}${principlesBlock}${researchCitationContract}${verificationContract}`;
   const userContent = JSON.stringify({ type: job.type, payload: job.payload }) + researchEvidence + priorEvidence + researchCitationContract + verificationContract;
   const llmResult = await callLLM(
-    `You are an AI engine. Job type: ${job.type}. Respond with ONLY a valid JSON object. No prose, no markdown fences. Never invent data.\n${NO_FABRICATED_PERSISTENCE_BLOCK}${capabilityBlock}${principlesBlock}`,
-    JSON.stringify({ type: job.type, payload: job.payload }),
+    systemPrompt,
+    userContent,
     cid,
     job.type === "GENERATE_INVOICE" ? INVOICE_TOOL_SCHEMA : undefined,
   );
