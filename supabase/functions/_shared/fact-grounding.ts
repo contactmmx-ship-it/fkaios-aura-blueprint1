@@ -72,16 +72,33 @@ export function summarizePriorEvidence(value: unknown): PriorEvidenceSummary {
     const dispatch = output.companyOsDispatch && typeof output.companyOsDispatch === "object" ? output.companyOsDispatch as Record<string, unknown> : null;
     const llm = output.llmResult && typeof output.llmResult === "object" ? output.llmResult as Record<string, unknown> : null;
     if (dispatch?.status !== "success" || dispatch.capability !== "research.run" || !llm) continue;
+    const excerpt = typeof dispatch.data_excerpt === "string" ? parsePriorTaskOutput(dispatch.data_excerpt) : null;
+    if (!excerpt) continue;
+    const queries = Array.isArray(excerpt.queries) ? excerpt.queries : [excerpt];
+    const grounded = new Map<string, string>();
+    for (const query of queries) {
+      if (!query || typeof query !== "object") continue;
+      const queryRow = query as Record<string, unknown>;
+      for (const result of Array.isArray(queryRow.results) ? queryRow.results : []) {
+        if (!result || typeof result !== "object") continue;
+        for (const item of Array.isArray((result as Record<string, unknown>).sources) ? (result as Record<string, unknown>).sources as unknown[] : []) {
+          if (!item || typeof item !== "object") continue;
+          const source = item as Record<string, unknown>;
+          if (typeof source.url === "string" && (source.url.startsWith("https://") || source.url.startsWith("http://"))) grounded.set(source.url, typeof source.title === "string" ? source.title : source.url);
+        }
+      }
+    }
     for (const item of Array.isArray(llm.sources) ? llm.sources : []) {
       if (!item || typeof item !== "object") continue;
       const source = item as Record<string, unknown>;
-      if (typeof source.url !== "string" || !(source.url.startsWith("https://") || source.url.startsWith("http://"))) continue;
-      unique.set(source.url, { url: source.url, title: typeof source.title === "string" ? source.title : source.url });
+      if (typeof source.url !== "string" || !grounded.has(source.url)) continue;
+      unique.set(source.url, { url: source.url, title: typeof source.title === "string" ? source.title : grounded.get(source.url)! });
     }
   }
   const sources = [...unique.values()];
   return { verified: sources.length > 0, source_count: sources.length, sources };
 }
+
 function priorEvidenceSupportsResult(result: Record<string, unknown>): boolean {
   const prior = result.prior_evidence && typeof result.prior_evidence === "object" ? result.prior_evidence as Record<string, unknown> : null;
   if (prior?.verified !== true || Number(prior.source_count) < 1 || !Array.isArray(prior.sources)) return false;
@@ -254,7 +271,25 @@ export function compactDispatchForStorage(dispatch: unknown): Record<string, unk
     base.evidence = { query: typeof data?.query === "string" ? data.query.slice(0, 300) : null, matches: knowledgeMatches(d).slice(0, 5) };
     return base;
   }
-  if (d.data !== undefined) base.data_excerpt = JSON.stringify(d.data).slice(0, 1500);
+  if (d.capability === "research.run" && d.data && typeof d.data === "object") {
+    const data = d.data as Record<string, unknown>;
+    const queries = Array.isArray(data.queries) ? data.queries : [data];
+    const compactQueries = queries.slice(0, 6).map((query) => {
+      const q = query && typeof query === "object" ? query as Record<string, unknown> : {};
+      const results = (Array.isArray(q.results) ? q.results : []).slice(0, 3).map((result) => {
+        const r = result && typeof result === "object" ? result as Record<string, unknown> : {};
+        const sources = (Array.isArray(r.sources) ? r.sources : []).slice(0, 8).map((source) => {
+          const src = source && typeof source === "object" ? source as Record<string, unknown> : {};
+          return { url: src.url ?? null, title: src.title ?? null, date: src.date ?? null, description: typeof src.description === "string" ? src.description.slice(0, 350) : null };
+        });
+        return { query: r.query ?? null, sources };
+      });
+      return { query: q.query ?? null, results };
+    });
+    base.data_excerpt = JSON.stringify({ queries: compactQueries }).slice(0, 9000);
+  } else if (d.data !== undefined) {
+    base.data_excerpt = JSON.stringify(d.data).slice(0, 1500);
+  }
   return base;
 }
 
