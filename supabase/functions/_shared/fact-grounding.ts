@@ -99,7 +99,7 @@ export function checkWorkerGrounding(
   result: unknown,
 ): WorkerGrounding {
   const obj = result && typeof result === "object" && !Array.isArray(result) ? result as Record<string, unknown> : null;
-  if (obj && typeof obj.capability === "string" && obj.capability.length > 0) return { ok: true };
+  if (obj && typeof obj.capability === "string" && obj.capability.length > 0 && ("capability_result" in obj || "capability_attempts" in obj)) return { ok: true };
   if (obj && priorEvidenceSupportsResult(obj)) return { ok: true };
   if (obj && obj.status === NO_DATA_SOURCE) {
     const reason = typeof obj.reason === "string" && obj.reason ? obj.reason : "worker reported no data source for this task";
