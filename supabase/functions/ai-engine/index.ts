@@ -1142,8 +1142,9 @@ const taskText = [job.payload?.title, job.payload?.description].filter((v) => ty
 const isRectification = typeof job.payload?.rectification_of === "string";
 const priorCompletedTasks = parsePriorCompletedTasks(job.payload?.prior_completed_tasks);
 const hasPriorCompletedEvidence = priorCompletedTasks.length > 0;
+const isDownstreamSynthesisTask = hasPriorCompletedEvidence && /\b(compile|final report|synthesis|verify|verification)\b/i.test(taskText);
 if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true || (typeof job.payload?.objective_id === "string" && job.payload.objective_id.length > 0))) {
-  const researchNeeded = !isRectification && !hasPriorCompletedEvidence && needsResearchBeforeAnswer({ title: job.payload?.title, description: job.payload?.description });
+  const researchNeeded = !isRectification && !isDownstreamSynthesisTask && needsResearchBeforeAnswer({ title: job.payload?.title, description: job.payload?.description });
   if (researchNeeded && taskText) {
     const researchTitle = typeof job.payload?.title === "string" ? job.payload.title : taskText;
     const researchDescription = typeof job.payload?.description === "string" ? job.payload.description : "";
