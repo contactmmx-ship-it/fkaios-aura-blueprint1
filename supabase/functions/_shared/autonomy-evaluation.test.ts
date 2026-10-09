@@ -72,3 +72,13 @@ Deno.test("rollback: degraded/unserved models and clear underperformance roll ba
   assertEquals(shouldRollback({ ...base, sampleSize: 10, verifiedCount: 4 }).rollback, true);
   assertEquals(shouldRollback({ ...base, sampleSize: 10, verifiedCount: 8 }).rollback, false);
 });
+
+import { deferralDecision, MAX_CANDIDATE_DEFERRALS } from "./capability-evaluation.ts";
+
+Deno.test("executor: a candidate that keeps deferring is cancelled (not judged); incumbent outages get more patience", () => {
+  const base = { suite_version: 1, incumbents: {}, results: {}, spent_usd: 0 };
+  if (deferralDecision({ ...base, deferrals: MAX_CANDIDATE_DEFERRALS - 1 }, "model:gemini:c", "model:gemini:c").cancel) throw new Error("cancelled too early");
+  const d = deferralDecision({ ...base, deferrals: MAX_CANDIDATE_DEFERRALS }, "model:gemini:c", "model:gemini:c");
+  if (!d.cancel || !/quota\/capacity exhausted/.test(d.reason ?? "")) throw new Error(JSON.stringify(d));
+  if (deferralDecision({ ...base, deferrals: MAX_CANDIDATE_DEFERRALS }, "model:gemini:incumbent", "model:gemini:c").cancel) throw new Error("incumbent deferrals use a higher limit");
+});

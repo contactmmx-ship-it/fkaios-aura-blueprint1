@@ -55,7 +55,11 @@ export async function runSpeechEvaluationTick(db: Db, env: Env = (k) => Deno.env
   const forceCandidate = { includeUntested: true, exclude: sameCap.filter((r) => r.resource_ref !== candidate.resource_ref).map((r) => r.resource_ref) };
   // The partner leg prefers tested resources and never the candidate itself.
   const partnerTested = rankSpeechResources(rows.filter((r) => r.capability === other), {}, env, now).ranked.length > 0;
-  const partnerOpts = { includeUntested: !partnerTested, avoid: [candidate.resource_ref] };
+  // Tested partners rank first (verified bonus); untested ones are the fallback,
+  // so one quota-exhausted partner cannot block every evaluation (8 Oct 2026:
+  // 12 TTS-partner failures in a row while a working TTS was never tried).
+  const partnerOpts = { includeUntested: true, avoid: [candidate.resource_ref] };
+  void partnerTested;
   const ctx = { stepKind: "evaluation" as const, storeExcerpt: true };
 
   const results: Array<Record<string, unknown>> = [];
