@@ -50,6 +50,7 @@ import { executeCapability } from "../_shared/company-os.ts";
 import { classifyObjective } from "../_shared/objective-contract.ts";
 import {
   checkWorkerGrounding,
+  needsResearchBeforeAnswer,
   buildNoDataSourceResult,
   NO_DATA_SOURCE,
   NO_DATA_SOURCE_DISPOSITION,
@@ -1113,7 +1114,7 @@ const taskText = [job.payload?.title, job.payload?.description].filter((v) => ty
 // recorded: no new paid research, and not the research-fact output contract.
 const isRectification = typeof job.payload?.rectification_of === "string";
 if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true || (typeof job.payload?.objective_id === "string" && job.payload.objective_id.length > 0))) {
-  const researchNeeded = !isRectification && /\b(research|market|facts?|sources?|verify|distributor|competitor|industry|trends?|data collection)\b/i.test(taskText);
+  const researchNeeded = !isRectification && needsResearchBeforeAnswer({ title: job.payload?.title, description: job.payload?.description });
   if (researchNeeded && taskText) {
     const researchStartedAt = Date.now();
     const research = await executeCapability(
