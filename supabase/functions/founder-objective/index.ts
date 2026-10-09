@@ -26,6 +26,7 @@ import { runObjectiveLoop } from "../_shared/objective-loop.ts";
 import { base64ToBytes, bytesToBase64, synthesize, transcribe } from "../_shared/speech.ts";
 import { voiceTurn } from "../_shared/voice.ts";
 import { requestCommunication, type CommunicationCapability } from "../_shared/communications.ts";
+import { ingestPdf, ingestText, retrievePage, searchKnowledge, type CopyrightClass, type SourceKind } from "../_shared/knowledge-library.ts";
 import { buildDefaultRouterConfig, callLLMOnResources } from "../_shared/llm-router.ts";
 import { selectResources } from "../_shared/resource-selection.ts";
 import { recordLLMAttempts } from "../_shared/execution-evidence.ts";
@@ -302,6 +303,42 @@ Deno.serve(async (req: Request) => {
         purpose: typeof raw.purpose === "string" ? raw.purpose.slice(0, 300) : "founder request", objectiveId: null, requestedBy: user.email ?? user.id,
       });
       return json({ ok: result.status !== "blocked", ...result }, result.status === "blocked" ? 422 : 200);
+    }
+    if (body.action === "knowledge_page") {
+      // "Page 18 of <book>": the exact page, with the printed/PDF mapping and how its text was obtained.
+      const book = typeof raw.book === "string" ? raw.book : "";
+      const page = typeof raw.page === "string" || typeof raw.page === "number" ? String(raw.page).trim() : "";
+      if (!book.trim() || !page) return json({ ok: false, error: "book and page required" }, 400);
+      const kind = raw.pageKind === "pdf" || raw.pageKind === "printed" ? raw.pageKind : "auto";
+      const answer = await retrievePage(adminClient(), { book, page, pageKind: kind, edition: typeof raw.edition === "string" ? raw.edition : null });
+      return json({ ok: answer.status === "found", ...answer }, answer.status === "not_found" ? 404 : 200);
+    }
+    if (body.action === "knowledge_search") {
+      const query = typeof raw.query === "string" ? raw.query.trim() : "";
+      if (!query) return json({ ok: false, error: "query required" }, 400);
+      const kinds = ["book", "sop", "proposal", "conversation", "document"];
+      const kind = typeof raw.kind === "string" && kinds.includes(raw.kind) ? raw.kind as SourceKind : null;
+      return json({ ok: true, results: await searchKnowledge(adminClient(), query.slice(0, 300), kind, Number(raw.limit) || 5) });
+    }
+    if (body.action === "knowledge_ingest") {
+      // Ingests a file the founder uploaded to the private 'documents' bucket.
+      const path = typeof raw.storagePath === "string" ? raw.storagePath : "";
+      const title = typeof raw.title === "string" ? raw.title.trim() : "";
+      const kinds = ["book", "sop", "proposal", "conversation", "document"];
+      const kind = typeof raw.sourceKind === "string" && kinds.includes(raw.sourceKind) ? raw.sourceKind as SourceKind : "document";
+      const copyrights = ["owned", "licensed", "public_domain", "third_party_copyrighted", "unknown"];
+      const copyright = typeof raw.copyrightClass === "string" && copyrights.includes(raw.copyrightClass) ? raw.copyrightClass as CopyrightClass : "unknown";
+      if (!path || !title) return json({ ok: false, error: "storagePath (in the documents bucket) and title required" }, 400);
+      const admin = adminClient();
+      const { data: file, error: dlError } = await admin.storage.from("documents").download(path);
+      if (dlError || !file) return json({ ok: false, error: `could not read documents/${path}: ${dlError?.message ?? "missing"}` }, 404);
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const meta = { title, author: typeof raw.author === "string" ? raw.author : null, edition: typeof raw.edition === "string" ? raw.edition : null, isbn: typeof raw.isbn === "string" ? raw.isbn : null,
+        sourceKind: kind, filename: path.split("/").pop() ?? path, storageBucket: "documents", storagePath: path, provenance: `uploaded by ${user.email ?? user.id}`, copyrightClass: copyright,
+        brand: typeof raw.brand === "string" ? raw.brand : null, projectRef: typeof raw.projectRef === "string" ? raw.projectRef : null, createdBy: user.id };
+      const isPdf = path.toLowerCase().endsWith(".pdf") || file.type === "application/pdf";
+      const result = isPdf ? await ingestPdf(admin, bytes, meta, { ocr: raw.ocr !== false, maxOcrPages: 25 }) : await ingestText(admin, new TextDecoder().decode(bytes), meta);
+      return json({ ok: true, ...result });
     }
     if (body.action === "rerun") {
       if (typeof body.objectiveId !== "string" || !body.objectiveId) return json({ ok: false, error: "objectiveId required" }, 400);

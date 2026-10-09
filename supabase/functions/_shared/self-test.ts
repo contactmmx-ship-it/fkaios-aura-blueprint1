@@ -16,6 +16,8 @@
 //                    resource selection picks, the reply is schema-checked
 //   voice_turn       spoken question ─► STT ─► responder ─► TTS ─► STT back;
 //                    the answer and the reply audio are both checked
+//   knowledge_pages, history_ingest, history_retrieval, ecosystem_discovery — see knowledge-self-test.ts
+// A request may name a subset of scenarios (fkaios_self_tests.scenarios); null runs all.
 // Speech scenarios use free and local resources only (paid ones need a spend decision).
 
 import { buildDefaultRouterConfig, callLLMOnResources, type ExecutionResource, type LLMRequest } from "./llm-router.ts";
@@ -27,6 +29,7 @@ import { markStepsVerified } from "./execution-evidence.ts";
 import { synthesize, transcribe, wordErrorRate } from "./speech.ts";
 import { voiceTurn } from "./voice.ts";
 import { routedStructuredCall } from "./structured-reasoning.ts";
+import { ecosystemDiscoveryScenario, historyIngest, historyRetrieval, knowledgePages } from "./knowledge-self-test.ts";
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -165,7 +168,17 @@ export const SELF_TEST_SCENARIOS: Array<{ name: string; run: (db: Db) => Promise
   { name: "structured_routing", run: structuredRouting },
   { name: "speech_roundtrip", run: speechRoundtrip },
   { name: "voice_turn", run: voiceTurnScenario },
+  { name: "knowledge_pages", run: knowledgePages },
+  { name: "history_ingest", run: historyIngest },
+  { name: "history_retrieval", run: historyRetrieval },
+  { name: "ecosystem_discovery", run: ecosystemDiscoveryScenario },
 ];
+
+/** The scenarios a request asked for (all when it names none or only unknown ones). */
+export function requestedScenarios(names: string[] | null | undefined): typeof SELF_TEST_SCENARIOS {
+  const wanted = SELF_TEST_SCENARIOS.filter((s) => (names ?? []).includes(s.name));
+  return wanted.length ? wanted : SELF_TEST_SCENARIOS;
+}
 
 /** Time one scenario may hold the run before another tick may take it over (its worker is presumed dead). */
 const SCENARIO_LEASE_MS = 4 * 60_000;
@@ -178,8 +191,8 @@ const SCENARIO_LEASE_MS = 4 * 60_000;
  * has no result. Results are appended as each scenario finishes.
  */
 export async function runSelfTestIfRequested(db: Db, now = new Date()): Promise<Record<string, unknown> | null> {
-  const { data: rows } = await db.from("fkaios_self_tests").select("id,status,results,lease_until").in("status", ["requested", "running"]).order("requested_at").limit(5);
-  const free = ((rows ?? []) as Array<{ id: string; status: string; results: ScenarioResult[] | null; lease_until: string | null }>)
+  const { data: rows } = await db.from("fkaios_self_tests").select("id,status,results,lease_until,scenarios").in("status", ["requested", "running"]).order("requested_at").limit(5);
+  const free = ((rows ?? []) as Array<{ id: string; status: string; results: ScenarioResult[] | null; lease_until: string | null; scenarios: string[] | null }>)
     .find((r) => !r.lease_until || new Date(r.lease_until).getTime() < now.getTime());
   if (!free) return null;
   const leaseUntil = new Date(now.getTime() + SCENARIO_LEASE_MS).toISOString();
@@ -190,14 +203,15 @@ export async function runSelfTestIfRequested(db: Db, now = new Date()): Promise<
 
   const results: ScenarioResult[] = Array.isArray(free.results) ? [...free.results] : [];
   const done = new Set(results.map((r) => r.scenario));
-  const next = SELF_TEST_SCENARIOS.find((s) => !done.has(s.name));
+  const plan = requestedScenarios(free.scenarios);
+  const next = plan.find((s) => !done.has(s.name));
   if (next) {
     let result: ScenarioResult;
     try { result = await next.run(db); } catch (err) { result = { scenario: next.name, passed: false, details: { error: err instanceof Error ? err.message : String(err) } }; }
     results.push({ ...result, scenario: next.name });
   }
-  const finished = SELF_TEST_SCENARIOS.every((s) => results.some((r) => r.scenario === s.name));
+  const finished = plan.every((s) => results.some((r) => r.scenario === s.name));
   const passed = finished && results.every((r) => r.passed);
   await db.from("fkaios_self_tests").update({ results, lease_until: null, ...(finished ? { status: passed ? "passed" : "failed", finished_at: new Date().toISOString() } : {}) }).eq("id", free.id);
-  return { self_test: free.id, ran: next?.name ?? null, finished, passed: finished ? passed : null, progress: `${results.length}/${SELF_TEST_SCENARIOS.length}` };
+  return { self_test: free.id, ran: next?.name ?? null, finished, passed: finished ? passed : null, progress: `${results.length}/${plan.length}` };
 }
