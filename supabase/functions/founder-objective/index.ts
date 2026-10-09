@@ -27,6 +27,7 @@ import { base64ToBytes, bytesToBase64, synthesize, transcribe } from "../_shared
 import { voiceTurn } from "../_shared/voice.ts";
 import { requestCommunication, type CommunicationCapability } from "../_shared/communications.ts";
 import { ingestPdf, ingestText, retrievePage, searchKnowledge, type CopyrightClass, type SourceKind } from "../_shared/knowledge-library.ts";
+import { reuseBlueprint } from "../_shared/blueprint-reuse.ts";
 import { buildDefaultRouterConfig, callLLMOnResources } from "../_shared/llm-router.ts";
 import { selectResources } from "../_shared/resource-selection.ts";
 import { recordLLMAttempts } from "../_shared/execution-evidence.ts";
@@ -319,6 +320,15 @@ Deno.serve(async (req: Request) => {
       const kinds = ["book", "sop", "proposal", "conversation", "document"];
       const kind = typeof raw.kind === "string" && kinds.includes(raw.kind) ? raw.kind as SourceKind : null;
       return json({ ok: true, results: await searchKnowledge(adminClient(), query.slice(0, 300), kind, Number(raw.limit) || 5) });
+    }
+    if (body.action === "reuse_blueprint") {
+      // A proven deliverable (stored proposal or ingested document) adapted for another brand, checked and stored with its lineage.
+      const kind = raw.sourceKind === "knowledge_source" ? "knowledge_source" : raw.sourceKind === "client_project" ? "client_project" : null;
+      const id = typeof raw.sourceId === "string" ? raw.sourceId : "";
+      const brand = typeof raw.targetBrand === "string" ? raw.targetBrand.trim() : "";
+      if (!kind || !id || !brand) return json({ ok: false, error: "sourceKind (client_project | knowledge_source), sourceId and targetBrand required" }, 400);
+      const r = await reuseBlueprint(adminClient(), { source: { kind, id }, targetBrand: brand, store: true, requestedBy: user.email ?? user.id });
+      return json({ ...r }, r.ok ? 200 : 422);
     }
     if (body.action === "knowledge_ingest") {
       // Ingests a file the founder uploaded to the private 'documents' bucket.

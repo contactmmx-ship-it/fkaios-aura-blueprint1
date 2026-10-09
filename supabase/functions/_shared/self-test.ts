@@ -16,7 +16,7 @@
 //                    resource selection picks, the reply is schema-checked
 //   voice_turn       spoken question ─► STT ─► responder ─► TTS ─► STT back;
 //                    the answer and the reply audio are both checked
-//   knowledge_pages, history_ingest, history_retrieval, ecosystem_discovery — see knowledge-self-test.ts
+//   knowledge_pages, history_ingest, history_retrieval, ecosystem_discovery, blueprint_reuse — see knowledge-self-test.ts
 // A request may name a subset of scenarios (fkaios_self_tests.scenarios); null runs all.
 // Speech scenarios use free and local resources only (paid ones need a spend decision).
 
@@ -29,7 +29,7 @@ import { markStepsVerified } from "./execution-evidence.ts";
 import { synthesize, transcribe, wordErrorRate } from "./speech.ts";
 import { voiceTurn } from "./voice.ts";
 import { routedStructuredCall } from "./structured-reasoning.ts";
-import { ecosystemDiscoveryScenario, historyIngest, historyRetrieval, knowledgePages } from "./knowledge-self-test.ts";
+import { blueprintReuseScenario, ecosystemDiscoveryScenario, historyIngest, historyRetrieval, knowledgePages } from "./knowledge-self-test.ts";
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -172,6 +172,7 @@ export const SELF_TEST_SCENARIOS: Array<{ name: string; run: (db: Db) => Promise
   { name: "history_ingest", run: historyIngest },
   { name: "history_retrieval", run: historyRetrieval },
   { name: "ecosystem_discovery", run: ecosystemDiscoveryScenario },
+  { name: "blueprint_reuse", run: blueprintReuseScenario },
 ];
 
 /** The scenarios a request asked for (all when it names none or only unknown ones). */

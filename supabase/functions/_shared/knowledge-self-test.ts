@@ -14,6 +14,7 @@
 import { PDFDocument, PDFName, PDFNumber, StandardFonts, rgb } from "npm:pdf-lib@1.17.1";
 import { deleteSource, ingestPdf, ingestText, retrievePage, searchKnowledge } from "./knowledge-library.ts";
 import { runEcosystemDiscovery } from "./ecosystem-discovery.ts";
+import { reuseBlueprint } from "./blueprint-reuse.ts";
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -142,4 +143,17 @@ export async function ecosystemDiscoveryScenario(db: Db): Promise<ScenarioResult
   // Dedup: the second run sees the same items and must create none (barring items published in between).
   const passed = first.status !== "failed" && first.seen > 0 && second.new <= Math.max(2, Math.round(first.seen * 0.02)) && Number(count) >= first.seen - 5;
   return { scenario: "ecosystem_discovery", passed, details: { first: { run: first.runId, status: first.status, seen: first.seen, new: first.new, updated: first.updated, sources: first.sources, high_value: first.highValue.slice(0, 5), evidence: first.evidence }, second: { run: second.runId, seen: second.seen, new: second.new, updated: second.updated }, candidates_total: count, sources_answered: answered } };
+}
+
+/**
+ * Blueprint reuse on a real stored artifact: the Mr. Chick'n partnership
+ * proposal (client_projects) adapted for Chaat Masters, checked
+ * deterministically. Not stored (a founder request stores its result).
+ */
+export async function blueprintReuseScenario(db: Db): Promise<ScenarioResult> {
+  const { data: src } = await db.from("client_projects").select("id").ilike("title", "%Mr. Chick'n Franchise Partnership Proposal%").order("created_at").limit(1).maybeSingle();
+  if (!src) return { scenario: "blueprint_reuse", passed: false, details: { error: "source proposal not found" } };
+  const r = await reuseBlueprint(db, { source: { kind: "client_project", id: src.id }, targetBrand: "Chaat Masters", store: false });
+  return { scenario: "blueprint_reuse", passed: r.ok, details: { source: r.source, target: r.target, title: r.title, checks: r.checks, resources: r.resources, evidence: r.evidence, failure: r.failure,
+    sections: r.sections.map((s) => ({ heading: s.heading, inherited_from: s.inherited_from, changed: s.changed.slice(0, 4), excerpt: s.text.slice(0, 160) })), unverified: r.unverified.slice(0, 10) } };
 }
