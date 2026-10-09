@@ -129,7 +129,7 @@ export async function singlePagePdf(bytes: Uint8Array, pdfPage: number): Promise
   return await out.save();
 }
 
-const OCR_PROMPT = "This is one scanned page. Transcribe ALL text on it exactly as printed, top to bottom, keeping headings, list items and table rows on separate lines. Do not summarise, translate or add anything. If there is no legible text, respond with an empty string.";
+const OCR_PROMPT = "This page is an image (a scan or a drawing) with no text layer. Read every character, word and number visible on it, top to bottom, exactly as shown, keeping headings, list items and table rows on separate lines. Output only the transcription, with no commentary.";
 
 /**
  * OCR one page with the vision-capable models production routing currently
@@ -144,6 +144,7 @@ export async function ocrPage(db: Db, pagePdf: Uint8Array, env: Env = (k) => Den
   const models = ((data ?? []) as Array<{ model: string; lifecycle_state: string }>)
     .sort((a, b) => order.indexOf(a.lifecycle_state) - order.indexOf(b.lifecycle_state) || a.model.localeCompare(b.model)).map((m) => m.model);
   const errors: string[] = [];
+  const emptyReaders: string[] = [];
   for (const model of models) {
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
@@ -155,11 +156,15 @@ export async function ocrPage(db: Db, pagePdf: Uint8Array, env: Env = (k) => Den
       if (!res.ok) { errors.push(`${model}: HTTP ${res.status}`); await res.body?.cancel(); continue; }
       const body = await res.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
       const text = (body.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
+      // An empty reading is not proof the page is blank: let the next trusted model look before giving up.
+      if (!text) { emptyReaders.push(model); continue; }
       return { text, resource: `model:gemini:${model}` };
     } catch (e) {
       errors.push(`${model}: ${String(e).slice(0, 120)}`);
     }
   }
+  // Every model that answered read nothing: the page is recorded as uncertain, not as blank.
+  if (emptyReaders.length) return { text: "", resource: `model:gemini:${emptyReaders.join("+")}` };
   return { error: errors.length ? `all OCR resources failed: ${errors.join("; ")}` : "no adopted or verified Gemini model available for OCR" };
 }
 
