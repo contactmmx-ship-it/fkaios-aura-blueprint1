@@ -48,3 +48,4 @@ jobs:
           supabase functions deploy evolution-engine --no-verify-jwt --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy executive-brain --no-verify-jwt --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy workday-engine --no-verify-jwt --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy staff-engine --no-verify-jwt --project-ref "$SUPABASE_PROJECT_REF"

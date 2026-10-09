@@ -43,7 +43,8 @@
 // ============================================================================
 
 import { createClient, SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
-import { callLLM as routedCallLLM, buildDefaultRouterConfig, type ProviderName } from "./llm-router.ts";
+import { callLLM as routedCallLLM, callLLMOnResources, buildDefaultRouterConfig, type ProviderName } from "./llm-router.ts";
+import { selectResources } from "./resource-selection.ts";
 
 // ──────────────────────────────────────────────
 // Client
@@ -122,16 +123,26 @@ async function reasonCore(
   maxTokens = 1500,
   correlationId: string = cid(),
 ): Promise<LLMResult> {
-  const result = await routedCallLLM(
-    {
-      systemPrompt,
-      userContent,
-      maxTokens,
-      functionName: "founder-brain",
-      functionClass: "founder_intelligence",
-    },
-    buildDefaultRouterConfig(),
-  );
+  const request = { systemPrompt, userContent, maxTokens, functionName: "founder-brain", functionClass: "founder_intelligence" as const };
+  // FKAIOS resource selection first (policy order, health, verified learning:
+  // the models production actually trusts). The provider-level default chain
+  // (claude-sonnet-4-6 / gemini-2.5-flash / gpt-4o-mini) is only the fallback
+  // when selection yields nothing — on 9 Oct it failed every staff-engine
+  // call because two of its three providers have no credit.
+  let result;
+  let selected: Awaited<ReturnType<typeof selectResources>> | null = null;
+  try { selected = await selectResources(getFounderBrainClient(), "reasoning"); } catch (err) {
+    log("WARN", "reasonCore: resource selection unavailable, using provider chain", { error: err instanceof Error ? err.message : String(err) }, correlationId);
+  }
+  if (selected && selected.resources.length > 0) {
+    result = await callLLMOnResources(request, buildDefaultRouterConfig(), selected.resources);
+    if (result.status !== "success") {
+      log("WARN", "reasonCore: selected resources failed, trying provider chain", { failureReason: result.log.failure_reason }, correlationId);
+      result = await routedCallLLM(request, buildDefaultRouterConfig());
+    }
+  } else {
+    result = await routedCallLLM(request, buildDefaultRouterConfig());
+  }
 
   if (result.status !== "success") {
     log("ERROR", "reasonCore: all configured LLM providers failed", { status: result.status, failureReason: result.log.failure_reason }, correlationId);
