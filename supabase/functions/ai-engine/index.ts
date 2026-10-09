@@ -1210,20 +1210,33 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
     }
   }
 
-  // No agent prompt — generic path. THIS is where 5,970 fabrications came from.
-  // There is NO simulation fallback any more. If the LLM cannot run, the job FAILS.
+  // No agent prompt — generic path. Keep the same evidence contract as the agent path:
+  // successful research must be included in the model input and persisted in the result.
+  // Never weaken grounding to compensate for a missing handoff.
   const principlesBlock = await getFounderPrinciplesBlock("ai-engine");
+  const systemPrompt = `You are an AI engine. Job type: ${job.type}. Respond with ONLY a valid JSON object. No prose, no markdown fences. Never invent data.\n${NO_FABRICATED_PERSISTENCE_BLOCK}${capabilityBlock}${principlesBlock}`;
+  const userContent = JSON.stringify({ type: job.type, payload: job.payload }) + researchEvidence;
   const llmResult = await callLLM(
-    `You are an AI engine. Job type: ${job.type}. Respond with ONLY a valid JSON object. No prose, no markdown fences. Never invent data.\n${NO_FABRICATED_PERSISTENCE_BLOCK}${capabilityBlock}${principlesBlock}`,
-    JSON.stringify({ type: job.type, payload: job.payload }),
+    systemPrompt,
+    userContent,
     cid,
     job.type === "GENERATE_INVOICE" ? INVOICE_TOOL_SCHEMA : undefined,
   );
   await trackTokenUsage(null, llmResult.model, llmResult.inputTokens, llmResult.outputTokens, llmResult.provider, cid);
   try {
-    return job.type === "GENERATE_INVOICE"
+    const parsed = job.type === "GENERATE_INVOICE"
       ? parseAndValidateInvoicePayload(llmResult.toolCall, llmResult.text)
       : asJSONObject(extractJSONFromText(llmResult.text.replace(/```json|```/g, "").trim()), `Job ${job.id} (${job.type})`);
+    validateGrounding(llmResult.text, `${systemPrompt}\n${userContent}`, cid);
+    if (researchEvidence) {
+      return {
+        ...parsed,
+        capability: "research.run",
+        capability_result: researchResultData,
+        capability_attempts: researchResultAttempts,
+      };
+    }
+    return parsed;
   } catch (err) {
     // Even an unparseable/invalid response is a REAL FAILURE, not a
     // placeholder. Re-thrown with the job's own identity for the retry/
