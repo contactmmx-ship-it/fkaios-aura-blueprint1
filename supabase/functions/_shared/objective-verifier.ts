@@ -91,7 +91,7 @@ DELIVERABLE>>>
 
 Instructions:
 1. List every explicit requirement in the ORIGINAL OBJECTIVE (counts, required items, required quotes, format, constraints such as "only use X"), plus every contract criterion. Use them as the criteria.
-2. For each criterion decide met true/false. If met, copy an exact short quote (5-30 words) from the DELIVERABLE that shows it. If not met, describe the concrete issue.
+2. For each criterion decide met true/false. If met, copy an exact, contiguous, verbatim substring (5-30 words) from the DELIVERABLE that shows it. Do not paraphrase, add ellipses, normalize punctuation, or combine non-adjacent phrases in evidence_quote; the quote must appear exactly in the deliverable. If not met, describe the concrete issue.
 3. Add a criterion "No claims unsupported by the recorded evidence" and judge it.
 4. Set needs_human_decision true ONLY if completing the objective requires a decision, approval, payment, credential or physical action that no AI system can take.
 5. IMPORTANT: Do NOT set needs_human_decision merely because the report identifies missing client information, unknown financials, unconfirmed IP/trademark status, or unanswered questions. If the ORIGINAL OBJECTIVE explicitly asks to list missing information, that list is a deliverable, not a blocker. Verify the report and mark those items as outstanding assumptions/inputs; require a human decision only if the requested deliverable itself cannot be produced without that action.
