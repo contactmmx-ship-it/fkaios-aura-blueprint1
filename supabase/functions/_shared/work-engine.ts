@@ -56,6 +56,7 @@ import { founderMemory } from "./founder-brain.ts";
 import { getWorkforce, type EmployeeSummary } from "./executive-planner.ts";
 import { executeCapability } from "./company-os.ts";
 import { compactDispatchForStorage } from "./fact-grounding.ts";
+import { serializeTaskOutput } from "./task-output.ts";
 
 function getClient() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
@@ -417,8 +418,12 @@ export async function returnCompletedWork(): Promise<{ returned: number; dispatc
       }
     }
 
-    // 20000 chars: a full deliverable (e.g. a rectified report) must survive intact for verification.
-    await client.from("orchestration_tasks").update({ status: "done", output: JSON.stringify(finalOutput).slice(0, 20000) }).eq("id", task.id);
+    // Preserve valid JSON for the verifier. A character slice can silently corrupt
+    // the envelope and erase companyOsDispatch, making a successful research task
+    // look like it had no source. serializeTaskOutput removes the duplicated raw
+    // research payload (retained in compact companyOsDispatch.data_excerpt) and
+    // never truncates the serialized JSON.
+    await client.from("orchestration_tasks").update({ status: "done", output: serializeTaskOutput(finalOutput) }).eq("id", task.id);
     try {
       // EVOLUTION AUDIT FINDING (2026-07-18): this previously hardcoded
       // success:true unconditionally, even when a Company OS dispatch
