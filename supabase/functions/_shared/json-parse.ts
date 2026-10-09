@@ -13,14 +13,14 @@ export function parseJSONCandidate(candidate: string): unknown {
       if (inString) {
         normalized += ch;
         if (escaped) escaped = false;
-        else if (ch === "\\\\") escaped = true;
-        else if (ch === "\\\"") inString = false;
+        else if (ch === "\\") escaped = true;
+        else if (ch === '"') inString = false;
         continue;
       }
-      if (ch === "\\\"") { inString = true; normalized += ch; continue; }
+      if (ch === '"') { inString = true; normalized += ch; continue; }
       if (ch === ",") {
         let next = i + 1;
-        while (next < candidate.length && /\\s/.test(candidate[next])) next++;
+        while (next < candidate.length && /\s/.test(candidate[next])) next++;
         if (candidate[next] === "}" || candidate[next] === "]") continue;
       }
       normalized += ch;
