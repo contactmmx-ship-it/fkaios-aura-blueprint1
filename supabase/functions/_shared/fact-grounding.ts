@@ -280,3 +280,14 @@ export function formatBlockedSummary(gate: ObjectiveTaskGate): string {
   ];
   return lines.join("\n");
 }
+
+/** Format measured external research once so all worker paths consume the same evidence shape. */
+export function buildResearchEvidenceBlock(data: unknown): string {
+  return `\n\n[REAL EXTERNAL RESEARCH EVIDENCE — USE ONLY THIS DATA; DO NOT FABRICATE]\n${JSON.stringify(data).slice(0, 12000)}\n[/REAL EXTERNAL RESEARCH EVIDENCE]`;
+}
+
+/** Attach the actual research dispatch record to a parsed worker result without weakening grounding. */
+export function attachResearchCapabilityResult(parsed: Record<string, unknown>, evidencePresent: boolean, data: unknown, attempts: number): Record<string, unknown> {
+  if (!evidencePresent) return parsed;
+  return { ...parsed, capability: "research.run", capability_result: data, capability_attempts: attempts };
+}
