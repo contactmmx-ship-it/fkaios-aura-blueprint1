@@ -112,3 +112,29 @@ Superseded by later decisions: the fixed "41 permanent agents" model (H12), "Ope
 2. 04:45 UTC: verify the executive engines' scheduled runs.
 3. Add a bounded timeout to stale `generating` builds and non-terminal orchestration rows.
 4. Write SECURITY_AND_RECOVERY, OPERATIONS_RUNBOOK and CURRENT_STATE.
+
+## Cycle 3 — 9 Oct 2026, 03:55 UTC: repairs and verification
+
+**Knowledge library verified in production** (self-test f5d930dd):
+- Exact-page retrieval passes all 9 checks, including OCR of a scanned page.
+- History retrieval passes both queries.
+
+**Executive engines (item 3):**
+- `ceo-think-daily` (opportunity-engine) ran on schedule at 03:30 UTC: HTTP 200, 4 proposals, served by gemini-3.5-flash-lite through resource routing, $0.003.
+- `enterprise-evolution-daily` (04:00) and `executive-brain-daily` (04:30) are due; the 04:45 check-in verifies them.
+
+**Defects found in the same 03:30 cron window:**
+- **workday-engine morning:** 0 of 41 agents planned. It was hard-wired to Anthropic plus fixed gemini-2.5-flash, and the error was swallowed.
+  - Repaired in repo v3: routed through `routedStructuredCall`, schema enforced, failure reason logged.
+  - Reconciled with the deployed v22 (founder principles) and added to the CI deploy path.
+- **auto-agents-daily-report → staff-engine:** HTTP 502, because Founder Brain `reasonCore` reported "anthropic: credit_exhaustion".
+  - Not yet repaired. `_shared/founder-brain.ts` uses the older provider-level router.
+
+**Stale-work reaper** (migration `20261009034813`, cron `fkaios-reap-stale-work` hourly at :07):
+- The first run marked 9 builds and 22 orchestration projects failed, each with its reason. No rows were deleted.
+
+**Next:**
+1. Deploy workday-engine.
+2. Trigger today's morning phase once and verify.
+3. Repair the founder-brain `reasonCore` routing (staff-engine 502).
+4. 04:45: verify the executive engines.
