@@ -220,7 +220,7 @@ Deno.test("F1: stringified prior_completed_tasks are parsed and source evidence 
   const prior = JSON.stringify([{
     title: "Market and Regulatory Research",
     output: {
-      companyOsDispatch: { status: "success", capability: "research.run" },
+      companyOsDispatch: { status: "success", capability: "research.run", data_excerpt: JSON.stringify({ queries: [{ query: "official source", results: [{ sources: [{ url: "https://example.gov.in/guideline", title: "Official guideline" }] }] }] }) },
       llmResult: { sources: [{ url: "https://example.gov.in/guideline", title: "Official guideline" }] },
     },
   }]);
@@ -231,7 +231,7 @@ Deno.test("F1: stringified prior_completed_tasks are parsed and source evidence 
 
 Deno.test("F2: report passes grounding only when its citations are in verified prior evidence", () => {
   const prior = JSON.stringify([{
-    output: { companyOsDispatch: { status: "success", capability: "research.run" }, llmResult: { sources: [{ url: "https://example.gov.in/guideline", title: "Official guideline" }] } },
+    output: { companyOsDispatch: { status: "success", capability: "research.run", data_excerpt: JSON.stringify({ queries: [{ query: "official source", results: [{ sources: [{ url: "https://example.gov.in/guideline", title: "Official guideline" }] }] }] }) }, llmResult: { sources: [{ url: "https://example.gov.in/guideline", title: "Official guideline" }] } },
   }]);
   const prior_evidence = summarizePriorEvidence(prior);
   const task = { title: "Compile and verify the final report", description: "Use prior research and cite sources." };
