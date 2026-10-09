@@ -180,7 +180,26 @@ const INCUMBENT_REUSE_HOURS = 24;
 
 interface EvalCase { id: string; suite: string; suite_version: number; case_key: string; task_class: string; system_prompt: string; prompt: string; checks: EvalCheck[] }
 interface CaseResult { score: number; passed: boolean; step_id: string | null; latency_ms: number | null; error?: string; reused?: boolean }
-interface Progress { suite_version: number; incumbents: Record<string, string>; results: Record<string, Record<string, CaseResult>>; spent_usd: number }
+interface Progress { suite_version: number; incumbents: Record<string, string>; results: Record<string, Record<string, CaseResult>>; spent_usd: number; deferrals?: number; last_deferral?: string | null }
+
+/**
+ * A test whose resource keeps failing transiently (a free-tier daily quota,
+ * sustained overload) must not hold the executor forever: one such candidate
+ * starved the whole queue overnight on 8 Oct 2026. After this many consecutive
+ * deferrals without progress the test is cancelled (not judged) and the
+ * candidate is left for discovery to re-queue later.
+ */
+export const MAX_CANDIDATE_DEFERRALS = 5;
+export const MAX_INCUMBENT_DEFERRALS = 10;
+
+/** Pure: what to do with a test after a batch that made no progress. */
+export function deferralDecision(prog: Progress, deferredRef: string, candidateRef: string): { cancel: boolean; reason: string | null } {
+  const n = prog.deferrals ?? 0;
+  const onCandidate = deferredRef === candidateRef;
+  if (onCandidate && n >= MAX_CANDIDATE_DEFERRALS) return { cancel: true, reason: `candidate quota/capacity exhausted (${n} consecutive deferrals); left for discovery to re-queue` };
+  if (!onCandidate && n >= MAX_INCUMBENT_DEFERRALS) return { cancel: true, reason: `incumbent ${deferredRef} unavailable (${n} consecutive deferrals); left for discovery to re-queue` };
+  return { cancel: false, reason: null };
+}
 
 function resourceFromRef(ref: string): ExecutionResource | null {
   const p = parseRef(ref);
@@ -257,6 +276,8 @@ export async function runCapabilityTestStep(db: Db): Promise<Record<string, unkn
 
   const budget = Math.max(Number(test.budget_usd ?? 0), DEFAULT_BUDGET_USD);
   let deferred: string | null = null;
+  let deferredRef: string | null = null;
+  const resultsBefore = Object.values(prog.results).reduce((n, byCase) => n + Object.keys(byCase).length, 0);
   for (const { res, c } of todo.slice(0, BATCH)) {
     if (prog.spent_usd >= budget) { deferred = "budget"; break; }
     const startedAt = new Date();
@@ -268,7 +289,7 @@ export async function runCapabilityTestStep(db: Db): Promise<Record<string, unkn
     prog.spent_usd += Number(r.log.estimated_cost_usd ?? 0);
     const failure = r.log.attempts[r.log.attempts.length - 1]?.failureCategory ?? null;
     if (r.status !== "success") {
-      if (failure === "rate_limit" || failure === "timeout" || failure === "provider_outage") { deferred = `${res.ref}: ${failure}`; break; }
+      if (failure === "rate_limit" || failure === "timeout" || failure === "provider_outage") { deferred = `${res.ref}: ${failure}`; deferredRef = res.ref; break; }
       // Any other failure is a real result for that resource on that case.
       prog.results[res.ref] = { ...(prog.results[res.ref] ?? {}), [c.case_key]: { score: 0, passed: false, step_id: stepIds.at(-1) ?? null, latency_ms: r.log.latency_ms, error: failure ?? r.status } };
       if (res.ref === candidate.ref && failure === "model_unavailable") break;
@@ -283,6 +304,22 @@ export async function runCapabilityTestStep(db: Db): Promise<Record<string, unkn
   const done = candidateUnavailable || cases.every((c) => candidateResults[c.case_key] && (!prog.incumbents[c.task_class] || prog.results[prog.incumbents[c.task_class]]?.[c.case_key]));
   if (!done) {
     if (prog.spent_usd >= budget) { await finish(db, testId, "failed", { progress: prog }, `budget ${budget} USD exhausted`); return { test: testId, failed: "budget" }; }
+    const resultsAfter = Object.values(prog.results).reduce((n, byCase) => n + Object.keys(byCase).length, 0);
+    if (deferredRef && resultsAfter === resultsBefore) {
+      prog.deferrals = (prog.deferrals ?? 0) + 1;
+      prog.last_deferral = deferred;
+      const decision = deferralDecision(prog, deferredRef, candidate.ref);
+      if (decision.cancel) {
+        await finish(db, testId, "cancelled", { progress: prog }, decision.reason ?? "deferred too often");
+        // Not a verdict: the candidate returns to the pool and its registry row to 'discovered'.
+        await db.from("capability_discovery_candidates").update({ status: "eligible" }).eq("id", cand.id);
+        await db.from("model_registry").update({ lifecycle_state: "discovered", updated_at: new Date().toISOString() }).eq("resource_ref", candidate.ref).eq("lifecycle_state", "testing");
+        return { test: testId, candidate: candidate.ref, cancelled: decision.reason };
+      }
+    } else if (resultsAfter > resultsBefore) {
+      prog.deferrals = 0;
+      prog.last_deferral = null;
+    }
     await db.from("capability_test_queue").update({ evidence: { progress: prog } }).eq("id", testId).eq("lease_owner", EXECUTOR);
     return { test: testId, candidate: candidate.ref, progressed: true, remaining: todo.length - Math.min(BATCH, todo.length), deferred };
   }
