@@ -183,6 +183,7 @@ export interface DiscoveryReport {
 }
 
 export const MAX_ACTIVE_TESTS = 3;
+export const QUOTA_RETRY_HOURS = 6;
 
 export async function runCapabilityDiscovery(db: Db, env: (k: string) => string | undefined = (k) => Deno.env.get(k), now = new Date()): Promise<DiscoveryReport> {
   const listings = await listProviders(env);
@@ -285,6 +286,12 @@ export async function runCapabilityDiscovery(db: Db, env: (k: string) => string 
       if (slots <= 0) break;
       const { data: prior } = await db.from("capability_test_queue").select("id").eq("candidate_id", c.id).eq("benchmark_suite", "fkaios_core").in("status", ["queued", "running", "passed", "failed"]).limit(1);
       if ((prior ?? []).length) continue; // evaluated before; re-tests come from monitoring, not discovery
+      // A test cancelled because the candidate's own quota/capacity was exhausted
+      // is retried after a cool-down, not every hour (it would hold the executor
+      // for 5 ticks each time and delay every other candidate).
+      const { data: coolingDown } = await db.from("capability_test_queue").select("id").eq("candidate_id", c.id).eq("status", "cancelled")
+        .like("last_error", "candidate quota/capacity exhausted%").gte("completed_at", new Date(now.getTime() - QUOTA_RETRY_HOURS * 3600_000).toISOString()).limit(1);
+      if ((coolingDown ?? []).length) continue;
       const { error } = await db.from("capability_test_queue").insert({ candidate_id: c.id, benchmark_suite: "fkaios_core", priority: evaluationPriority(c.model), status: "queued" });
       if (!error) {
         slots--;

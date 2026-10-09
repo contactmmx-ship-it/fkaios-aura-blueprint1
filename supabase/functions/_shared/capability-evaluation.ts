@@ -400,21 +400,50 @@ async function proposeAdoption(db: Db, p: { taskClass: string; candidate: Execut
 
   const description = `Route ${p.taskClass} work to ${p.candidate.ref} instead of ${p.incumbentRef}: golden suite ${p.suiteKey} score ${(p.candidateScore * 100).toFixed(0)} vs ${(p.incumbentScore * 100).toFixed(0)}.`;
   if (gov.mode === "autonomous") {
-    const { data: appr } = await db.from("approvals").insert({ requested_by_agent: "fkaios-capability-evaluator", department_code: null, action_type: "capability_adoption",
-      payload: { proposal_id: proposal.id, task_class: p.taskClass, candidate: p.candidate.ref, incumbent: p.incumbentRef, evidence }, risk_level: "low",
+    const { data: appr } = await db.from("approvals").insert({ requested_by_agent: null, department_code: null, action_type: "capability_adoption",
+      payload: { requested_by: EXECUTOR, proposal_id: proposal.id, task_class: p.taskClass, candidate: p.candidate.ref, incumbent: p.incumbentRef, evidence }, risk_level: "low",
       reason: `${description} Decided by policy, not by the founder: ${gov.reason}.`, status: "approved", decided_by: "policy:autonomous_adoption_v1", decided_at: new Date().toISOString() }).select("id").single();
     const { data: policyId, error } = await db.rpc("fkaios_adopt_routing", { p_task_class: p.taskClass, p_resource_ref: p.candidate.ref, p_proposal_id: proposal.id, p_approval_id: appr?.id, p_reason: description, p_evidence: evidence, p_monitor_hours: 72 });
     return { proposal: proposal.id, mode: "autonomous", adopted: !error, policy: policyId ?? null, error: error?.message };
   }
-  const { data: appr } = await db.from("approvals").insert({ requested_by_agent: "fkaios-capability-evaluator", department_code: null, action_type: "capability_adoption",
-    payload: { proposal_id: proposal.id, task_class: p.taskClass, candidate: p.candidate.ref, incumbent: p.incumbentRef, evidence }, risk_level: "low",
+  const { data: appr } = await db.from("approvals").insert({ requested_by_agent: null, department_code: null, action_type: "capability_adoption",
+    payload: { requested_by: EXECUTOR, proposal_id: proposal.id, task_class: p.taskClass, candidate: p.candidate.ref, incumbent: p.incumbentRef, evidence }, risk_level: "low",
     reason: `${description} Needs founder approval: ${gov.reason}.`, status: "pending" }).select("id").single();
   await db.from("capability_adoption_proposals").update({ approval_id: appr?.id ?? null, evidence: { ...evidence, approval_requested: true } }).eq("id", proposal.id);
   return { proposal: proposal.id, mode: "founder", approval: appr?.id ?? null, reason: gov.reason };
 }
 
+/**
+ * Self-healing: a founder-governed proposal whose approval request was never
+ * recorded gets one now. (approvals.requested_by_agent is a uuid column; until
+ * 9 Oct 2026 a text value made that insert fail, so the first verified
+ * candidate, gemini-3.7-flash, had a proposal but no request in front of the founder.)
+ */
+export async function ensureProposalApprovals(db: Db): Promise<Record<string, unknown>[]> {
+  const { data: orphans } = await db.from("capability_adoption_proposals")
+    .select("id,candidate_resource_key,incumbent_resource_key,capability_id,candidate_score,incumbent_score,evidence")
+    .eq("recommendation", "candidate").is("approval_id", null);
+  const out: Record<string, unknown>[] = [];
+  for (const p of (orphans ?? []) as Array<Record<string, unknown>>) {
+    const evidence = (p.evidence ?? {}) as Record<string, unknown>;
+    const gov = (evidence.governance ?? {}) as { mode?: string; reason?: string };
+    if (gov.mode !== "founder") continue;
+    const { data: cap } = await db.from("capability_registry").select("name").eq("id", p.capability_id).maybeSingle();
+    const taskClass = String(cap?.name ?? "").replace(/^llm:/, "") || null;
+    const description = `Route ${taskClass ?? "this capability"} work to ${p.candidate_resource_key} instead of ${p.incumbent_resource_key}: golden suite ${evidence.suite ?? ""} score ${p.candidate_score} vs ${p.incumbent_score}.`;
+    const { data: appr, error } = await db.from("approvals").insert({ requested_by_agent: null, department_code: null, action_type: "capability_adoption",
+      payload: { requested_by: EXECUTOR, proposal_id: p.id, task_class: taskClass, candidate: p.candidate_resource_key, incumbent: p.incumbent_resource_key, evidence }, risk_level: "low",
+      reason: `${description} Needs founder approval: ${gov.reason ?? "governance policy"}.`, status: "pending" }).select("id").single();
+    if (error || !appr) { out.push({ proposal: p.id, error: error?.message ?? "approval insert failed" }); continue; }
+    await db.from("capability_adoption_proposals").update({ approval_id: appr.id, evidence: { ...evidence, approval_requested: true } }).eq("id", p.id);
+    out.push({ proposal: p.id, approval: appr.id });
+  }
+  return out;
+}
+
 /** Founder decisions made in the Decision Center are applied here. */
 export async function applyAdoptionDecisions(db: Db): Promise<Record<string, unknown>[]> {
+  await ensureProposalApprovals(db);
   const { data: open } = await db.from("capability_adoption_proposals").select("id,candidate_resource_key,capability_id,approval_id,evidence").eq("recommendation", "candidate").not("approval_id", "is", null);
   const out: Record<string, unknown>[] = [];
   for (const p of (open ?? []) as Array<Record<string, unknown>>) {
