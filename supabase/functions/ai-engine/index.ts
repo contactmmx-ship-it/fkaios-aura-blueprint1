@@ -1107,7 +1107,7 @@ function buildFounderResearchQueries(taskTitle: string, taskDescription: string)
     const queries: string[] = [];
     if (market) queries.push("India preschool franchise market competitors Kidzee EuroKids Bachpan Little Millennium franchise models demand official brand sources");
     if (regulatory) {
-      queries.push("India National Education Policy 2020 foundational stage early childhood care education official Ministry of Education site:education.gov.in OR site:education.gov.in.in");
+      queries.push("India National Education Policy 2020 foundational stage early childhood care education official Ministry of Education site:education.gov.in");
       queries.push("India preschool child safety guidelines NCPCR registration state government official site:ncpcr.gov.in OR site:gov.in");
     }
     if (queries.length > 0) return queries;
@@ -1152,12 +1152,12 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
   const isDownstreamSynthesisTask = hasPriorCompletedEvidence && /\b(compile|final report|synthesis|verify|verification)\b/i.test(taskText);
   const researchNeeded = !isRectification && !hasPriorCompletedEvidence && !isDownstreamSynthesisTask && needsResearchBeforeAnswer({ title: job.payload?.title, description: job.payload?.description });
   if (researchNeeded && taskText) {
-    const researchStartedAt = Date.now();
     const researchTitle = typeof job.payload?.title === "string" ? job.payload.title : taskText;
     const researchDescription = typeof job.payload?.description === "string" ? job.payload.description : "";
     const researchQueries = buildFounderResearchQueries(researchTitle, researchDescription);
     const researchResults: Array<Record<string, unknown>> = [];
     for (const researchQuery of researchQueries) {
+      const researchStartedAt = Date.now();
       const research = await executeCapability("research.run", { query: researchQuery, requested_by: "fkaios-orchestrator" }, cid);
       await recordToolStep("research.run", research.status, researchStartedAt, research.status === "success" ? null : String(research.error ?? research.status));
       if (research.status !== "success") {
