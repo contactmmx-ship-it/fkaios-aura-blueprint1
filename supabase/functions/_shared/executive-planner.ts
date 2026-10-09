@@ -142,6 +142,32 @@ export async function planObjective(objective: Objective, correlationId?: string
       .map((item) => ({ title: String(item.title), description: String((item as any).description ?? "") }));
   }
 
+  // INFORMATION OBJECTIVES MUST END WITH A HUMAN-READABLE REPORT.
+  // Research/analysis tasks commonly return structured capability JSON. That
+  // is evidence, not the founder-facing deliverable. Always reserve the final
+  // task for synthesis and source-grounded quality checks so the objective
+  // cannot finish with only raw tool envelopes.
+  if (contract.objectiveType === "information") {
+    const synthesisPattern = /\b(synthesi[sz]e|consolidat(e|ed|ion)|final report|decision-ready report|compile the report|final deliverable)\b/i;
+    const researchTasks = taskDrafts.filter((task) => !synthesisPattern.test(task.title + " " + task.description)).slice(0, 3);
+    taskDrafts = [
+      ...researchTasks,
+      {
+        title: "Compile and verify the final report",
+        description: [
+          "Produce the actual human-readable final deliverable for this objective, using the completed preceding tasks as source evidence. Do not return raw JSON, dispatch envelopes, or a summary of tools.",
+          "Preserve traceability: for every material external factual claim, provide the exact source title, publisher, URL, publication/update date when available, and access date. Never invent URLs, dates, market figures, rankings, or quotes. Clearly label verified facts, company marketing claims, estimates, assumptions, and unknowns.",
+          "Include: executive summary; five most important findings; evidence-backed comparison table; market/demand evidence; relevant laws and official guidance with jurisdiction and applicability caveats; SWOT; practical 90-day action plan with owners, milestones and measurable acceptance evidence; missing-information checklist; risks and recommendation.",
+          "Use only evidence present in completed task outputs or directly available verified sources. If evidence is missing, state the gap and how to validate it instead of guessing. Flag any conflicting or stale source.",
+          "Before finishing, check that the report is coherent Markdown, every comparison has a source and date, claims are separated from estimates, all requested sections are present, and the recommendations follow from the evidence.",
+          "Original objective: " + objective.raw_request,
+          "Completion contract: " + JSON.stringify(contract),
+          "Objective contract and acceptance criteria: " + JSON.stringify(discoveryContract).slice(0, 5000),
+        ].join("\n\n"),
+      },
+    ];
+  }
+
   const { data: proj, error: pErr } = await client
     .from("orchestration_projects")
     .insert({ request: `[objective:${objective.id}] ${objective.raw_request}`.slice(0, 2000), status: "working", output_type: projectOutputType(contract.objectiveType) })
