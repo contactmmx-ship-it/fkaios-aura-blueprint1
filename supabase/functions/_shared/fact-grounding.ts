@@ -33,6 +33,23 @@ export function requiresExternalFacts(task: { title?: unknown; description?: unk
   return EXTERNAL_FACT_VERBS.test(text) && EXTERNAL_FACT_SUBJECTS.test(text);
 }
 
+// Worker-side decision, made BEFORE the model is asked to answer: should the
+// worker acquire external evidence (research.run) first? It must be true for
+// every task checkWorkerGrounding() would reject as needing external facts —
+// otherwise the worker answers without research and the answer is then
+// rejected as ungrounded. That is exactly what blocked Kids DPS 20cbf892 on
+// 9 Oct 13:30 UTC: "90-Day Action Plan, KPIs, Dependencies, and Missing
+// Information List" matched this module's rule ("list" + "competitors") but
+// not ai-engine's own word list ("competitor" singular, no "list"), so no
+// research ran and the task was failed no_data_source.
+const RESEARCH_WORDS = /\b(research|market|facts?|sources?|verify|distributors?|competitors?|industry|trends?|data collection)\b/i;
+
+export function needsResearchBeforeAnswer(task: { title?: unknown; description?: unknown }): boolean {
+  if (typeof task.title === "string" && /^Rectify:/i.test(task.title)) return false;
+  const text = `${typeof task.title === "string" ? task.title : ""}\n${typeof task.description === "string" ? task.description : ""}`;
+  return RESEARCH_WORDS.test(text) || requiresExternalFacts(task);
+}
+
 export type WorkerGrounding = { ok: true } | { ok: false; reason: string };
 
 // Worker-side check, applied to a work_engine_task result BEFORE it may be
