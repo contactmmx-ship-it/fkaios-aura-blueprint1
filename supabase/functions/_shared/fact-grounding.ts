@@ -50,6 +50,45 @@ export function needsResearchBeforeAnswer(task: { title?: unknown; description?:
   return RESEARCH_WORDS.test(text) || requiresExternalFacts(task);
 }
 
+export interface PriorEvidenceSummary { verified: boolean; source_count: number; sources: Array<{ url: string; title: string }>; }
+function parsePriorTaskOutput(value: unknown): Record<string, unknown> | null {
+  if (typeof value === "string") {
+    try { const parsed = JSON.parse(value); return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null; }
+    catch { return null; }
+  }
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+export function parsePriorCompletedTasks(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") { try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed : []; } catch { return []; } }
+  return [];
+}
+export function summarizePriorEvidence(value: unknown): PriorEvidenceSummary {
+  const unique = new Map<string, { url: string; title: string }>();
+  for (const task of parsePriorCompletedTasks(value)) {
+    const row = parsePriorTaskOutput(task); if (!row) continue;
+    const output = parsePriorTaskOutput(row.output) ?? (row.output && typeof row.output === "object" ? row.output as Record<string, unknown> : null);
+    if (!output) continue;
+    const dispatch = output.companyOsDispatch && typeof output.companyOsDispatch === "object" ? output.companyOsDispatch as Record<string, unknown> : null;
+    const llm = output.llmResult && typeof output.llmResult === "object" ? output.llmResult as Record<string, unknown> : null;
+    if (dispatch?.status !== "success" || dispatch.capability !== "research.run" || !llm) continue;
+    for (const item of Array.isArray(llm.sources) ? llm.sources : []) {
+      if (!item || typeof item !== "object") continue;
+      const source = item as Record<string, unknown>;
+      if (typeof source.url !== "string" || !(source.url.startsWith("https://") || source.url.startsWith("http://"))) continue;
+      unique.set(source.url, { url: source.url, title: typeof source.title === "string" ? source.title : source.url });
+    }
+  }
+  const sources = [...unique.values()];
+  return { verified: sources.length > 0, source_count: sources.length, sources };
+}
+function priorEvidenceSupportsResult(result: Record<string, unknown>): boolean {
+  const prior = result.prior_evidence && typeof result.prior_evidence === "object" ? result.prior_evidence as Record<string, unknown> : null;
+  if (prior?.verified !== true || Number(prior.source_count) < 1 || !Array.isArray(prior.sources)) return false;
+  const allowed = new Set(prior.sources.flatMap((source) => source && typeof source === "object" && typeof (source as Record<string, unknown>).url === "string" ? [(source as Record<string, unknown>).url as string] : []));
+  const cited = Array.isArray(result.sources) ? result.sources : [];
+  return cited.length > 0 && cited.every((source) => source && typeof source === "object" && typeof (source as Record<string, unknown>).url === "string" && allowed.has((source as Record<string, unknown>).url as string));
+}
 export type WorkerGrounding = { ok: true } | { ok: false; reason: string };
 
 // Worker-side check, applied to a work_engine_task result BEFORE it may be
@@ -61,6 +100,7 @@ export function checkWorkerGrounding(
 ): WorkerGrounding {
   const obj = result && typeof result === "object" && !Array.isArray(result) ? result as Record<string, unknown> : null;
   if (obj && typeof obj.capability === "string" && obj.capability.length > 0) return { ok: true };
+  if (obj && priorEvidenceSupportsResult(obj)) return { ok: true };
   if (obj && obj.status === NO_DATA_SOURCE) {
     const reason = typeof obj.reason === "string" && obj.reason ? obj.reason : "worker reported no data source for this task";
     return { ok: false, reason };
@@ -124,6 +164,10 @@ export function assessTaskEvidence(task: TaskEvidenceRecord): { verdict: TaskVer
     }
     if (d.capability === KNOWLEDGE_SEARCH) return assessKnowledgeSearch(task, d);
     return { verdict: "verified", reason: `capability ${String(d.capability ?? "unknown")} succeeded` };
+  }
+  const llmResult = output?.llmResult && typeof output.llmResult === "object" ? output.llmResult as Record<string, unknown> : null;
+  if (llmResult && priorEvidenceSupportsResult(llmResult)) {
+    return { verdict: "verified", reason: "report cites sources from a successful prior research task" };
   }
   // Checked before the missing-output case: returnCompletedWork() truncates
   // output to 5000 chars, so a long fabricated answer is stored as invalid
