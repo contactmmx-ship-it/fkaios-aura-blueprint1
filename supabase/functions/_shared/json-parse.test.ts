@@ -22,3 +22,9 @@ Deno.test("still rejects malformed JSON unrelated to trailing commas", () => {
   try { parseJSONCandidate('{"name":Kids DPS}'); } catch { rejected = true; }
   assert(rejected, "parser must not guess unquoted string values");
 });
+
+Deno.test("repairs unquoted object keys but not bare values", () => {
+  const parsed = parseJSONCandidate('{name: "Kids DPS", items:[1,2,],}') as { name: string; items: number[] };
+  assert(parsed.name === "Kids DPS", "unquoted object key must be normalized");
+  assert(parsed.items.length === 2, "trailing array comma must be normalized");
+});
