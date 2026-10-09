@@ -1,5 +1,5 @@
 /// <reference lib="deno.ns" />
-import { prepareTaskOutputForStorage, serializeTaskOutput } from "./task-output.ts";
+import { serializeTaskOutput } from "./task-output.ts";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -13,7 +13,7 @@ Deno.test("research task output stays valid JSON and preserves capability eviden
       deliverable: { findings: ["Finding A", "Finding B"] },
       capability_result: { results: [{ title: "raw result", html: "x".repeat(30000) }] },
     },
-    companyOsDispatch: { capability: "research.run", status: "success", attempts: 1, data_excerpt: "{\\"result_count\\":1}" },
+    companyOsDispatch: { capability: "research.run", status: "success", attempts: 1, data_excerpt: "result_count=1" },
   };
   const serialized = serializeTaskOutput(input);
   const parsed = JSON.parse(serialized) as Record<string, unknown>;
