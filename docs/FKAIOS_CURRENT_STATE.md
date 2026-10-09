@@ -22,7 +22,9 @@ This page is the short answer to "what really works today". Detail is in the [ac
 **Daily ecosystem discovery:**
 - The first real scheduled run was 9 Oct 08:21 IST: 6 sources, 180 candidates, deduplicated, metadata only.
 
-**Executive engine:** opportunity-engine ran on schedule (03:30 UTC) through resource routing and produced 4 proposals.
+**Executive engines:** all three ran on schedule through resource routing on free Gemini: opportunity (03:30, 4 proposals), evolution (04:00, 6 proposals) and executive-brain (04:30, 6 executives with conflict arbitration).
+
+**Blueprint reuse:** a stored proposal was adapted for another brand, checked by code and corrected once (699ba88a).
 
 **Stale-work reaper:** runs hourly; there are no more indefinite `generating` or `working` states.
 
@@ -30,8 +32,7 @@ This page is the short answer to "what really works today". Detail is in the [ac
 
 ## Implemented, awaiting proof
 
-- **workday-engine and staff-engine routing repairs:** deploying now. The next scheduled phase, or a manual run, proves them.
-- **evolution-engine and executive-brain:** scheduled for 04:00 and 04:30 UTC.
+- None: workday-engine (41 of 41) and the staff-engine report were verified at 03:57; evolution-engine (04:00, 6 proposals) and executive-brain (04:30, 6 executives) were verified on schedule.
 
 ## Not proven / blocked
 
