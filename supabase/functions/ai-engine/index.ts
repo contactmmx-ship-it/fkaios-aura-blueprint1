@@ -1169,7 +1169,8 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
     researchResultData = researchResults.length === 1 ? researchResults[0] : { queries: researchResults };
     researchEvidence = `\n\n[REAL EXTERNAL RESEARCH EVIDENCE — USE ONLY THIS DATA; DO NOT FABRICATE]\n${JSON.stringify(researchResultData).slice(0, 12000)}\n[/REAL EXTERNAL RESEARCH EVIDENCE]`;
     structuredLog("INFO", "Founder research evidence acquired before task generation", { objectiveId: job.payload?.objective_id, taskId: job.payload?.task_id, capability: "research.run", queryCount: researchQueries.length }, cid);
-  }}
+  }
+}
 
 async function queueJob(type: string, payload: Record<string, unknown>, agentId: string | undefined, cid: string) {
   structuredLog("INFO", "Queuing new job", { type, agentId }, cid);
