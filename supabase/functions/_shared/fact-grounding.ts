@@ -278,7 +278,7 @@ export function compactDispatchForStorage(dispatch: unknown): Record<string, unk
       const q = query && typeof query === "object" ? query as Record<string, unknown> : {};
       const results = (Array.isArray(q.results) ? q.results : []).slice(0, 2).map((result) => {
         const r = result && typeof result === "object" ? result as Record<string, unknown> : {};
-        const sources = (Array.isArray(r.sources) ? r.sources : []).slice(0, 6).map((source) => {
+        const sources = (Array.isArray(r.sources) ? r.sources : []).slice(0, 8).map((source) => {
           const src = source && typeof source === "object" ? source as Record<string, unknown> : {};
           return { url: src.url ?? null, title: src.title ?? null, date: src.date ?? null };
         });
