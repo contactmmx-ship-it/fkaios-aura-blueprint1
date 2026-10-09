@@ -1237,11 +1237,17 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
   // successful research must be included in the model input and persisted in the result.
   // Never weaken grounding to compensate for a missing handoff.
   const principlesBlock = await getFounderPrinciplesBlock("ai-engine");
+  const priorEvidence = Array.isArray(job.payload?.prior_completed_tasks)
+    ? "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(job.payload.prior_completed_tasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
+    : "";
+  const verificationContract = !isRectification && priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)
+    ? "\n\nThis is a downstream verification/report task. Return ONLY JSON with verified_facts, report, and sources. Every verified_fact must include fact, source_url, source_title, and verification_note. Every source_url must appear in the supplied prior evidence. Do not include unsupported facts. If prior evidence lacks suitable sources, say so clearly and list the exact missing evidence instead of substituting unrelated sources."
+    : "";
   const researchCitationContract = researchEvidence
     ? "\n\nRESEARCH CITATION CONTRACT: Use only specific sources contained in the attached research results. For every external factual claim, include a source URL and source title from an organic result; never cite the Google search-results page itself as proof. Include a sources array with title, url, published_date (null if unavailable), and claims_supported. Separate verified facts, estimates, assumptions, and recommendations. Treat all numeric KPIs as proposed targets unless explicitly substantiated by a source. If the evidence does not support a claim, label it unverified or omit it. Never invent source names, URLs, dates, market sizes, competitor outlet counts, franchise fees, or returns."
     : "";
-  const systemPrompt = `You are an AI engine. Job type: ${job.type}. Respond with ONLY a valid JSON object. No prose, no markdown fences. Never invent data.\n${NO_FABRICATED_PERSISTENCE_BLOCK}${capabilityBlock}${principlesBlock}${researchCitationContract}`;
-  const userContent = JSON.stringify({ type: job.type, payload: job.payload }) + researchEvidence + researchCitationContract;
+  const systemPrompt = `You are an AI engine. Job type: ${job.type}. Respond with ONLY a valid JSON object. No prose, no markdown fences. Never invent data.\n${NO_FABRICATED_PERSISTENCE_BLOCK}${capabilityBlock}${principlesBlock}${researchCitationContract}${verificationContract}`;
+  const userContent = JSON.stringify({ type: job.type, payload: job.payload }) + researchEvidence + priorEvidence + researchCitationContract + verificationContract;
   const llmResult = await callLLM(
     systemPrompt,
     userContent,
