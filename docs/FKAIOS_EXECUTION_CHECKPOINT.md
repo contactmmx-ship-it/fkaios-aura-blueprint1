@@ -138,3 +138,23 @@ Superseded by later decisions: the fixed "41 permanent agents" model (H12), "Ope
 2. Trigger today's morning phase once and verify.
 3. Repair the founder-brain `reasonCore` routing (staff-engine 502).
 4. 04:45: verify the executive engines.
+
+## Cycle 4 — 9 Oct 2026, 03:57 UTC: scheduled-engine repairs verified
+
+**Deploy:** CI run 114 put workday-engine v23 and staff-engine v50 live, built from the repo (PRs #72 and #73).
+
+**workday-engine morning phase: 41 of 41 agents planned.**
+- `execution_log` shows 41 successes, every one served by `model:gemini:gemini-3.5-flash-lite` through resource selection.
+- The 03:30 scheduled run had failed for all 41 agents with no recorded reason.
+- Run once at 03:54 by executing the job's own scheduled command; the secret value was neither read nor printed.
+
+**staff-engine daily report: verified.**
+- Completed at 03:54:25 (`agent_dispatch_log` daily_report).
+- Founder Brain reasoning was served by gemini-3.5-flash-lite (`agent_performance_metrics`, agent `founder-brain`, success).
+- The same job had returned 502 at 03:30 because Anthropic has no credit.
+
+**Docs:** SECURITY_AND_RECOVERY, OPERATIONS_RUNBOOK and CURRENT_STATE were written and merged (#74).
+
+**Next:**
+1. Verify evolution-engine (04:00) and executive-brain (04:30).
+2. Build blueprint reuse (test 4) on real stored artifacts.
