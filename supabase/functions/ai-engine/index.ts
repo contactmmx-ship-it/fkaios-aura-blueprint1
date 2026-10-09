@@ -1272,9 +1272,13 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
       : asJSONObject(extractJSONFromText(llmResult.text.replace(/```json|```/g, "").trim()), `Job ${job.id} (${job.type})`);
     validateGrounding(llmResult.text, `${systemPrompt}\n${userContent}`, cid);
     const priorSummary = summarizePriorEvidence(job.payload?.prior_completed_tasks);
-    const resultWithPriorEvidence = !researchEvidence && priorSummary.verified ? { ...parsed, prior_evidence: priorSummary } : parsed;
+    const sanitizedParsed = { ...parsed };
+    delete sanitizedParsed.capability;
+    delete sanitizedParsed.capability_result;
+    delete sanitizedParsed.capability_attempts;
+    const resultWithPriorEvidence = !researchEvidence && priorSummary.verified ? { ...sanitizedParsed, prior_evidence: priorSummary } : sanitizedParsed;
     if (researchEvidence) {
-      return { ...parsed, capability: "research.run", capability_result: researchResultData, capability_attempts: researchResultAttempts };
+      return { ...sanitizedParsed, capability: "research.run", capability_result: researchResultData, capability_attempts: researchResultAttempts };
     }
     return resultWithPriorEvidence;
   } catch (err) {
