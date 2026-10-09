@@ -158,3 +158,32 @@ Superseded by later decisions: the fixed "41 permanent agents" model (H12), "Ope
 **Next:**
 1. Verify evolution-engine (04:00) and executive-brain (04:30).
 2. Build blueprint reuse (test 4) on real stored artifacts.
+
+## Cycle 5 — 9 Oct 2026, 05:55 UTC: scheduled check-in (trig_01MnKtuREzfZQzDHd5Mu7RAf)
+
+**Executive engines (item 3): VERIFIED.** All three ran on schedule today and were served by `model:gemini:gemini-3.5-flash-lite` through resource routing. No Anthropic resource was involved.
+
+| Engine | Scheduled run | Result | Cost |
+|---|---|---|---|
+| opportunity-engine | 03:30 | HTTP 200, 4 proposals | $0.0032 |
+| evolution-engine | 04:00 | HTTP 200, 6 proposals | $0.0033 |
+| executive-brain | 04:30 | HTTP 200, 6 executives, 0 rejected; arbitration surfaced a CPO-vs-CFO conflict | $0.0035 |
+
+**Blueprint reuse (test 4) and verification with correction (test 10):** verified (self-test 699ba88a). Round 0 failed on leaked source names and unsupported figures; the routed correction passed every check.
+
+**Models and approvals:**
+- gemini-3.5-flash and gemini-3.7-flash are verified; gemini-3.5-flash-lite is adopted.
+- Approval **de2aeafd** (adopt 3.7-flash for coding) is still **pending**. It is the founder's decision and expires 12 Oct 00:55 UTC.
+
+**Speech evaluation:** continuing autonomously.
+- Passed: gemini-3.8-flash-tts (WER 0.000 and 0.050) and gemini-flash-lite-latest STT (WER 0.042).
+- One run was rate-limited at 05:07 and recorded as such.
+
+**Founder objectives:** still 0. Test 1 remains blocked on Rajeev.
+
+**Remaining blockers (founder):**
+1. Rotate the cron secret (plan in `docs/FKAIOS_P0_CRON_SECRET_PLAN.md`).
+2. Submit one objective from the Console (tests 1, 6, 7 and 14).
+3. Upload the Mr. Chick'n SOPs, the Healthfreek proposal and a book to the `documents` bucket.
+4. Decide on approval de2aeafd.
+5. Decide whether paid lead discovery (Apify) stays stopped.
