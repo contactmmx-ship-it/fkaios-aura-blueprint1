@@ -686,7 +686,7 @@ export async function recheckGateBlockedObjectives(
     // action approvals remain parked.
     const verifierOutputBlock = /^Human decision required:/i.test(summary) &&
       /raw json|intermediate output|final report|deliverable|re-execut|acceptable|format/i.test(summary) &&
-      !/payment|\\bpay\\b|purchase|spend|budget|credential|api key|secret|password|contract signature|physical action|in-person|delete data|security setting/i.test(summary);
+      !/payment|pay|purchase|spend|budget|credential|api key|secret|password|contract signature|physical action|in-person|delete data|security setting/i.test(summary);
     if (!evidenceGateBlock && !verifierOutputBlock) continue;
     const state = await loadObjectiveState(supabase, id);
     if (state.projects.length === 0) continue;
