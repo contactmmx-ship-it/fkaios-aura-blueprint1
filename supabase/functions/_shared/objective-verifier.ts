@@ -63,7 +63,7 @@ export function deterministicChecks(deliverable: string): { ok: boolean; problem
  * The independent model is not allowed to waive missing required brands, URLs, or source-date status.
  */
 export function kidsDpsCompetitorChecks(objective: string, criteria: string[], deliverable: string): { ok: boolean; problems: string[] } {
-  const contract = [objective, ...criteria].join("\\n").toLowerCase();
+  const contract = [objective, ...criteria].join("\n").toLowerCase();
   const isKidsDps = contract.includes("kids dps") || contract.includes("preschool franchise");
   const asksCompetitors = contract.includes("competitor") || contract.includes("brand comparison");
   if (!isKidsDps || !asksCompetitors) return { ok: true, problems: [] };
