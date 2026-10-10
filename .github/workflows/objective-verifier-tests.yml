@@ -6,6 +6,8 @@ on:
       - "supabase/functions/_shared/objective-verifier.ts"
       - "supabase/functions/_shared/objective-verifier.test.ts"
       - "supabase/functions/_shared/objective-loop.ts"
+      - "supabase/functions/_shared/objective-deadline.ts"
+      - "supabase/functions/_shared/objective-deadline.test.ts"
       - ".github/workflows/objective-verifier-tests.yml"
   push:
     branches:
@@ -34,3 +36,5 @@ jobs:
           deno-version: v2.9.7
       - name: Run objective verifier regression tests
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/objective-verifier.test.ts
+      - name: Run objective deadline regression tests
+        run: deno test --no-check --node-modules-dir=auto --allow-env supabase/functions/_shared/objective-deadline.test.ts
