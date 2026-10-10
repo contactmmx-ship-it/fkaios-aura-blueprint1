@@ -7,7 +7,7 @@ import { readObjectiveState, syncObjectiveState } from "./objective-state.ts";
 import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, type TaskEvidenceRecord } from "./fact-grounding.ts";
 import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP, projectUpdateForObjective } from "./objective-rerun.ts";
 import { classifyObjective, completionContract, planContractMismatch, projectOutputType } from "./objective-contract.ts";
-import { objectiveDeadline, objectiveDeadlineMinutes } from "./objective-deadline.ts";
+import { objectiveDeadline, objectiveDeadlineMinutes, resolveObjectiveStartAt } from "./objective-deadline.ts";
 
 type ObjectiveLoopResult = {
   objectiveId: string;
@@ -759,7 +759,7 @@ export async function recheckGateBlockedObjectives(
     const state = await loadObjectiveState(supabase, id);
     const latestProject = state.projects[0];
     if (!latestProject || !String(latestProject.final_output ?? "").trim()) continue;
-    const note = "Reopened for verification evidence repair: the stored completion summary has no persisted passing independent-verification record. The stored final report must be verified again before completion is retained.";
+    const note = "Reopened for verification evidence repair at " + new Date().toISOString() + ": the stored completion summary has no persisted passing independent-verification record. The stored final report must be verified again before completion is retained.";
     const { error: reopenError } = await supabase
       .from("orchestrator_requests")
       .update({ status: "processing", result_summary: note })
@@ -942,15 +942,32 @@ export async function runObjectiveLoop(
 
   for (const objective of objectives ?? []) {
     try {
-      // A run has a wall-clock deadline in addition to bounded replan and rectification counts.
-      // A deliberate rerun starts a fresh budget at the rerun request timestamp; ordinary work
-      // uses its original submission timestamp. Expired work fails terminally instead of replanning forever.
-      // updated_at is refreshed when a deliberate rerun transitions the row to
-      // processing, and remains stable during ordinary scheduler passes. Do
-      // not branch on isRerunRequested here: the loop clears that flag after
-      // the first pass, which would otherwise reset the start back to an old
-      // created_at on the next tick and immediately expire the rerun.
-      const deadlineStart = String(objective.updated_at ?? objective.created_at ?? "");
+      // Persist one deadline start in canonical objective state. orchestrator_requests
+      // has no updated_at column; relying on it silently fell back to created_at
+      // and made old reruns expire immediately. The timestamp survives flag
+      // clearing and every subsequent state sync.
+      const objectiveId = String(objective.id);
+      const currentState = await readObjectiveState(supabase, objectiveId);
+      const recordedStart = typeof currentState?.verification?.deadline_started_at === "string"
+        ? String(currentState.verification.deadline_started_at)
+        : null;
+      const summary = String(objective.result_summary ?? "");
+      const restartBudget = isRerunRequested(objective) || summary.includes("Reopened for verification evidence repair at");
+      const deadlineStart = resolveObjectiveStartAt(
+        String(objective.created_at ?? ""),
+        summary,
+        recordedStart,
+        restartBudget,
+        new Date(),
+      );
+      if (deadlineStart && (restartBudget || !recordedStart)) {
+        const persisted = await syncObjectiveState(
+          supabase,
+          { id: objectiveId, status: String(objective.status ?? "processing"), raw_request: String(objective.raw_request ?? "") },
+          { patch: { verification: { ...(currentState?.verification ?? {}), deadline_started_at: deadlineStart } } },
+        );
+        if (!persisted.ok) throw new Error("Could not persist objective deadline start: " + String(persisted.error ?? "unknown state write error"));
+      }
       const budgetMinutes = objectiveDeadlineMinutes(Deno.env.get("OBJECTIVE_DEADLINE_MINUTES"));
       const deadline = objectiveDeadline(deadlineStart, new Date(), budgetMinutes);
       if (deadline.expired) {
