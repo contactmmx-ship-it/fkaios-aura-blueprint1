@@ -39,6 +39,18 @@ Deno.test("deliberate rerun uses its recorded request time when the table has no
   assert(!deadline.expired && deadline.elapsedMinutes === 30, "a fresh rerun must not immediately expire from its original creation time");
 });
 
+Deno.test("fresh rerun deadline survives clearing the one-shot rerun flag", () => {
+  const row = {
+    created_at: "2026-10-09T08:03:40.589Z",
+    action_taken: "objective_loop",
+    result_summary: "Re-run requested at 2026-10-10T09:30:00.000Z. The objective loop will plan it again on its next run.",
+  };
+  const started = objectiveRunStartedAt(row);
+  assert(started === "2026-10-10T09:30:00.000Z", `expected preserved rerun timestamp after flag clear, got ${started}`);
+  const deadline = objectiveDeadline(started, new Date("2026-10-10T10:00:00.000Z"), 120);
+  assert(!deadline.expired && deadline.elapsedMinutes === 30, "fresh run must remain active on subsequent scheduler ticks");
+});
+
 Deno.test("ordinary scheduler passes remain anchored to the original objective creation time", () => {
   const started = objectiveRunStartedAt({
     created_at: "2026-10-10T08:00:00.000Z",
