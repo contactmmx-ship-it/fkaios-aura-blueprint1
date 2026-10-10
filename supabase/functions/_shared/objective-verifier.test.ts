@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { buildVerifierPrompt, isIndependentVerificationLevel, isRecoverableOutputBlocker, parseVerdict, persistVerificationEvidence } from "./objective-verifier.ts";
+import { buildVerifierPrompt, kidsDpsCompetitorChecks, isIndependentVerificationLevel, isRecoverableOutputBlocker, parseVerdict, persistVerificationEvidence } from "./objective-verifier.ts";
 import { phasePath } from "./objective-state.ts";
 
 Deno.test("missing client inputs requested by the objective are report findings, not human blockers", () => {
@@ -140,3 +140,22 @@ Deno.test("only a different model or provider counts as independent verification
   assertEquals(isIndependentVerificationLevel("producers_unknown"), false);
   assertEquals(isIndependentVerificationLevel(null), false);
 });
+
+Deno.test("Kids DPS competitor contract fails when named brands lack sourced rows", () => {
+  const criteria = ["Competitor comparison table for Kidzee, EuroKids, Bachpan, Little Millennium, Shemrock, Hello Kids, Tree House, KLAY with source links and dates."];
+  const weak = "| Brand | Notes |\n| Kids DPS | Internal plan |\n| Kidzee | Major incumbent |";
+  const result = kidsDpsCompetitorChecks("Prepare Kids DPS preschool franchise report", criteria, weak);
+  assertEquals(result.ok, false);
+  assertEquals(result.problems.some((p) => p.includes("EuroKids")), true);
+  assertEquals(result.problems.some((p) => p.includes("direct source URL")), true);
+});
+
+Deno.test("Kids DPS competitor contract accepts sourced brand rows and explicit unavailable dates", () => {
+  const brands = ["Kidzee", "EuroKids", "Bachpan", "Little Millennium", "Shemrock", "Hello Kids", "Tree House", "KLAY"];
+  const criteria = ["Competitor comparison table for all named brands with source links and dates."];
+  const table = ["| Brand | Source/date |", ...brands.map((brand, index) => "| " + brand + " | https://example.com/" + index + " — " + (index === 0 ? "date unavailable" : "2025") + " |")].join("\n");
+  const result = kidsDpsCompetitorChecks("Prepare Kids DPS preschool franchise report", criteria, table);
+  assertEquals(result.ok, true);
+  assertEquals(result.problems.length, 0);
+});
+
