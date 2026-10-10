@@ -18,13 +18,17 @@ const TRANSITIONS: Record<Phase, Phase[]> = {
   verifying: ["rectifying", "planning", "executing", "completed", "blocked", "failed"],
   rectifying: ["executing", "verifying", "planning", "blocked", "failed"],
   blocked: ["planning", "executing", "verifying", "failed"],
-  completed: [],
+  // A completed objective may re-enter verification only for evidence repair; the scheduler gate checks that the passing verifier record is missing.
+  completed: ["verifying"],
   failed: [],
 };
 
 /** Shortest legal path from one phase to another (excluding the start), or null if unreachable. */
 export function phasePath(from: Phase, to: Phase): Phase[] | null {
   if (from === to) return [];
+  // Completed objectives may be reopened for verification evidence repair, but
+  // that exception must not create a route back into planning or execution.
+  if (from === "completed" && !["verifying", "rectifying", "blocked", "failed"].includes(to)) return null;
   const queue: Array<{ p: Phase; path: Phase[] }> = [{ p: from, path: [] }];
   const seen = new Set<Phase>([from]);
   while (queue.length) {
