@@ -360,7 +360,8 @@ Deno.serve(async (req: Request) => {
           .select("id,title,status,messages,updated_at").eq("id", discussionId).eq("founder_user_id", user.id).maybeSingle();
         if (error) return json({ ok: false, error: "Could not load CEO discussion" }, 500);
         if (!data) return json({ ok: false, error: "CEO discussion not found" }, 404);
-        if (["submitted", "closed", "submitting", "thinking"].includes(String(data.status))) return json({ ok: false, error: "Discussion is busy or closed. Refresh it before continuing." }, 409);
+        if (["submitted", "closed", "submitting"].includes(String(data.status))) return json({ ok: false, error: "Discussion is closed or being submitted. Refresh it before continuing." }, 409);
+        if (data.status === "thinking" && Date.now() - new Date(String(data.updated_at)).getTime() < 120_000) return json({ ok: false, error: "The CEO is still processing the previous turn. Wait for the current response." }, 409);
         const messages = [...(Array.isArray(data.messages) ? data.messages as FounderDiscussionMessage[] : []), { role: "founder" as const, content: message, created_at: now }].slice(-80);
         const { data: saved, error: saveError } = await admin.from("founder_discussions").update({ messages, status: "thinking", proposed_plan: null, updated_at: now })
           .eq("id", discussionId).eq("founder_user_id", user.id).eq("updated_at", data.updated_at).select("id,title,status,messages,updated_at").maybeSingle();
