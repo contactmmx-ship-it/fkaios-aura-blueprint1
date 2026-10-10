@@ -7,7 +7,7 @@ import { readObjectiveState, syncObjectiveState } from "./objective-state.ts";
 import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, type TaskEvidenceRecord } from "./fact-grounding.ts";
 import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP, projectUpdateForObjective } from "./objective-rerun.ts";
 import { classifyObjective, completionContract, planContractMismatch, projectOutputType } from "./objective-contract.ts";
-import { objectiveDeadline, objectiveDeadlineMinutes } from "./objective-deadline.ts";
+import { objectiveDeadline, objectiveDeadlineMinutes, objectiveRunStartedAt } from "./objective-deadline.ts";
 
 type ObjectiveLoopResult = {
   objectiveId: string;
@@ -943,14 +943,10 @@ export async function runObjectiveLoop(
   for (const objective of objectives ?? []) {
     try {
       // A run has a wall-clock deadline in addition to bounded replan and rectification counts.
-      // A deliberate rerun starts a fresh budget at the rerun request timestamp; ordinary work
-      // uses its original submission timestamp. Expired work fails terminally instead of replanning forever.
-      // updated_at is refreshed when a deliberate rerun transitions the row to
-      // processing, and remains stable during ordinary scheduler passes. Do
-      // not branch on isRerunRequested here: the loop clears that flag after
-      // the first pass, which would otherwise reset the start back to an old
-      // created_at on the next tick and immediately expire the rerun.
-      const deadlineStart = String(objective.updated_at ?? objective.created_at ?? "");
+      // orchestrator_requests has no updated_at column, so rerunUpdate stores the
+      // fresh start time in result_summary. Use it while the rerun flag is active;
+      // ordinary scheduler passes remain anchored to the original created_at.
+      const deadlineStart = objectiveRunStartedAt(objective);
       const budgetMinutes = objectiveDeadlineMinutes(Deno.env.get("OBJECTIVE_DEADLINE_MINUTES"));
       const deadline = objectiveDeadline(deadlineStart, new Date(), budgetMinutes);
       if (deadline.expired) {
