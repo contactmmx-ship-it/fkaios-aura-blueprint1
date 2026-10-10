@@ -1288,11 +1288,16 @@ export async function runObjectiveLoop(
       }
 
       if (state.projects.length >= MAX_REPLAN_ATTEMPTS) {
+        // Exhausting the automatic planning budget is not a founder decision.
+        // Keep the objective terminal and truthful instead of putting routine
+        // recovery into awaiting_approval, which makes the Founder manage the
+        // AI's retry loop. A deliberate founder rerun remains available through
+        // the existing rerun action after the concrete failure is reviewed.
         await markObjective(
           supabase,
           String(objective.id),
-          "awaiting_approval",
-          `Objective replanned ${state.projects.length} times without reaching achieved/blocked/failed. Last evaluator reason: ${evaluation.reason || evaluation.next_action || "none given"}.`,
+          "failed",
+          `Automatic planning budget exhausted after ${state.projects.length} projects without reaching achieved/blocked/failed. No further automatic replanning will occur. Last evaluator reason: ${evaluation.reason || evaluation.next_action || "none given"}.`,
         );
         results.push({
           objectiveId: String(objective.id),
