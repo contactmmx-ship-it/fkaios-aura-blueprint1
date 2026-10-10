@@ -672,17 +672,29 @@ export async function recheckGateBlockedObjectives(
     .eq("requested_by", "founder-brain")
     .eq("status", "awaiting_approval")
     .eq("action_taken", OBJECTIVE_LOOP)
-    .like("result_summary", `${BLOCKED_SUMMARY_PREFIX}%`)
-    .limit(10);
+    .order("updated_at", { ascending: true })
+    .limit(100);
   if (error) throw new Error(`Failed loading gate-blocked objectives: ${error.message}`);
   const resumed: string[] = [];
   for (const row of parked ?? []) {
     const id = String(row.id);
+    const summary = String(row.result_summary ?? "");
+    const evidenceGateBlock = summary.startsWith(BLOCKED_SUMMARY_PREFIX);
+    // A prior verifier release incorrectly escalated malformed/intermediate
+    // deliverables to the Founder. Resume only this narrow output-correction
+    // class; genuine payment, credential, security, deletion and physical
+    // action approvals remain parked.
+    const verifierOutputBlock = /^Human decision required:/i.test(summary) &&
+      /raw json|intermediate output|final report|deliverable|re-execut|acceptable|format/i.test(summary) &&
+      !/payment|\\bpay\\b|purchase|spend|budget|credential|api key|secret|password|contract signature|physical action|in-person|delete data|security setting/i.test(summary);
+    if (!evidenceGateBlock && !verifierOutputBlock) continue;
     const state = await loadObjectiveState(supabase, id);
     if (state.projects.length === 0) continue;
     const gate = assessCurrentTaskSet(state.projects as Array<{ id?: unknown }>, state.tasks as TaskEvidenceRecord[]);
-    if (gate.blocked) continue;
-    const note = `Resumed ${new Date().toISOString()}: the evidence gate no longer blocks the current task set (${gate.reason}).`;
+    if (evidenceGateBlock && gate.blocked) continue;
+    const note = verifierOutputBlock
+      ? `Automatically resumed ${new Date().toISOString()}: the prior human-decision gate was an output-correction issue; the objective loop will rectify and verify the deliverable.`
+      : `Resumed ${new Date().toISOString()}: the evidence gate no longer blocks the current task set (${gate.reason}).`;
     const { error: upErr } = await supabase
       .from("orchestrator_requests")
       .update({ status: "processing", result_summary: note.slice(0, 1000) })
