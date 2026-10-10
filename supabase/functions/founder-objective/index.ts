@@ -31,6 +31,7 @@ import { reuseBlueprint } from "../_shared/blueprint-reuse.ts";
 import { buildDefaultRouterConfig, callLLMOnResources } from "../_shared/llm-router.ts";
 import { selectResources } from "../_shared/resource-selection.ts";
 import { recordLLMAttempts } from "../_shared/execution-evidence.ts";
+import { buildFounderDiscussionPrompt, parseFounderDiscussionReply, type FounderDiscussionMessage } from "../_shared/founder-discussion.ts";
 
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 const COMMUNICATION_CAPABILITIES = new Set(["send_whatsapp_message", "send_email", "send_sms", "make_voice_call"]);
