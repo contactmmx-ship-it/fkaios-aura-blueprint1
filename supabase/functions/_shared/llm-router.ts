@@ -634,6 +634,25 @@ function isProviderEnabled(envVar: string): boolean {
 }
 
 /** Providers with a configured API key AND not explicitly disabled, in default fallback order: Anthropic, then Gemini, then OpenAI. */
+/**
+ * Order eligible providers by spend policy, without assuming a cloud provider is
+ * free just because it sometimes offers a free tier. Self-hosted inference is
+ * attempted first when configured; cloud providers move ahead of paid providers
+ * only when the operator explicitly marks the currently configured plan as free.
+ */
+export function prioritizeFreeProviders(providers: ProviderAdapter[], explicitlyFree: readonly ProviderName[]): ProviderAdapter[] {
+  const free = new Set<ProviderName>(explicitlyFree);
+  const priority = (name: ProviderName) => name === "self_hosted" ? 0 : free.has(name) ? 1 : 2;
+  return providers.map((provider, index) => ({ provider, index }))
+    .sort((a, b) => priority(a.provider.name) - priority(b.provider.name) || a.index - b.index)
+    .map(({ provider }) => provider);
+}
+
+function explicitlyFreeTierProviders(): ProviderName[] {
+  const candidates: ProviderName[] = ["gemini", "openrouter", "groq", "mistral", "huggingface"];
+  return candidates.filter((provider) => Deno.env.get("PROVIDER_" + provider.toUpperCase() + "_FREE_TIER") === "true");
+}
+
 export function getConfiguredDefaultProviders(): ProviderAdapter[] {
   const providers: ProviderAdapter[] = [];
   if (getAnthropicApiKey() && isProviderEnabled("PROVIDER_ANTHROPIC_ENABLED")) providers.push(anthropicAdapter);
@@ -644,7 +663,7 @@ export function getConfiguredDefaultProviders(): ProviderAdapter[] {
   if (getMistralApiKey() && isProviderEnabled("PROVIDER_MISTRAL_ENABLED")) providers.push(mistralAdapter);
   if (getHuggingFaceApiKey() && isProviderEnabled("PROVIDER_HUGGINGFACE_ENABLED")) providers.push(huggingFaceAdapter);
   if (getSelfHostedBaseUrl() && isProviderEnabled("PROVIDER_SELF_HOSTED_ENABLED")) providers.push(selfHostedAdapter);
-  return providers;
+  return prioritizeFreeProviders(providers, explicitlyFreeTierProviders());
 }
 
 /**
