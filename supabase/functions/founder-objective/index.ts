@@ -298,12 +298,20 @@ Deno.serve(async (req: Request) => {
       if (error) return json({ ok: false, error: "Could not load the proposed plan" }, 500);
       if (!row) return json({ ok: false, error: "CEO discussion not found" }, 404);
       if (row.submitted_objective_id) return json({ ok: true, discussionId, objectiveId: row.submitted_objective_id, status: "submitted", idempotent: true });
+      const marker = `[fkaios-discussion:${discussionId}]`;
+      const { data: existingRequest, error: lookupError } = await admin.from("orchestrator_requests")
+        .select("id,status").ilike("raw_request", `%${marker}%`).limit(1).maybeSingle();
+      if (lookupError) return json({ ok: false, error: "Could not safely check whether this plan was already submitted" }, 500);
+      if (existingRequest?.id) {
+        await admin.from("founder_discussions").update({ status: "submitted", submitted_objective_id: existingRequest.id, updated_at: new Date().toISOString() })
+          .eq("id", discussionId).eq("founder_user_id", user.id);
+        return json({ ok: true, discussionId, objectiveId: existingRequest.id, status: "submitted", idempotent: true });
+      }
       if (row.status !== "plan_ready" || !row.proposed_plan || typeof row.proposed_plan !== "object") return json({ ok: false, error: "There is no approval-ready plan to execute" }, 409);
       const { data: claimed, error: claimError } = await admin.from("founder_discussions")
         .update({ status: "submitting", updated_at: new Date().toISOString() })
         .eq("id", discussionId).eq("founder_user_id", user.id).eq("status", "plan_ready").select("id").maybeSingle();
       if (claimError || !claimed) return json({ ok: false, error: "This plan is already being submitted or its state changed. Refresh before retrying." }, 409);
-      const marker = `[fkaios-discussion:${discussionId}]`;
       const plan = row.proposed_plan as Record<string, unknown>;
       const lines = [
         marker,
