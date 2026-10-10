@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { buildVerifierPrompt, isRecoverableOutputBlocker, parseVerdict } from "./objective-verifier.ts";
+import { buildVerifierPrompt, isRecoverableOutputBlocker, parseVerdict, persistVerificationEvidence } from "./objective-verifier.ts";
 
 Deno.test("missing client inputs requested by the objective are report findings, not human blockers", () => {
   const prompt = buildVerifierPrompt(
@@ -73,4 +73,43 @@ Deno.test("recover previously exhausted verification loops without overriding ge
     isRecoverableOutputBlocker("Human decision required: Founder approval is required before spending the proposed budget."),
     false,
   );
+});
+
+
+Deno.test("verification retries supersede the previous active evidence before inserting the new verdict", async () => {
+  const calls: string[] = [];
+  const db = {
+    from(table: string) {
+      assertEquals(table, "fkaios_verification_evidence");
+      return {
+        update(values: Record<string, unknown>) {
+          calls.push(`update:${String(values.status)}`);
+          const query = {
+            eq(column: string, value: string) { calls.push(`eq:${column}:${value}`); return query; },
+            neq(column: string, value: string) {
+              calls.push(`neq:${column}:${value}`);
+              return Promise.resolve({ error: null });
+            },
+          };
+          return query;
+        },
+        insert(row: Record<string, unknown>) {
+          calls.push(`insert:${String(row.status)}`);
+          const query = {
+            select(_column: string) { return query; },
+            single() { return Promise.resolve({ data: { id: "evidence-new" }, error: null }); },
+          };
+          return query;
+        },
+      };
+    },
+  };
+  const id = await persistVerificationEvidence(db, {
+    objectiveId: "objective-1",
+    requirementKey: "objective_verifier:v1",
+    row: { objective_id: "objective-1", requirement_key: "objective_verifier:v1", status: "passed" },
+  });
+  assertEquals(id, "evidence-new");
+  assertEquals(calls[0], "update:superseded");
+  assertEquals(calls[calls.length - 1], "insert:passed");
 });
