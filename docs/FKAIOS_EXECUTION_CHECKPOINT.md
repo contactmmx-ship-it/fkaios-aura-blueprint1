@@ -227,3 +227,41 @@ Superseded by later decisions: the fixed "41 permanent agents" model (H12), "Ope
 **Last known good state:** `main` `fcc70fa`, production `dpl_F2u9b752`.
 
 **Recovery:** revert the #78 squash commit on `main`; CI redeploys the previous functions.
+
+## Cycle 7 — 10 Oct 2026: repository head, production-state conflict, and CI credential blocker
+
+**Repository HEAD observed:** `729995bfd7c2d2b3bc534dddd54d2a6b845b2573`.
+
+**Latest workflow evidence at that HEAD:**
+- Persisted-deliverable regression `38047998704`: success.
+- Objective verifier regression tests `38047998702`: success.
+- Supabase Functions deploy `38047998737`: failed because Supabase CLI returned HTTP 401, `Invalid access token`, at “Deploy changed FKAIOS functions”.
+- Production migration drift check `38047998740`: failed listing production migrations with HTTP 401, `Invalid access token`. The comparison step was skipped; drift is unknown, not passed.
+
+**Credential blocker:** GitHub Actions `SUPABASE_ACCESS_TOKEN` is invalid or no longer accepted. Founder/repository admin must replace it with a valid token that has required deploy and migration-read permissions. Never paste the token into ChatGPT or commit it. After replacement, rerun both workflows and capture exact run IDs, deployed function versions, and results.
+
+**Live Supabase evidence — Kids DPS objective `20cbf892-0e6b-4689-9d1f-1a3a4030ce8f`:**
+- `orchestrator_requests.status=failed`; result says the 120-minute budget was exceeded with 1490 minutes elapsed and replanning stopped.
+- Linked project `aa628832-012d-421a-8e9c-b95315bc0e7f` is `complete`, but its `error_message` retains the deadline error.
+- Canonical `fkaios_objective_state.phase=completed`, `state_version=86`, updated `2026-10-10 07:24:11+00`, `remaining_work=[]`.
+- Deterministic task-gate evidence `6a7b5432-b401-44c6-a594-bb659483b2c1` passed.
+- Verifier evidence `655001a7-172a-498a-a4ba-6f857b1ab3b4` is labelled independent and passed, but explicitly records `independence=same_model`. Treat it as **not independently verified**.
+- Therefore request status, project status/error, canonical state and verifier independence conflict. Reconcile them as one lifecycle; do not choose the most optimistic state.
+
+**Recent code commits relevant to this conflict:**
+- `6dddf6b8e9f78ec33174e6ea896e95b120d77a6b`: bounded objective deadlines and free/local-first provider ordering.
+- `3b30f98760305f81ff8256970f5339787d847705`: stable deadline accounting and rejection of same-model “independent” verification.
+- `729995bfd7c2d2b3bc534dddd54d2a6b845b2573`: preserve Kids DPS deliverable and fix deadline accounting; commit message explicitly says release still requires pipeline approval and live verification.
+
+**Live function listing:** `ai-engine` v145, `founder-brain-tick` v149, `founder-objective` v103. Since latest CI deployment failed, these version numbers do not prove the latest `main` code is live.
+
+**Immediate next actions:**
+1. Repair the GitHub Actions Supabase token (human credential action).
+2. Rerun deploy and migration-drift workflows.
+3. Match the exact current Console objective ID to request, contract, project/tasks, canonical state, evidence, and final deliverable.
+4. Verify the same-model rejection and deadline fix in deployed code.
+5. Confirm the actual Kids DPS report and sources; section-presence checks are not independent factual verification or premium-quality acceptance.
+
+**Point-in-time live inventory:** 173 public tables; `ai_agents` 41 rows; `ai_jobs` 22,911 rows; `capability_registry` 44 rows; `model_registry` 109 rows; `fkaios_verification_evidence` 74 rows; `fkaios_objective_state` 1 row. These are counts, not evidence that every feature works.
+
+**Archive note:** Current ChatGPT continuation summary is indexed as `docs/fkaios-archive/04_chatgpt_conversation_2026-10-10_master_history_continuation.md`. The existing merged raw archive still ends at 7 Oct; inaccessible/unpasted chats remain missing.
