@@ -271,6 +271,72 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, objectives: await readObjectiveStatus(objectiveId) });
     }
     const raw = body as Record<string, unknown>;
+    if (body.action === "discussion_list") {
+      const { data, error } = await adminClient().from("founder_discussions")
+        .select("id,title,status,proposed_plan,submitted_objective_id,created_at,updated_at")
+        .eq("founder_user_id", user.id).order("updated_at", { ascending: false }).limit(20);
+      if (error) return json({ ok: false, error: "Could not load CEO discussions" }, 500);
+      return json({ ok: true, discussions: data ?? [] });
+    }
+    if (body.action === "discussion_get") {
+      const id = typeof raw.discussionId === "string" ? raw.discussionId : "";
+      if (!id) return json({ ok: false, error: "discussionId required" }, 400);
+      const { data, error } = await adminClient().from("founder_discussions")
+        .select("id,title,status,messages,proposed_plan,submitted_objective_id,created_at,updated_at")
+        .eq("id", id).eq("founder_user_id", user.id).maybeSingle();
+      if (error) return json({ ok: false, error: "Could not load CEO discussion" }, 500);
+      if (!data) return json({ ok: false, error: "CEO discussion not found" }, 404);
+      return json({ ok: true, discussion: data });
+    }
+    if (body.action === "discussion_turn") {
+      const message = typeof raw.message === "string" ? raw.message.trim() : "";
+      if (message.length < 2 || message.length > 4000) return json({ ok: false, error: "Message must be 2-4000 characters" }, 400);
+      const now = new Date().toISOString();
+      const admin = adminClient();
+      const discussionId = typeof raw.discussionId === "string" ? raw.discussionId : "";
+      let row: Record<string, unknown>;
+      if (discussionId) {
+        const { data, error } = await admin.from("founder_discussions")
+          .select("id,title,status,messages,updated_at").eq("id", discussionId).eq("founder_user_id", user.id).maybeSingle();
+        if (error) return json({ ok: false, error: "Could not load CEO discussion" }, 500);
+        if (!data) return json({ ok: false, error: "CEO discussion not found" }, 404);
+        if (["submitted", "closed", "submitting", "thinking"].includes(String(data.status))) return json({ ok: false, error: "Discussion is busy or closed. Refresh it before continuing." }, 409);
+        const messages = [...(Array.isArray(data.messages) ? data.messages as FounderDiscussionMessage[] : []), { role: "founder" as const, content: message, created_at: now }].slice(-80);
+        const { data: saved, error: saveError } = await admin.from("founder_discussions").update({ messages, status: "thinking", proposed_plan: null, updated_at: now })
+          .eq("id", discussionId).eq("founder_user_id", user.id).eq("updated_at", data.updated_at).select("id,title,status,messages,updated_at").maybeSingle();
+        if (saveError || !saved) return json({ ok: false, error: "Discussion changed concurrently; refresh before sending again." }, 409);
+        row = saved;
+      } else {
+        const { data, error } = await admin.from("founder_discussions").insert({
+          founder_user_id: user.id, title: message.slice(0, 80), status: "thinking",
+          messages: [{ role: "founder", content: message, created_at: now }],
+        }).select("id,title,status,messages,updated_at").single();
+        if (error || !data) return json({ ok: false, error: "Could not start CEO discussion" }, 500);
+        row = data;
+      }
+      const selection = await selectResources(admin, "general");
+      const started = new Date();
+      const result = await callLLMOnResources({
+        systemPrompt: "You are FKAIOS's AI CEO. Follow the strict JSON contract in the supplied prompt. Never claim actions or research you did not perform.",
+        userContent: buildFounderDiscussionPrompt(row.messages as FounderDiscussionMessage[]),
+        functionName: "founder-objective:ceo-discussion", functionClass: "background_agent", temperature: 0.25, maxTokens: 1800,
+      }, buildDefaultRouterConfig(), selection.resources);
+      await recordLLMAttempts(admin, { stepKind: "task_execution", taskClass: "general", capabilityRef: "capability:founder_ceo_discussion" }, result.log, selection, null, started);
+      const parsed = result.status === "success" && result.content ? parseFounderDiscussionReply(result.content) : null;
+      if (!parsed) {
+        await admin.from("founder_discussions").update({ status: "discussing", updated_at: new Date().toISOString() }).eq("id", row.id).eq("founder_user_id", user.id);
+        return json({ ok: false, error: "The CEO response failed validation. Your message is saved; try again." }, 503);
+      }
+      const messages = [...(row.messages as FounderDiscussionMessage[]), { role: "ceo" as const, content: parsed.reply, created_at: new Date().toISOString() }].slice(-80);
+      const { data: saved, error: saveError } = await admin.from("founder_discussions").update({
+        status: parsed.readyForApproval ? "plan_ready" : "discussing",
+        title: parsed.readyForApproval && parsed.plan ? parsed.plan.title : row.title,
+        messages, proposed_plan: parsed.readyForApproval ? parsed.plan : null, updated_at: new Date().toISOString(),
+      }).eq("id", row.id).eq("founder_user_id", user.id).eq("status", "thinking")
+        .select("id,title,status,messages,proposed_plan,updated_at").maybeSingle();
+      if (saveError || !saved) return json({ ok: false, error: "CEO reply could not be persisted. Refresh to recover the saved discussion." }, 500);
+      return json({ ok: true, discussion: saved, reply: parsed.reply, readyForApproval: parsed.readyForApproval });
+    }
     if (body.action === "transcribe") {
       // Voice as an input modality: the text goes through the same objective path as typed text.
       const audio = audioFromBody(raw);
