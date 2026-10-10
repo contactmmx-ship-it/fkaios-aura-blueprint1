@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { buildVerifierPrompt, isRecoverableOutputBlocker, parseVerdict, persistVerificationEvidence } from "./objective-verifier.ts";
+import { buildVerifierPrompt, isIndependentVerificationLevel, isRecoverableOutputBlocker, parseVerdict, persistVerificationEvidence } from "./objective-verifier.ts";
 import { phasePath } from "./objective-state.ts";
 
 Deno.test("missing client inputs requested by the objective are report findings, not human blockers", () => {
@@ -122,9 +122,9 @@ Deno.test("completed objectives can reopen only into verification for evidence r
 });
 
 Deno.test("only a different model or provider counts as independent verification", () => {
-  assert(isIndependentVerificationLevel("different_model"), "different model is independent");
-  assert(isIndependentVerificationLevel("different_provider"), "different provider is independent");
-  assert(!isIndependentVerificationLevel("same_model"), "same model must not count as independent");
-  assert(!isIndependentVerificationLevel("producers_unknown"), "unknown producers must not count as independent");
-  assert(!isIndependentVerificationLevel(null), "missing independence must not count as independent");
+  assertEquals(isIndependentVerificationLevel("different_model"), true);
+  assertEquals(isIndependentVerificationLevel("different_provider"), true);
+  assertEquals(isIndependentVerificationLevel("same_model"), false);
+  assertEquals(isIndependentVerificationLevel("producers_unknown"), false);
+  assertEquals(isIndependentVerificationLevel(null), false);
 });
