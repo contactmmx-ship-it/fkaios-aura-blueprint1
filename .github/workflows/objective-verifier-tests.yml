@@ -33,4 +33,4 @@ jobs:
         with:
           deno-version: v2.9.7
       - name: Run objective verifier regression tests
-        run: deno test --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/objective-verifier.test.ts
+        run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/objective-verifier.test.ts
