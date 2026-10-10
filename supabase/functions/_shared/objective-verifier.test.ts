@@ -120,3 +120,11 @@ Deno.test("completed objectives can reopen only into verification for evidence r
   assertEquals(phasePath("completed", "verifying"), ["verifying"]);
   assertEquals(phasePath("completed", "executing"), null);
 });
+
+Deno.test("only a different model or provider counts as independent verification", () => {
+  assert(isIndependentVerificationLevel("different_model"), "different model is independent");
+  assert(isIndependentVerificationLevel("different_provider"), "different provider is independent");
+  assert(!isIndependentVerificationLevel("same_model"), "same model must not count as independent");
+  assert(!isIndependentVerificationLevel("producers_unknown"), "unknown producers must not count as independent");
+  assert(!isIndependentVerificationLevel(null), "missing independence must not count as independent");
+});
