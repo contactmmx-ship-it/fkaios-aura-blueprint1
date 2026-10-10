@@ -22,7 +22,7 @@ export function objectiveRunStartedAt(row: {
   result_summary?: unknown;
 }): string {
   if (row.action_taken === "rerun_requested" && typeof row.result_summary === "string") {
-    const match = row.result_summary.match(/Re-run requested at (.+?)\\. The objective loop/);
+    const match = row.result_summary.match(/Re-run requested at (.+?)\. The objective loop/);
     if (match && Number.isFinite(Date.parse(match[1]))) return match[1];
   }
   return String(row.updated_at ?? row.created_at ?? "");
