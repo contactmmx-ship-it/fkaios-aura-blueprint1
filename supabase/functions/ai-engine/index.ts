@@ -1238,6 +1238,9 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
           capability_attempts: researchResultAttempts,
         };
       }
+      // prior_evidence is server-computed from the recorded prior tasks; a
+      // model-written one is discarded so the model can never vouch for itself.
+      delete (parsed as Record<string, unknown>).prior_evidence;
       const requestedResult = await executeRequestedCapability(job, parsed, cid);
       const priorSummary = summarizePriorEvidence(job.payload?.prior_completed_tasks);
       if (priorSummary.verified && requestedResult && typeof requestedResult === "object" && !Array.isArray(requestedResult) && !(typeof (requestedResult as Record<string, unknown>).capability === "string")) {
@@ -1279,6 +1282,7 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
     delete sanitizedParsed.capability;
     delete sanitizedParsed.capability_result;
     delete sanitizedParsed.capability_attempts;
+    delete sanitizedParsed.prior_evidence; // server-computed only (see above)
     const resultWithPriorEvidence = !researchEvidence && priorSummary.verified ? { ...sanitizedParsed, prior_evidence: priorSummary } : sanitizedParsed;
     if (researchEvidence) {
       return { ...sanitizedParsed, capability: "research.run", capability_result: researchResultData, capability_attempts: researchResultAttempts };

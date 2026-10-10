@@ -5,7 +5,7 @@
 // Task output is deliberately exposed only when the task itself is verified.
 // This gives the Founder a real result viewer without allowing an unverified
 // or rejected answer to reach the Command Center.
-import { assessTaskEvidence, type TaskEvidenceRecord, type TaskVerdict } from "./fact-grounding.ts";
+import { assessTaskEvidence, researchedSourceUrls, type TaskEvidenceRecord, type TaskVerdict } from "./fact-grounding.ts";
 
 export interface ProgressJob {
   status?: unknown;
@@ -58,8 +58,9 @@ export function summarizeObjectiveProgress(
   // knowledge.search succeeded", a dispatch error). For verified tasks the
   // actual recorded output is also returned so the Founder can inspect the
   // deliverable that caused completion.
+  const researched = researchedSourceUrls(tasks);
   const assessed = tasks.map((t) => {
-    const { verdict, reason } = assessTaskEvidence(t);
+    const { verdict, reason } = assessTaskEvidence(t, researched);
     return {
       title: String(t.title ?? ""),
       status: String(t.status ?? ""),

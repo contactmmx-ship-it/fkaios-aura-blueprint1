@@ -20,7 +20,7 @@ export const NO_DATA_SOURCE_DISPOSITION = "NO_DATA_SOURCE";
 // Both a verb AND a subject must match, so internal work (drafting, logging
 // to fleet_memory, audits, vault searches, connection checks) is not caught.
 const EXTERNAL_FACT_VERBS =
-  /\b(identify|find|list|shortlist|short-list|research|source|discover|locate|compile|gather|collect|scrape|enumerate|look\s*up|assess|evaluate|analy[sz]e|compare|rank|vet|profile)\b/i;
+  /\b(identify|find|list|shortlist|short-list|research|source|discover|locate|compile|assemble|combine|consolidate|synthesi[sz]e|gather|collect|scrape|enumerate|look\s*up|assess|evaluate|analy[sz]e|compare|rank|vet|profile)\b/i;
 const EXTERNAL_FACT_SUBJECTS =
   /\b(distributors?|dealers?|suppliers?|vendors?|wholesalers?|retailers?|manufacturers?|companies|businesses|firms|contacts?|prospects?|competitors?|customers?|prospect\s+observations?|business\s+signals?|system\s+readiness|current\s+(status|performance|state|figures?|metrics?)|operational\s+(status|performance|metrics?|figures?|readiness)|franchise\s+(expansion|locations?|outlets?)|market\s+(size|share|data|figures|trends)|competitive\s+landscape|prices|pricing|sales|revenues?|turnover|phone\s+numbers?|email\s+addresses|addresses)\b/i;
 
@@ -106,17 +106,32 @@ function priorEvidenceSupportsResult(result: Record<string, unknown>): boolean {
   const cited = Array.isArray(result.sources) ? result.sources : [];
   return cited.length > 0 && cited.every((source) => source && typeof source === "object" && typeof (source as Record<string, unknown>).url === "string" && allowed.has((source as Record<string, unknown>).url as string));
 }
+// Cited URLs not in the server-attached prior_evidence (empty when there is
+// no prior_evidence, i.e. nothing to compare against).
+function citationsOutsidePriorEvidence(result: Record<string, unknown>): string[] {
+  const prior = result.prior_evidence && typeof result.prior_evidence === "object" ? result.prior_evidence as Record<string, unknown> : null;
+  if (!prior || !Array.isArray(prior.sources)) return [];
+  const allowed = new Set(prior.sources.flatMap((s) => s && typeof s === "object" && typeof (s as Record<string, unknown>).url === "string" ? [normalizeUrl((s as Record<string, unknown>).url as string)] : []));
+  return citedSourceUrls(result).filter((url) => !allowed.has(url));
+}
+
 export type WorkerGrounding = { ok: true } | { ok: false; reason: string };
 
 // Worker-side check, applied to a work_engine_task result BEFORE it may be
-// stored as completed. A capability request is allowed through: the real
-// dispatch that follows produces measured evidence (or a measured failure).
+// stored as completed. It runs on the FINAL result, after any requested
+// capability was dispatched, so a capability counts only with its measured
+// result (capability_result / capability_attempts). A report carrying the
+// server-attached prior_evidence must cite only sources in it.
 export function checkWorkerGrounding(
   task: { title?: unknown; description?: unknown },
   result: unknown,
 ): WorkerGrounding {
   const obj = result && typeof result === "object" && !Array.isArray(result) ? result as Record<string, unknown> : null;
   if (obj && typeof obj.capability === "string" && obj.capability.length > 0 && ("capability_result" in obj || "capability_attempts" in obj)) return { ok: true };
+  const outside = obj ? citationsOutsidePriorEvidence(obj) : [];
+  if (outside.length > 0) {
+    return { ok: false, reason: `cites source(s) that no prior research task fetched: ${outside.slice(0, 3).join(", ")}` };
+  }
   if (obj && priorEvidenceSupportsResult(obj)) return { ok: true };
   if (obj && obj.status === NO_DATA_SOURCE) {
     const reason = typeof obj.reason === "string" && obj.reason ? obj.reason : "worker reported no data source for this task";
@@ -165,7 +180,55 @@ function parseOutput(output: unknown): Record<string, unknown> | null {
 // needs external facts additionally needs a successful capability dispatch,
 // so an answer stored before this rule existed cannot count just because it
 // is in the database.
-export function assessTaskEvidence(task: TaskEvidenceRecord): { verdict: TaskVerdict; reason: string } {
+// Source URLs that research.run dispatches recorded on these tasks actually
+// fetched (the compact data_excerpt stored by compactDispatchForStorage). Built
+// from tool results only — never from model-written fields — so a synthesis
+// task can be checked against what the objective really retrieved.
+export function researchedSourceUrls(tasks: TaskEvidenceRecord[]): Set<string> {
+  const urls = new Set<string>();
+  for (const task of tasks) {
+    if (!SUCCESS_TASK_STATUSES.has(String(task.status ?? ""))) continue;
+    const output = parseOutput(task.output);
+    const d = output?.companyOsDispatch && typeof output.companyOsDispatch === "object" ? output.companyOsDispatch as Record<string, unknown> : null;
+    if (!d || d.status !== "success" || d.capability !== "research.run" || typeof d.data_excerpt !== "string") continue;
+    let excerpt: Record<string, unknown> | null = null;
+    try { excerpt = JSON.parse(d.data_excerpt); } catch { continue; }
+    const queries = Array.isArray(excerpt?.queries) ? excerpt!.queries as unknown[] : [excerpt];
+    for (const q of queries) {
+      const results = q && typeof q === "object" && Array.isArray((q as Record<string, unknown>).results) ? (q as Record<string, unknown>).results as unknown[] : [];
+      for (const r of results) {
+        const sources = r && typeof r === "object" && Array.isArray((r as Record<string, unknown>).sources) ? (r as Record<string, unknown>).sources as unknown[] : [];
+        for (const src of sources) {
+          const url = src && typeof src === "object" ? (src as Record<string, unknown>).url : null;
+          if (typeof url === "string" && /^https?:\/\//.test(url)) urls.add(normalizeUrl(url));
+        }
+      }
+    }
+  }
+  return urls;
+}
+
+function normalizeUrl(url: string): string {
+  return url.trim().replace(/\/+$/, "");
+}
+
+// URLs a task's output cites, from its top-level `sources` (synthesis/report
+// tasks) or llmResult.sources (worker envelopes).
+function citedSourceUrls(output: Record<string, unknown> | null): string[] {
+  if (!output) return [];
+  const llm = output.llmResult && typeof output.llmResult === "object" ? output.llmResult as Record<string, unknown> : null;
+  const list = Array.isArray(output.sources) ? output.sources : Array.isArray(llm?.sources) ? llm!.sources as unknown[] : [];
+  return list.flatMap((s) => s && typeof s === "object" && typeof (s as Record<string, unknown>).url === "string" ? [normalizeUrl((s as Record<string, unknown>).url as string)] : []);
+}
+
+// `researched` is the set of URLs the objective's research tasks fetched
+// (researchedSourceUrls over the same task set). A task without its own
+// capability dispatch is verified when it cites at least one source and every
+// cited source is in that set — e.g. the final report that synthesises the
+// research. Kids DPS 20cbf892 (9 Oct 17:26 UTC): the report cited 3 sources,
+// all fetched by the research tasks, but sat at the top level of the output
+// where only llmResult was checked, and was blocked as no_data_source.
+export function assessTaskEvidence(task: TaskEvidenceRecord, researched?: Set<string>): { verdict: TaskVerdict; reason: string } {
   const status = String(task.status ?? "");
   const output = parseOutput(task.output);
   if (ACTIVE_TASK_STATUSES.has(status)) return { verdict: "incomplete", reason: `task still ${status}` };
@@ -182,9 +245,11 @@ export function assessTaskEvidence(task: TaskEvidenceRecord): { verdict: TaskVer
     if (d.capability === KNOWLEDGE_SEARCH) return assessKnowledgeSearch(task, d);
     return { verdict: "verified", reason: `capability ${String(d.capability ?? "unknown")} succeeded` };
   }
-  const llmResult = output?.llmResult && typeof output.llmResult === "object" ? output.llmResult as Record<string, unknown> : null;
-  if (llmResult && priorEvidenceSupportsResult(llmResult)) {
-    return { verdict: "verified", reason: "report cites sources from a successful prior research task" };
+  if (researched && researched.size > 0) {
+    const cited = citedSourceUrls(output);
+    if (cited.length > 0 && cited.every((url) => researched.has(url))) {
+      return { verdict: "verified", reason: `cites ${cited.length} source(s), all fetched by this objective's research tasks` };
+    }
   }
   // Checked before the missing-output case: returnCompletedWork() truncates
   // output to 5000 chars, so a long fabricated answer is stored as invalid
@@ -317,8 +382,9 @@ export interface ObjectiveTaskGate {
 // Any no_data_source task blocks it (a human must supply a data source or
 // approve a research capability); replanning cannot fix that.
 export function assessObjectiveTasks(tasks: TaskEvidenceRecord[]): ObjectiveTaskGate {
+  const researched = researchedSourceUrls(tasks);
   const assessed = tasks.map((t) => {
-    const { verdict, reason } = assessTaskEvidence(t);
+    const { verdict, reason } = assessTaskEvidence(t, researched);
     return { id: String(t.id ?? "unknown"), title: String(t.title ?? ""), verdict, reason };
   });
   const noData = assessed.filter((t) => t.verdict === "no_data_source");

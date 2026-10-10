@@ -4,7 +4,7 @@ import { planObjective } from "./executive-planner.ts";
 import { allocateProjectWork, createRectificationTask, resumeTaskFromCheckpoint, returnCompletedWork } from "./work-engine.ts";
 import { contractCriteria, verifyObjective } from "./objective-verifier.ts";
 import { readObjectiveState, syncObjectiveState } from "./objective-state.ts";
-import { assessCurrentTaskSet, assessObjectiveTasks, formatBlockedSummary, type TaskEvidenceRecord } from "./fact-grounding.ts";
+import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, type TaskEvidenceRecord } from "./fact-grounding.ts";
 import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP, projectUpdateForObjective } from "./objective-rerun.ts";
 import { classifyObjective, completionContract, planContractMismatch, projectOutputType } from "./objective-contract.ts";
 
@@ -662,6 +662,38 @@ async function markObjective(
  * stay as history. If any of its jobs is mid-execution the pass is left alone
  * and the caller waits for the next run instead of interrupting it.
  */
+export async function recheckGateBlockedObjectives(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+): Promise<string[]> {
+  const { data: parked, error } = await supabase
+    .from("orchestrator_requests")
+    .select("id, result_summary")
+    .eq("requested_by", "founder-brain")
+    .eq("status", "awaiting_approval")
+    .eq("action_taken", OBJECTIVE_LOOP)
+    .like("result_summary", `${BLOCKED_SUMMARY_PREFIX}%`)
+    .limit(10);
+  if (error) throw new Error(`Failed loading gate-blocked objectives: ${error.message}`);
+  const resumed: string[] = [];
+  for (const row of parked ?? []) {
+    const id = String(row.id);
+    const state = await loadObjectiveState(supabase, id);
+    if (state.projects.length === 0) continue;
+    const gate = assessCurrentTaskSet(state.projects as Array<{ id?: unknown }>, state.tasks as TaskEvidenceRecord[]);
+    if (gate.blocked) continue;
+    const note = `Resumed ${new Date().toISOString()}: the evidence gate no longer blocks the current task set (${gate.reason}).`;
+    const { error: upErr } = await supabase
+      .from("orchestrator_requests")
+      .update({ status: "processing", result_summary: note.slice(0, 1000) })
+      .eq("id", id)
+      .eq("status", "awaiting_approval");
+    if (upErr) throw new Error(`Failed resuming ${id}: ${upErr.message}`);
+    resumed.push(id);
+  }
+  return resumed;
+}
+
 export async function retireLivePasses(
   // deno-lint-ignore no-explicit-any
   supabase: any,
@@ -789,6 +821,19 @@ export async function runObjectiveLoop(
     await returnCompletedWork();
   } catch (err) {
     console.error("objective-loop: completed-work reconciliation failed (non-blocking)", err instanceof Error ? err.message : String(err));
+  }
+
+  // GATE RE-CHECK: an objective parked by the deterministic evidence gate
+  // (summary starts with BLOCKED_SUMMARY_PREFIX) is re-assessed each run with
+  // the current rules. If its latest task set no longer fails the gate — e.g.
+  // a verifier defect that blocked a sound deliverable was fixed — it returns
+  // to 'processing' and is evaluated normally below. Objectives waiting on a
+  // founder decision, approval or escalation have other summaries and are not
+  // touched. No model call is made here.
+  try {
+    await recheckGateBlockedObjectives(supabase);
+  } catch (err) {
+    console.error("objective-loop: gate re-check failed (non-blocking)", err instanceof Error ? err.message : String(err));
   }
 
   const { data: objectives, error } = await supabase
