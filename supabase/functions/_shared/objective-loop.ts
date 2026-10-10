@@ -945,9 +945,12 @@ export async function runObjectiveLoop(
       // A run has a wall-clock deadline in addition to bounded replan and rectification counts.
       // A deliberate rerun starts a fresh budget at the rerun request timestamp; ordinary work
       // uses its original submission timestamp. Expired work fails terminally instead of replanning forever.
-      const deadlineStart = isRerunRequested(objective)
-        ? String(objective.updated_at ?? objective.created_at ?? "")
-        : String(objective.created_at ?? "");
+      // updated_at is refreshed when a deliberate rerun transitions the row to
+      // processing, and remains stable during ordinary scheduler passes. Do
+      // not branch on isRerunRequested here: the loop clears that flag after
+      // the first pass, which would otherwise reset the start back to an old
+      // created_at on the next tick and immediately expire the rerun.
+      const deadlineStart = String(objective.updated_at ?? objective.created_at ?? "");
       const budgetMinutes = objectiveDeadlineMinutes(Deno.env.get("OBJECTIVE_DEADLINE_MINUTES"));
       const deadline = objectiveDeadline(deadlineStart, new Date(), budgetMinutes);
       if (deadline.expired) {
