@@ -103,9 +103,17 @@ JSON schema:
 }
 
 function norm(s: string): string {
-  return s.toLowerCase().replace(/[“”"'`’]/g, "").replace(/\s+/g, " ").trim();
+  // Compare visible Markdown text, not link destinations or formatting syntax.
+  // This verifies source citations when a quote includes the visible source
+  // label but not the URL target.
+  return s
+    .replace(/\[([^\]]+)\]\((?:[^()]|\([^()]*\))*\)/g, "$1")
+    .replace(/[*_~\`]/g, "")
+    .toLowerCase()
+    .replace(/[“”"'’]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
-
 function extractJson(text: string): Record<string, unknown> | null {
   const t = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
   for (const candidate of [t, t.slice(t.indexOf("{"), t.lastIndexOf("}") + 1)]) {
@@ -136,49 +144,19 @@ export function requiresHumanDecision(flag: boolean, reason: string): boolean {
  * asking the Founder to accept an unfinished deliverable. Explicit external
  * actions remain human gates.
  */
-export function isRecoverableOutputBlocker(summary: string): boolean {
+export const MAX_AUTOMATIC_RECTIFICATIONS = 6;
+
+export function isRecoverableOutputBlocker(summary: string, completedRectifications = 0): boolean {
   const text = summary.trim();
   const falseHumanGate = /^Human decision required:/i.test(text) &&
     /raw json|intermediate output|final report|deliverable|re-execut|acceptable|format/i.test(text);
   const exhaustedVerification = /^Objective replanned [0-9]+ times without reaching achieved\/blocked\/failed\./i.test(text) &&
     /independent verification rejected the deliverable|supporting quote was not found|deliverable/i.test(text);
   const externalAction = /payment|pay|purchase|spend|budget|credential|api key|secret|password|contract signature|physical action|in-person|delete data|security setting/i.test(text);
+  // Allow a bounded final recovery cycle, then leave the unresolved quality
+  // failure parked for review instead of resetting the counter forever.
+  if (exhaustedVerification && completedRectifications >= MAX_AUTOMATIC_RECTIFICATIONS) return false;
   return (falseHumanGate || exhaustedVerification) && !externalAction;
-}/** Parses and hardens the verifier's answer. A quote that is not in the deliverable turns a "met" into "not met". */
-export function parseVerdict(text: string, deliverable: string, deterministic: { ok: boolean; problems: string[] }): Omit<Verdict, "verifierRef" | "independence" | "available"> | null {
-  const obj = extractJson(text);
-  if (!obj || !Array.isArray(obj.criteria)) return null;
-  const hay = norm(deliverable);
-  const criteria: CriterionResult[] = (obj.criteria as Array<Record<string, unknown>>).map((c) => {
-    const criterion = String(c.criterion ?? "").slice(0, 400);
-    const quote = typeof c.evidence_quote === "string" && c.evidence_quote.trim() ? c.evidence_quote.trim() : null;
-    let met = c.met === true;
-    let issue = typeof c.issue === "string" && c.issue.trim() ? c.issue.trim() : null;
-    if (met) {
-      const q = quote ? norm(quote) : "";
-      if (!q || q.length < 8 || !hay.includes(q)) {
-        met = false;
-        issue = `verifier's supporting quote was not found in the deliverable${quote ? `: "${quote.slice(0, 120)}"` : ""}`;
-      }
-    }
-    return { criterion, met, evidence_quote: quote, issue };
-  }).filter((c) => c.criterion.length > 0);
-  if (!criteria.length) return null;
-  const qualityRaw = Number(obj.quality);
-  const quality = Number.isFinite(qualityRaw) ? Math.max(0, Math.min(1, qualityRaw)) : 0;
-  const issues = [
-    ...deterministic.problems,
-    ...criteria.filter((c) => !c.met).map((c) => `${c.criterion}: ${c.issue ?? "not met"}`),
-    ...(Array.isArray(obj.issues) ? (obj.issues as unknown[]).map(String) : []),
-  ].slice(0, 20);
-  const humanDecisionReason = String(obj.human_decision_reason ?? "").trim();
-  const needsHumanDecision = requiresHumanDecision(obj.needs_human_decision === true, humanDecisionReason);
-  const passed = deterministic.ok && !needsHumanDecision && criteria.every((c) => c.met) && quality >= PASS_QUALITY;
-  return {
-    passed, quality, criteria, issues, needsHumanDecision,
-    humanDecisionReason: needsHumanDecision ? (humanDecisionReason || "verifier reported a required human decision") : null,
-    deterministic,
-  };
 }
 
 export function independenceLevel(verifierRef: string | null, producerRefs: string[]): Verdict["independence"] {
