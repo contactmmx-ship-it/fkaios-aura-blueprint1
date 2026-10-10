@@ -12,8 +12,10 @@ export function objectiveDeadlineMinutes(raw: string | undefined): number {
 /**
  * The orchestrator_requests table does not have an updated_at column.
  * A deliberate rerun stores its fresh start timestamp in result_summary.
- * Prefer that timestamp only while the rerun flag is active; ordinary runs
- * remain anchored to created_at so scheduler ticks cannot reset the budget.
+ * The rerun timestamp remains in result_summary after the one-shot rerun flag
+ * is cleared, so later scheduler ticks keep using the new run's start time.
+ * Ordinary runs remain anchored to created_at so scheduler ticks cannot reset
+ * the budget.
  */
 export function objectiveRunStartedAt(row: {
   created_at?: unknown;
@@ -21,7 +23,7 @@ export function objectiveRunStartedAt(row: {
   action_taken?: unknown;
   result_summary?: unknown;
 }): string {
-  if (row.action_taken === "rerun_requested" && typeof row.result_summary === "string") {
+  if (typeof row.result_summary === "string") {
     const match = row.result_summary.match(/Re-run requested at (.+?)\. The objective loop/);
     if (match && Number.isFinite(Date.parse(match[1]))) return match[1];
   }
