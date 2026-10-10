@@ -1,0 +1,128 @@
+name: Deploy reviewed FKAIOS database migrations
+
+# Production schema changes are applied only after merge to main. This workflow
+# intentionally does not run on pull requests, drafts, or workflow_dispatch.
+# It applies only migration files changed in the triggering main-branch push.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/migrations/*.sql"
+      - ".github/workflows/deploy-fkaios-migrations.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fkaios-production-database-migrations
+  cancel-in-progress: false
+
+jobs:
+  apply-reviewed-migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: nrlsqshkjuuwiovthrnb
+      PUSH_BEFORE: ${{ github.event.before }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Validate migration credentials and discover changed files
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "::error::SUPABASE_ACCESS_TOKEN is not configured."
+            exit 1
+          fi
+          git diff --name-only "$PUSH_BEFORE" "$GITHUB_SHA" -- 'supabase/migrations/*.sql' > /tmp/fkaios-migrations.txt
+          while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            name="$(basename "$path" .sql)"
+            if ! [[ "$name" =~ ^([0-9]{14})_([a-z0-9_]+)$ ]]; then
+              echo "::error::Invalid migration filename: $path"
+              exit 1
+            fi
+          done < /tmp/fkaios-migrations.txt
+          echo "Validated $(wc -l < /tmp/fkaios-migrations.txt) changed migration file(s)."
+      - name: Apply each reviewed migration transactionally and record its version
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            name="$(basename "$path" .sql)"
+            version="${name%%_*}"
+            migration_name="${name#*_}"
+            python3 - "$version" > /tmp/fkaios-migration-check.json <<'PY'
+          import json, sys
+          version = sys.argv[1].replace("'", "''")
+          print(json.dumps({"query": "SELECT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '" + version + "') AS applied"}))
+          PY
+            check_status="$(curl -sS -o /tmp/fkaios-migration-check-response.json -w '%{http_code}' \
+              -X POST "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data-binary @/tmp/fkaios-migration-check.json)"
+            if [ "$check_status" != "201" ]; then
+              echo "::error::Migration preflight for $version failed with HTTP $check_status."
+              head -c 2000 /tmp/fkaios-migration-check-response.json
+              exit 1
+            fi
+            applied="$(python3 - /tmp/fkaios-migration-check-response.json <<'PY'
+          import json, sys
+          data = json.load(open(sys.argv[1]))
+          def find_applied(value):
+              if isinstance(value, dict):
+                  if "applied" in value and isinstance(value["applied"], bool):
+                      return value["applied"]
+                  for item in value.values():
+                      found = find_applied(item)
+                      if found is not None: return found
+              elif isinstance(value, list):
+                  for item in value:
+                      found = find_applied(item)
+                      if found is not None: return found
+              return None
+          found = find_applied(data)
+          if found is None:
+              raise SystemExit("Could not interpret migration preflight response; failing closed.")
+          print("true" if found else "false")
+          PY
+            )"
+            if [ "$applied" = "true" ]; then
+              echo "Migration $version is already recorded; skipping."
+              continue
+            fi
+            # Encode SQL as a JSON string; quote the full source for the migration
+            # history array without shell interpolation. The transaction ensures
+            # schema changes and the history row commit or roll back together.
+            python3 - "$path" "$version" "$migration_name" > /tmp/fkaios-migration-query.json <<'PY'
+          import json, pathlib, sys
+          path, version, name = sys.argv[1:4]
+          sql = pathlib.Path(path).read_text()
+          literal = "'" + sql.replace("'", "''") + "'"
+          query = (
+              "BEGIN;\n" + sql + "\n"
+              + "INSERT INTO supabase_migrations.schema_migrations "
+              + "(version,name,statements,created_by,idempotency_key,rollback) VALUES ("
+              + "'" + version + "','" + name + "',ARRAY[" + literal + "]::text[],"
+              + "'github-actions','fkaios-migration-" + version + "',ARRAY[]::text[]) "
+              + "ON CONFLICT (version) DO NOTHING;\nCOMMIT;"
+          )
+          print(json.dumps({"query": query}))
+          PY
+            status="$(curl -sS -o /tmp/fkaios-migration-response.json -w '%{http_code}' \
+              -X POST "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query" \
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data-binary @/tmp/fkaios-migration-query.json)"
+            if [ "$status" != "201" ]; then
+              echo "::error::Migration $name failed with HTTP $status. No deployment success is claimed."
+              head -c 2000 /tmp/fkaios-migration-response.json
+              exit 1
+            fi
+            echo "Applied reviewed migration $version ($migration_name)."
+          done < /tmp/fkaios-migrations.txt
