@@ -985,9 +985,13 @@ export async function runObjectiveLoop(
           });
           continue;
         }
+        // Keep the rerun timestamp in result_summary for subsequent ticks.
+        // objectiveRunStartedAt() uses this marker after the one-shot rerun flag
+        // is cleared; nulling it here made the next tick fall back to the
+        // original created_at and immediately fail the fresh run as over budget.
         const { error: flagError } = await supabase
           .from("orchestrator_requests")
-          .update({ action_taken: OBJECTIVE_LOOP, result_summary: null })
+          .update({ action_taken: OBJECTIVE_LOOP })
           .eq("id", objective.id);
         if (flagError) throw new Error(`Failed clearing re-run flag: ${flagError.message}`);
         results.push({
