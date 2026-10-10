@@ -170,7 +170,20 @@ export async function syncObjectiveState(db: Db, objective: { id: string; status
       .eq("objective_id", objective.id).order("created_at", { ascending: false }).limit(200);
     const snap = deriveSnapshot({ objectiveStatus: objective.status, contract: contract ?? null, projects: (projects ?? []) as Array<{ id: string }>, tasks: (tasks ?? []) as TaskFact[], steps: (steps ?? []) as StepFact[] });
     const phase = override?.phase ?? snap.phase;
-    const patch = { objective: objective.raw_request ?? undefined, ...snap.patch, ...(override?.patch ?? {}) };
+    const currentState = await readObjectiveState(db, objective.id);
+    const incomingPatch = { ...(override?.patch ?? {}) };
+    const currentDeadlineStart = currentState?.verification?.deadline_started_at;
+    if (typeof currentDeadlineStart === "string") {
+      const incomingVerification = incomingPatch.verification && typeof incomingPatch.verification === "object"
+        ? incomingPatch.verification as Record<string, unknown>
+        : {};
+      incomingPatch.verification = {
+        ...(currentState?.verification ?? {}),
+        ...incomingVerification,
+        deadline_started_at: currentDeadlineStart,
+      };
+    }
+    const patch = { objective: objective.raw_request ?? undefined, ...snap.patch, ...incomingPatch };
     if (patch.objective === undefined) delete (patch as Record<string, unknown>).objective;
     const res = await applyObjectiveState(db, objective.id, phase, patch, override?.reason ?? `sync: ${phase}`);
     return { ok: res.ok, phase, error: res.error };
