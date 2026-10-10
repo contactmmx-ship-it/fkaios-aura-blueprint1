@@ -121,7 +121,19 @@ Deno.test("completed objectives can reopen only into verification for evidence r
   assertEquals(phasePath("completed", "executing"), null);
 });
 
-Deno.test("verifier prompt rejects invented citation dates and generic competitor placeholders", () => {\n  const prompt = buildVerifierPrompt(\n    "Compare Kids DPS with Kidzee and EuroKids using source links and publication dates.",\n    ["Competitor comparison has brand-specific data and supported source dates"],\n    "| Brand | Scale | Source & date |\\n| Kids DPS | Data pending | Internal record (Date: 2024-01-01) |\\n| Kidzee | Major incumbent | Aggregator (Date: 2024-01-01) |\\n| EuroKids | Major incumbent | Aggregator (Date: 2024-01-01) |",\n    "Sources list Kidzee and EuroKids but publication_date is null; no retrieved source date is available."\n  );\n  assertStringIncludes(prompt.user, "Do not infer publication dates from a URL");\n  assertStringIncludes(prompt.user, "Generic labels such as");\n  assertStringIncludes(prompt.user, "state/local variation");\n});\n\nDeno.test("only a different model or provider counts as independent verification", () => {
+Deno.test("verifier prompt rejects invented citation dates and generic competitor placeholders", () => {
+  const prompt = buildVerifierPrompt(
+    "Compare Kids DPS with Kidzee and EuroKids using source links and publication dates.",
+    ["Competitor comparison has brand-specific data and supported source dates"],
+    "| Brand | Scale | Source & date |\n| Kids DPS | Data pending | Internal record (Date: 2024-01-01) |\n| Kidzee | Major incumbent | Aggregator (Date: 2024-01-01) |\n| EuroKids | Major incumbent | Aggregator (Date: 2024-01-01) |",
+    "Sources list Kidzee and EuroKids but publication_date is null; no retrieved source date is available."
+  );
+  assertStringIncludes(prompt.user, "Do not infer publication dates from a URL");
+  assertStringIncludes(prompt.user, "Generic labels such as");
+  assertStringIncludes(prompt.user, "state/local variation");
+});
+
+Deno.test("only a different model or provider counts as independent verification", () => {
   assertEquals(isIndependentVerificationLevel("different_model"), true);
   assertEquals(isIndependentVerificationLevel("different_provider"), true);
   assertEquals(isIndependentVerificationLevel("same_model"), false);
