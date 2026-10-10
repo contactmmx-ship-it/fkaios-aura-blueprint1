@@ -76,10 +76,10 @@ function adminClient() {
   });
 }
 
-async function readLiveExecution(admin: ReturnType<typeof adminClient>, objectiveId: string, objectiveStatus: string, tasks: Record<string, unknown>[], jobs: Record<string, unknown>[]) {
+async function readLiveExecution(admin: ReturnType<typeof adminClient>, objectiveId: string, objectiveStatus: string, selectedProjectId: string, tasks: Record<string, unknown>[], jobs: Record<string, unknown>[]) {
   const [{ data: controller }, { data: workPackages }, { data: handoffs }, { data: solutions }] = await Promise.all([
     admin.from("fkaios_controller_state").select("tick_count,last_tick_at,next_action,next_requirement_description,next_requirement_status,open_requirement_count,human_blocked_count,verified_count,total_count,objective_state,active_run_count,available_workers,pending_worker_allocation_count,latest_open_handoff_id").eq("objective_id", objectiveId).maybeSingle(),
-    admin.from("work_packages").select("id,sequence,task_type,status,selected_provider,state,handoff_notes,updated_at,created_at").eq("objective_id", objectiveId).order("sequence", { ascending: true }),
+    admin.from("work_packages").select("id,sequence,task_type,status,selected_provider,state,handoff_notes,updated_at,created_at").eq("objective_id", objectiveId).eq("state->>project_id", selectedProjectId).order("sequence", { ascending: true }),
     admin.from("provider_handoffs").select("id,work_package_id,from_provider,to_provider,reason,status,attempt,created_at,updated_at").eq("objective_id", objectiveId).order("created_at", { ascending: false }).limit(10),
     admin.from("objective_solution_options").select("source_type,source_id,name,score,rank,recommendation,selected,fit_score,quality_score,availability_score,cost_score,risk_score,created_at").eq("objective_id", objectiveId).order("score", { ascending: false }).limit(10),
   ]);
@@ -159,7 +159,7 @@ async function readObjectiveStatus(objectiveId: string | null) {
     const selectedProject = terminalProjectStatus
       ? (projects ?? []).find((p) => String(p.status ?? "") === terminalProjectStatus) ?? projects?.[0]
       : projects?.[0];
-    const selectedProjectId = selectedProject?.id;
+    const selectedProjectId = String(selectedProject?.id ?? "");
     let tasks: Record<string, unknown>[] = [];
     let jobs: Record<string, unknown>[] = [];
     if (selectedProjectId) {
@@ -214,7 +214,7 @@ async function readObjectiveStatus(objectiveId: string | null) {
         return existing ?? { title: String(task.title ?? "Completed task"), status: String(task.status ?? ""), verdict: "incomplete" };
       });
     }
-    progress.live = await readLiveExecution(admin, String(objective.id), objectiveStatus, tasks, jobs);
+    progress.live = await readLiveExecution(admin, String(objective.id), objectiveStatus, selectedProjectId, tasks, jobs);
     return { ...objective, progress };
   }));
 }
