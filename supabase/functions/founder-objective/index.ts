@@ -178,16 +178,24 @@ async function readObjectiveStatus(objectiveId: string | null) {
     // when the objective was later marked failed (for example, its execution
     // deadline expired after producing the report). Surface that exact stored
     // artifact with its truthful verification state; never relabel it verified.
-    const persistedFinalOutput = typeof selectedProject?.final_output === "string" && selectedProject.final_output.trim()
-      ? selectedProject.final_output
+    // The task/progress view deliberately follows the project matching the
+    // objective's terminal state. A failed objective can nevertheless have a
+    // useful completed deliverable from an earlier pass; search the persisted
+    // project history separately so that artifact remains visible without
+    // corrupting task counts or changing the objective's terminal status.
+    const deliverableProject = (projects ?? []).find((p) =>
+      typeof p.final_output === "string" && p.final_output.trim().length > 0
+    );
+    const persistedFinalOutput = typeof deliverableProject?.final_output === "string"
+      ? deliverableProject.final_output
       : null;
     if (persistedFinalOutput) {
       progress.final_output = persistedFinalOutput;
-      progress.final_output_status = objectiveStatus === "completed" && selectedProject?.status === "complete"
+      progress.final_output_status = objectiveStatus === "completed" && deliverableProject?.status === "complete"
         ? "completed"
         : "needs_reverification";
-      progress.final_output_project_status = selectedProject?.status ?? null;
-      progress.final_output_error = selectedProject?.error_message ?? null;
+      progress.final_output_project_status = deliverableProject?.status ?? null;
+      progress.final_output_error = deliverableProject?.error_message ?? null;
     }
     const { data: contract } = await admin.from("objective_contracts")
       .select("objective_type,intent,requirements,acceptance_criteria,quality_benchmark,discovery,solution_plan,continuity,status,created_at,updated_at")
