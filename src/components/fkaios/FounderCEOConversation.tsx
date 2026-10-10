@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Brain, Send, Loader2, RefreshCw, CheckCircle2, AlertTriangle, MessageSquare, ArrowLeft, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
 
@@ -18,6 +18,20 @@ type Discussion = {
   proposed_plan?: Plan | null; submitted_objective_id?: string | null;
   created_at?: string; updated_at?: string;
 };
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read microphone audio'));
+    reader.onload = () => {
+      const result = String(reader.result ?? '');
+      const comma = result.indexOf(',');
+      if (comma < 0) reject(new Error('Microphone audio encoding failed'));
+      else resolve(result.slice(comma + 1));
+    };
+    reader.readAsDataURL(blob);
+  });
+}
 
 async function functionError(error: unknown): Promise<string> {
   const ctx = (error as { context?: unknown })?.context;
@@ -37,8 +51,11 @@ export default function FounderCEOConversation() {
   const [error, setError] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
   const [voiceOutput, setVoiceOutput] = useState(true);
-  const [voiceStatus, setVoiceStatus] = useState('Voice uses browser speech services; no separate speech API key is required.');
-  const recognitionRef = useState<{ current: any }>({ current: null })[0];
+  const [voiceStatus, setVoiceStatus] = useState('Voice uses FKAIOS speech routing for transcription and spoken replies.');
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const listThreads = useCallback(async () => {
     const { data, error: callError } = await supabase.functions.invoke('founder-objective', { body: { action: 'discussion_list' } });
@@ -61,38 +78,84 @@ export default function FounderCEOConversation() {
     finally { setBusy(false); }
   };
 
-  const speakCEO = (text: string) => {
-    if (!voiceOutput || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'en-IN';
-    utterance.rate = 1;
-    utterance.onstart = () => setVoiceStatus('AI CEO is speaking');
-    utterance.onend = () => setVoiceStatus('Voice ready');
-    utterance.onerror = () => setVoiceStatus('Speech output unavailable; the written response remains available.');
-    window.speechSynthesis.speak(utterance);
+  const speakCEO = async (text: string) => {
+    if (!voiceOutput || typeof window === 'undefined') return;
+    try {
+      setVoiceStatus('Preparing spoken reply through FKAIOS speech routing…');
+      const { data, error: callError } = await supabase.functions.invoke('founder-objective', {
+        body: { action: 'speak', text: text.slice(0, 4000), voice: 'en-IN' },
+      });
+      if (callError) throw new Error(await functionError(callError));
+      if (!data?.ok || !data?.audioBase64) throw new Error(data?.error || 'Speech synthesis returned no audio');
+      const binary = atob(data.audioBase64);
+      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: data.mimeType || 'audio/mpeg' }));
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+      }
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => { URL.revokeObjectURL(url); setVoiceStatus('Voice ready'); };
+      audio.onerror = () => { URL.revokeObjectURL(url); setVoiceStatus('Spoken reply unavailable; the written CEO response remains available.'); };
+      setVoiceStatus('AI CEO is speaking');
+      await audio.play();
+    } catch (e) {
+      setVoiceStatus('Speech output unavailable: ' + (e instanceof Error ? e.message : 'unknown error') + '. The written response remains available.');
+    }
   };
 
-  const toggleVoiceInput = () => {
-    if (listening) { recognitionRef.current?.stop(); setListening(false); return; }
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) { setVoiceStatus('Speech recognition is not supported in this browser. Use Chrome/Edge or type your message.'); return; }
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'en-IN';
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.onresult = (event: any) => {
-      const transcript = String(event.results?.[event.resultIndex]?.[0]?.transcript ?? '').trim();
-      if (transcript) { setDraft(transcript); void send(transcript); }
-    };
-    recognition.onerror = (event: any) => { setListening(false); setVoiceStatus('Voice input failed: ' + String(event.error ?? 'unknown error') + '. You can type instead.'); };
-    recognition.onend = () => setListening(false);
-    recognitionRef.current = recognition;
-    try { recognition.start(); setListening(true); setVoiceStatus('Listening… speak your instruction.'); }
-    catch { setListening(false); setVoiceStatus('Could not start microphone. Check browser microphone permission.'); }
+  const toggleVoiceInput = async () => {
+    if (listening) { recorderRef.current?.stop(); setListening(false); return; }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setVoiceStatus('This browser does not support microphone recording. You can type your message instead.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      chunksRef.current = [];
+      const preferredType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : undefined;
+      const recorder = new MediaRecorder(stream, preferredType ? { mimeType: preferredType } : undefined);
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (event) => { if (event.data.size > 0) chunksRef.current.push(event.data); };
+      recorder.onerror = () => { setListening(false); setVoiceStatus('Microphone recording failed. You can type your message instead.'); };
+      recorder.onstop = async () => {
+        setListening(false);
+        stream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        chunksRef.current = [];
+        if (!blob.size) { setVoiceStatus('No audio was captured. Try again or type your message.'); return; }
+        if (blob.size > 10 * 1024 * 1024) { setVoiceStatus('Audio exceeded the 10 MB limit. Please record a shorter message.'); return; }
+        try {
+          setVoiceStatus('Transcribing audio through FKAIOS speech routing…');
+          const { data, error: callError } = await supabase.functions.invoke('founder-objective', {
+            body: { action: 'transcribe', audioBase64: await blobToBase64(blob), mimeType: blob.type || 'audio/webm', language: 'en-IN' },
+          });
+          if (callError) throw new Error(await functionError(callError));
+          if (!data?.ok || typeof data?.text !== 'string' || !data.text.trim()) throw new Error(data?.error || 'Transcription returned no text');
+          setVoiceStatus('Heard: ' + data.text.slice(0, 180));
+          setDraft(data.text);
+          await send(data.text);
+        } catch (e) {
+          setVoiceStatus('Voice input failed: ' + (e instanceof Error ? e.message : 'unknown error') + '. You can type instead.');
+        }
+      };
+      recorder.start();
+      setListening(true);
+      setVoiceStatus('Listening… speak your instruction, then press Stop listening.');
+    } catch (e) {
+      setListening(false);
+      setVoiceStatus('Could not access microphone: ' + (e instanceof Error ? e.message : 'permission denied') + '. Check browser permission or type instead.');
+    }
   };
 
-  useEffect(() => () => { recognitionRef.current?.stop(); if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel(); }, [recognitionRef]);
+  useEffect(() => () => {
+    recorderRef.current?.stop();
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    audioRef.current?.pause();
+  }, []);
 
   const send = async (spokenMessage?: string) => {
     const message = (spokenMessage ?? draft).trim();
@@ -107,7 +170,7 @@ export default function FounderCEOConversation() {
       setActive(data.discussion);
       setDraft('');
       const latestCEO = [...(data.discussion?.messages ?? [])].reverse().find((m: Message) => m.role === 'ceo');
-      if (latestCEO) speakCEO(latestCEO.content);
+      if (latestCEO && voiceOutput) await speakCEO(latestCEO.content);
       await listThreads();
     } catch (e) { setError(e instanceof Error ? e.message : 'The message was not completed'); }
     finally { setBusy(false); }
