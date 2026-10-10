@@ -140,12 +140,11 @@ export function isRecoverableOutputBlocker(summary: string): boolean {
   const text = summary.trim();
   const falseHumanGate = /^Human decision required:/i.test(text) &&
     /raw json|intermediate output|final report|deliverable|re-execut|acceptable|format/i.test(text);
-  const exhaustedVerification = /^Objective replanned \\d+ times without reaching achieved\\/blocked\\/failed\\./i.test(text) &&
+  const exhaustedVerification = /^Objective replanned [0-9]+ times without reaching achieved\/blocked\/failed\./i.test(text) &&
     /independent verification rejected the deliverable|supporting quote was not found|deliverable/i.test(text);
-  const externalAction = /payment|\\bpay\\b|purchase|spend|budget|credential|api key|secret|password|contract signature|physical action|in-person|delete data|security setting/i.test(text);
+  const externalAction = /payment|pay|purchase|spend|budget|credential|api key|secret|password|contract signature|physical action|in-person|delete data|security setting/i.test(text);
   return (falseHumanGate || exhaustedVerification) && !externalAction;
-}
-/** Parses and hardens the verifier's answer. A quote that is not in the deliverable turns a "met" into "not met". */
+}/** Parses and hardens the verifier's answer. A quote that is not in the deliverable turns a "met" into "not met". */
 export function parseVerdict(text: string, deliverable: string, deterministic: { ok: boolean; problems: string[] }): Omit<Verdict, "verifierRef" | "independence" | "available"> | null {
   const obj = extractJson(text);
   if (!obj || !Array.isArray(obj.criteria)) return null;
