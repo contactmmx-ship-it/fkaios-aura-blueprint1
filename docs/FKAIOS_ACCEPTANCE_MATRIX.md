@@ -19,3 +19,21 @@ Statuses are **VERIFIED**, **PARTIALLY VERIFIED**, **NOT IMPLEMENTED**, **BLOCKE
 | 13 | Voice | **VERIFIED** | voice_turn self-test passed twice (b41ae8bb, a3ca6e21): STT WER 0 → reply → TTS → STT WER 0. Speech resources were verified autonomously by WER | Live microphone use by Rajeev in the Console (UI path) | Rajeev tries voice in the Console |
 | 14 | Live deployment | PARTIALLY VERIFIED (9 Oct 04:05) | Backend: edge functions deploy from `main` via CI (runs 111–116 all succeeded); founder-brain-tick v121, founder-objective v83, workday-engine v23 and staff-engine v50 are built from the repo. Frontend: Vercel project `fkaios-aura-blueprint1` auto-deploys `main` (deployment dpl_8CAeXHYfQa3c8NLAccpistrCzzPc, READY, HTTP 200). A duplicate project `fkaios-aura-blueprint1-lmjz` deploys the same commit | Signed-in founder journey in the browser (Console → objective → status) | Rajeev signs in once and submits an objective (also covers test 1). The founder decides whether to retire the duplicate Vercel project |
 | 15 | Regression | **VERIFIED** (9 Oct 04:05) | `_shared` tests: 151 passed, 1 failed (A7, failing before this work, unchanged). New tests: 13 knowledge, discovery and blueprint tests. Type-check: founder-brain-tick 41 and founder-objective 42, both baseline, unchanged; workday-engine and staff-engine clean. Production engine paths still pass (knowledge self-tests f5d930dd and 699ba88a; opportunity and evolution engines succeeded on schedule) | — | Re-run on every PR |
+
+---
+
+## Live audit override — 10 Oct 2026
+
+This section supersedes older rows only where the new evidence below conflicts. Historical evidence above is retained.
+
+| Area | Current observed status | Evidence and next action |
+|---|---|---|
+| Real objective from Console | **CONFLICTED / NOT ACCEPTED** | Kids DPS objective `20cbf892-0e6b-4689-9d1f-1a3a4030ce8f`: request is `failed`, linked project is `complete` but carries a deadline error, and canonical objective state is `completed` at version 86. Match the actual Console objective ID and reconcile all state projections. |
+| Independent objective verification | **NOT VERIFIED INDEPENDENTLY** | Evidence `655001a7-172a-498a-a4ba-6f857b1ab3b4` passed but explicitly says `independence=same_model`. The latest code intends to reject same-model verification; prove that code is deployed and re-run verification with a genuinely independent method/resource, or leave it non-independent. |
+| Task completion evidence | **PARTIALLY VERIFIED** | Deterministic task gate `6a7b5432-b401-44c6-a594-bb659483b2c1` passed and reports persisted outputs and successful capability dispatch for fact-dependent tasks. This does not establish the truth of every market claim or premium-quality acceptance. |
+| Deadline handling | **CODE CHANGE PRESENT; PRODUCTION PROOF UNKNOWN** | Commit `729995bfd7c2d2b3bc534dddd54d2a6b845b2573` says deadline accounting was fixed. Latest Supabase deploy workflow failed before confirming deployment. |
+| Supabase deploy pipeline | **BLOCKED** | Workflow `38047998737` failed with `Invalid access token` while deploying functions. Repair `SUPABASE_ACCESS_TOKEN`, rerun, and verify deployed versions. |
+| Migration drift check | **NOT RUN TO COMPLETION** | Workflow `38047998740` failed with HTTP 401 `Invalid access token`; migration comparison was skipped. Do not call drift clean or dirty until the check succeeds. |
+| Regression tests | **PASSED IN CI AT OBSERVED HEAD** | Persisted-deliverable workflow `38047998704` and objective-verifier workflow `38047998702` succeeded. Test success is not proof of deployment. |
+
+**Human action required:** update the GitHub Actions `SUPABASE_ACCESS_TOKEN` secret with a valid token and required permissions. Do not share its value in chat. Afterward, re-run the two failed workflows and re-check the exact Console objective.
