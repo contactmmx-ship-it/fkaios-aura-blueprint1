@@ -32,3 +32,17 @@ export function objectiveDeadline(
       : `${remainingMinutes} minutes remain in the ${budgetMinutes}-minute objective budget.`,
   };
 }
+
+export function resolveObjectiveStartAt(
+  createdAt: string | null | undefined,
+  resultSummary: string | null | undefined,
+  recordedStart: string | null | undefined,
+  restart: boolean,
+  now: Date,
+): string | null {
+  const summary = String(resultSummary ?? "");
+  const match = summary.match(/(?:Re-run requested at|Reopened for verification evidence repair at)\s+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)/);
+  if (restart) return match?.[1] ?? now.toISOString();
+  if (recordedStart) return recordedStart;
+  return match?.[1] ?? createdAt ?? null;
+}
