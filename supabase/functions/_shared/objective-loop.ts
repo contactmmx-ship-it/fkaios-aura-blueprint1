@@ -672,8 +672,11 @@ export async function recheckGateBlockedObjectives(
     .eq("requested_by", "founder-brain")
     .eq("status", "awaiting_approval")
     .eq("action_taken", OBJECTIVE_LOOP)
+    // Filter candidate recovery classes in the database before limiting. A
+    // global first-100 scan can starve an older blocked objective indefinitely.
+    .or(`result_summary.like.${BLOCKED_SUMMARY_PREFIX}%,result_summary.ilike.Human decision required:%,result_summary.ilike.Objective replanned % times without reaching achieved/blocked/failed.%`)
     .order("created_at", { ascending: true })
-    .limit(100);
+    .limit(500);
   if (error) throw new Error(`Failed loading gate-blocked objectives: ${error.message}`);
   const resumed: string[] = [];
   for (const row of parked ?? []) {
