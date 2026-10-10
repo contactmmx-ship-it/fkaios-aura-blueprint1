@@ -267,6 +267,29 @@ export async function verifyObjective(db: Db, input: {
   if (!parsed) {
     return { passed: false, quality: 0, criteria: [], issues: ["verifier returned no parseable verdict"], needsHumanDecision: false, humanDecisionReason: null, deterministic, verifierRef, independence, available: false };
   }
+  // A quality score from the same producing model is not an independent
+  // verification. Persist the rejected attempt for audit, then let the bounded
+  // objective loop retry verification on a later scheduler cycle.
+  if (!isIndependentVerificationLevel(independence)) {
+    const independenceIssue = "Independent verification unavailable: the selected verifier is the same model as a producer, or producer identity is unknown.";
+    const requirementKey = input.requirementKey ?? VERIFIER_VERSION;
+    const evidenceId = await persistVerificationEvidence(db, {
+      objectiveId: input.objectiveId,
+      requirementKey,
+      row: {
+        objective_id: input.objectiveId,
+        project_id: input.projectId,
+        requirement_key: requirementKey,
+        evidence_type: "independent_objective_verification",
+        verifier: verifierRef ?? "unknown",
+        status: "failed",
+        observed_result: { criteria: parsed.criteria, quality: parsed.quality, issues: [independenceIssue], independence, deterministic, producer_refs: input.producerRefs, needs_human_decision: false },
+        verification_notes: independenceIssue + " (independence: " + independence + ")",
+        verified_at: new Date().toISOString(),
+      },
+    });
+    return { passed: false, quality: 0, criteria: parsed.criteria, issues: [independenceIssue], needsHumanDecision: false, humanDecisionReason: null, deterministic, verifierRef, independence, available: false, evidenceId };
+  }
   const verdict: Verdict = { ...parsed, verifierRef, independence, available: true };
 
   const requirementKey = input.requirementKey ?? VERIFIER_VERSION;
