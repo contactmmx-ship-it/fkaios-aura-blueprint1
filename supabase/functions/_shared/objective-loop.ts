@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { reason } from "./founder-brain.ts";
 import { planObjective } from "./executive-planner.ts";
 import { allocateProjectWork, createRectificationTask, resumeTaskFromCheckpoint, returnCompletedWork } from "./work-engine.ts";
-import { contractCriteria, isRecoverableOutputBlocker, verifyObjective } from "./objective-verifier.ts";
+import { contractCriteria, isIndependentVerificationLevel, isRecoverableOutputBlocker, verifyObjective } from "./objective-verifier.ts";
 import { readObjectiveState, syncObjectiveState } from "./objective-state.ts";
 import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, type TaskEvidenceRecord } from "./fact-grounding.ts";
 import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP, projectUpdateForObjective } from "./objective-rerun.ts";
@@ -749,13 +749,13 @@ export async function recheckGateBlockedObjectives(
     const id = String(row.id);
     const { data: passingEvidence, error: evidenceError } = await supabase
       .from("fkaios_verification_evidence")
-      .select("id")
+      .select("id, observed_result")
       .eq("objective_id", id)
       .eq("evidence_type", "independent_objective_verification")
       .eq("status", "passed")
       .limit(1);
     if (evidenceError) throw new Error(`Failed checking verifier evidence for ${id}: ${evidenceError.message}`);
-    if (passingEvidence?.length) continue;
+    if ((passingEvidence ?? []).some((record) => isIndependentVerificationLevel((record.observed_result as Record<string, unknown> | null)?.independence))) continue;
     const state = await loadObjectiveState(supabase, id);
     const latestProject = state.projects[0];
     if (!latestProject || !String(latestProject.final_output ?? "").trim()) continue;
@@ -945,9 +945,12 @@ export async function runObjectiveLoop(
       // A run has a wall-clock deadline in addition to bounded replan and rectification counts.
       // A deliberate rerun starts a fresh budget at the rerun request timestamp; ordinary work
       // uses its original submission timestamp. Expired work fails terminally instead of replanning forever.
-      const deadlineStart = isRerunRequested(objective)
-        ? String(objective.updated_at ?? objective.created_at ?? "")
-        : String(objective.created_at ?? "");
+      // updated_at is refreshed when a deliberate rerun transitions the row to
+      // processing, and remains stable during ordinary scheduler passes. Do
+      // not branch on isRerunRequested here: the loop clears that flag after
+      // the first pass, which would otherwise reset the start back to an old
+      // created_at on the next tick and immediately expire the rerun.
+      const deadlineStart = String(objective.updated_at ?? objective.created_at ?? "");
       const budgetMinutes = objectiveDeadlineMinutes(Deno.env.get("OBJECTIVE_DEADLINE_MINUTES"));
       const deadline = objectiveDeadline(deadlineStart, new Date(), budgetMinutes);
       if (deadline.expired) {
