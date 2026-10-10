@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Brain, Send, Loader2, RefreshCw, CheckCircle2, AlertTriangle, MessageSquare, ArrowLeft } from 'lucide-react';
+import { Brain, Send, Loader2, RefreshCw, CheckCircle2, AlertTriangle, MessageSquare, ArrowLeft, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
 
 type Message = { role: 'founder' | 'ceo'; content: string; created_at: string };
 type Milestone = { name: string; outcome: string };
@@ -35,6 +35,10 @@ export default function FounderCEOConversation() {
   const [busy, setBusy] = useState(false);
   const [approving, setApproving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [listening, setListening] = useState(false);
+  const [voiceOutput, setVoiceOutput] = useState(true);
+  const [voiceStatus, setVoiceStatus] = useState('Voice uses browser speech services; no separate speech API key is required.');
+  const recognitionRef = useState<{ current: any }>({ current: null })[0];
 
   const listThreads = useCallback(async () => {
     const { data, error: callError } = await supabase.functions.invoke('founder-objective', { body: { action: 'discussion_list' } });
@@ -57,8 +61,41 @@ export default function FounderCEOConversation() {
     finally { setBusy(false); }
   };
 
-  const send = async () => {
-    const message = draft.trim();
+  const speakCEO = (text: string) => {
+    if (!voiceOutput || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-IN';
+    utterance.rate = 1;
+    utterance.onstart = () => setVoiceStatus('AI CEO is speaking');
+    utterance.onend = () => setVoiceStatus('Voice ready');
+    utterance.onerror = () => setVoiceStatus('Speech output unavailable; the written response remains available.');
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const toggleVoiceInput = () => {
+    if (listening) { recognitionRef.current?.stop(); setListening(false); return; }
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) { setVoiceStatus('Speech recognition is not supported in this browser. Use Chrome/Edge or type your message.'); return; }
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-IN';
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.onresult = (event: any) => {
+      const transcript = String(event.results?.[event.resultIndex]?.[0]?.transcript ?? '').trim();
+      if (transcript) { setDraft(transcript); void send(transcript); }
+    };
+    recognition.onerror = (event: any) => { setListening(false); setVoiceStatus('Voice input failed: ' + String(event.error ?? 'unknown error') + '. You can type instead.'); };
+    recognition.onend = () => setListening(false);
+    recognitionRef.current = recognition;
+    try { recognition.start(); setListening(true); setVoiceStatus('Listening… speak your instruction.'); }
+    catch { setListening(false); setVoiceStatus('Could not start microphone. Check browser microphone permission.'); }
+  };
+
+  useEffect(() => () => { recognitionRef.current?.stop(); if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel(); }, [recognitionRef]);
+
+  const send = async (spokenMessage?: string) => {
+    const message = (spokenMessage ?? draft).trim();
     if (message.length < 2 || busy) return;
     setBusy(true); setError(null);
     try {
@@ -69,6 +106,8 @@ export default function FounderCEOConversation() {
       if (!data?.ok) throw new Error(data?.error || 'The CEO could not respond');
       setActive(data.discussion);
       setDraft('');
+      const latestCEO = [...(data.discussion?.messages ?? [])].reverse().find((m: Message) => m.role === 'ceo');
+      if (latestCEO) speakCEO(latestCEO.content);
       await listThreads();
     } catch (e) { setError(e instanceof Error ? e.message : 'The message was not completed'); }
     finally { setBusy(false); }
@@ -101,11 +140,20 @@ export default function FounderCEOConversation() {
             <p className="mt-1 max-w-2xl text-sm text-slate-400">Discuss an idea in natural language. The CEO challenges assumptions, identifies research gaps and builds a measurable plan. Nothing is submitted for execution until you approve it.</p>
           </div>
         </div>
-        <button onClick={() => { setActive(null); setDraft(''); setError(null); }} className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:border-violet-600">
-          <MessageSquare className="h-4 w-4" /> New discussion
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={toggleVoiceInput} aria-pressed={listening} className={"flex items-center gap-2 rounded-lg border px-3 py-2 text-xs " + (listening ? "border-rose-600 bg-rose-950/40 text-rose-200" : "border-slate-700 text-slate-300 hover:border-violet-600")}>
+            {listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />} {listening ? 'Stop listening' : 'Speak to CEO'}
+          </button>
+          <button onClick={() => { setVoiceOutput(v => !v); if (voiceOutput && typeof window !== 'undefined') window.speechSynthesis.cancel(); }} aria-pressed={voiceOutput} className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:border-violet-600">
+            {voiceOutput ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />} Voice replies {voiceOutput ? 'on' : 'off'}
+          </button>
+          <button onClick={() => { setActive(null); setDraft(''); setError(null); }} className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:border-violet-600">
+            <MessageSquare className="h-4 w-4" /> New discussion
+          </button>
+        </div>
       </header>
 
+      <p aria-live="polite" className="text-[10px] text-slate-500">{voiceStatus}</p>
       {error && <div role="alert" className="rounded-xl border border-rose-900 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">{error}</div>}
 
       {!active ? (
