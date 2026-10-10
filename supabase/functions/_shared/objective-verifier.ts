@@ -196,6 +196,10 @@ export function parseVerdict(text: string, deliverable: string, deterministic: {
   };
 }
 
+export function isIndependentVerificationLevel(level: unknown): boolean {
+  return level === "different_model" || level === "different_provider";
+}
+
 export function independenceLevel(verifierRef: string | null, producerRefs: string[]): Verdict["independence"] {
   if (!verifierRef) return "none";
   if (producerRefs.length === 0) return "producers_unknown"; // never claim independence that was not measured
