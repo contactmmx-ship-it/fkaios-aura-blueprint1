@@ -12,6 +12,20 @@
 
 ---
 
+## Current truth update — 10 October 2026
+
+This live-evidence update supersedes earlier status claims wherever they conflict. It does not replace the historical chapters.
+
+- Repository `main` HEAD observed: `729995bfd7c2d2b3bc534dddd54d2a6b845b2573`.
+- Latest CI: persisted-deliverable regression `38047998704` and objective-verifier regression `38047998702` passed; Supabase function deploy `38047998737` and migration drift check `38047998740` failed because the GitHub Actions `SUPABASE_ACCESS_TOKEN` was rejected with HTTP 401 `Invalid access token`. Deployment of latest code is therefore unverified. Drift status is unknown because comparison never ran.
+- Kids DPS objective `20cbf892-0e6b-4689-9d1f-1a3a4030ce8f` has contradictory records: request `failed` on a 120-minute / 1490-minute elapsed budget message; linked project `aa628832-012d-421a-8e9c-b95315bc0e7f` is `complete` but retains the deadline error; canonical state is `completed`, version 86, `remaining_work=[]`.
+- Task gate `6a7b5432-b401-44c6-a594-bb659483b2c1` passed. Objective verifier evidence `655001a7-172a-498a-a4ba-6f857b1ab3b4` is labelled independent/passed but explicitly says `independence=same_model`; do **not** count this as independent verification.
+- Recent main commits address bounded deadlines, free/local-first provider ordering, persisted evidence, recovery, and same-model verifier rejection. Their production status must be confirmed after the invalid token is repaired.
+- The live function list reported `ai-engine` v145, `founder-brain-tick` v149, `founder-objective` v103; these version numbers alone do not map the functions to the latest commit.
+- Current archive coverage remains partial: the merged raw archive consolidates supplied source material through 7 Oct. The 10 Oct continuation is indexed separately. Unpasted ChatGPT/Claude conversations remain unavailable and must not be invented.
+
+**Next action:** repair the GitHub Actions Supabase token; rerun deployment and migration-drift checks; then reconcile the actual Console objective ID across request, contract, project/tasks, canonical state, evidence and final deliverable. Keep same-model verification non-independent until the deployed verifier proves otherwise.
+
 > **Raw layer:** the full conversations and records this document is built from are in [`docs/fkaios-archive/`](fkaios-archive/00_INDEX.md). Everything in one file: `docs/fkaios-archive/FKAIOS_ALL_CHATS_MERGED.md`.
 
 > **Latest audit (strengths and weaknesses):** [`docs/FKAIOS_AUDIT_2026-10-07.md`](FKAIOS_AUDIT_2026-10-07.md)
@@ -516,6 +530,22 @@ Each chapter lists its source. "Repo" means the commit or document in this repos
 - **No code, schema or data was changed in this chapter.**
 
 ---
+
+### Chapter 16: 10 October 2026, ChatGPT master-history continuation and live evidence reconciliation
+
+This chapter records the current ChatGPT continuation; it is a summary, not a verbatim transcript. It excludes SYROS OPD.
+
+**What Rajeev asked:** merge available FKAIOS history, preserve all material requirements and evidence, track contradictions, and continue the existing objective rather than restart or ask repeatedly what to do next.
+
+**Source/archive discovery:** `docs/FKAIOS_MASTER_SOURCE_OF_TRUTH.md`, `docs/FKAIOS_EXECUTION_CHECKPOINT.md`, `docs/FKAIOS_ACCEPTANCE_MATRIX.md` and `docs/fkaios-archive/FKAIOS_ALL_CHATS_MERGED.md` already exist. The raw merged archive covers supplied material through 7 Oct; its own index states that unpasted ChatGPT and Claude conversations remain missing. This conversation was recorded as a separate indexed addendum, not misrepresented as a complete verbatim transcript.
+
+**Repository facts:** `main` HEAD observed as `729995bfd7c2d2b3bc534dddd54d2a6b845b2573`. Relevant commits include `6dddf6b8e9f78ec33174e6ea896e95b120d77a6b` (bounded objective deadline and free/local-first routing), `3b30f98760305f81ff8256970f5339787d847705` (stable deadlines and reject same-model verification), and `729995bfd7c2d2b3bc534dddd54d2a6b845b2573` (preserve Kids DPS deliverable and fix deadline accounting).
+
+**CI facts:** regression runs `38047998704` (persisted deliverable) and `38047998702` (objective verifier) passed. Function deploy `38047998737` failed with Supabase CLI HTTP 401 `Invalid access token`; migration drift run `38047998740` failed with HTTP 401 while listing migrations, so the comparison never ran. The GitHub Actions `SUPABASE_ACCESS_TOKEN` is the immediate credential blocker; do not expose its value.
+
+**Production contradiction:** Kids DPS objective `20cbf892-0e6b-4689-9d1f-1a3a4030ce8f` has request status `failed` due to a 120-minute budget / 1490-minute elapsed message, while its linked project `aa628832-012d-421a-8e9c-b95315bc0e7f` is `complete` and canonical state is `completed` at version 86. The project still retains the deadline error. Deterministic task gate `6a7b5432-b401-44c6-a594-bb659483b2c1` passed, but verifier evidence `655001a7-172a-498a-a4ba-6f857b1ab3b4` explicitly says `independence=same_model`. That evidence cannot support a claim of independent verification. This may explain a Console status conflict, but the exact objective displayed in the user's later screenshot must be matched by ID before asserting it is the same request.
+
+**Next checkpoint:** repair the invalid GitHub Actions token; rerun deploy and drift workflows; confirm deployed code; reconcile Console/request/project/state/evidence; test deadline accounting and same-model rejection in production; inspect the real persisted report and citations before claiming completion. No fake evidence, blind backlog replay, spending, or unapproved external contact.
 
 ## 3. Reconciliation: where the sources disagree
 
