@@ -117,6 +117,20 @@ function extractJson(text: string): Record<string, unknown> | null {
   return null;
 }
 
+/**
+ * Require a concrete external action for a human gate. Output-quality problems
+ * belong to rectification, not Founder approval.
+ */
+export function requiresHumanDecision(flag: boolean, reason: string): boolean {
+  if (!flag) return false;
+  const text = reason.trim();
+  if (!text) return false;
+  const externalAction = /\b(approve|approval|authorize|authorization|payment|pay|purchase|spend|budget|credential|api key|secret|password|sign(?:ature|ing)?|contract signature|physical action|in[- ]person|legal consent|delete data|security setting)\b/i.test(text);
+  const correctionOnly = /\b(raw json|intermediate output|deliverable|report|output quality|format|formatting|acceptability|acceptable|re-execut(?:e|ed|ion)|rectif(?:y|ication)|retry|verification|verifier|failed criteria|missing sections|quality issue)\b/i.test(text);
+  const externalCommitment = /\b(payment|pay|purchase|spend|budget|credential|api key|secret|password|sign(?:ature|ing)?|contract signature|physical action|in[- ]person|legal consent|delete data|security setting)\b/i.test(text);
+  if (correctionOnly && !externalCommitment) return false;
+  return externalAction;
+}
 /** Parses and hardens the verifier's answer. A quote that is not in the deliverable turns a "met" into "not met". */
 export function parseVerdict(text: string, deliverable: string, deterministic: { ok: boolean; problems: string[] }): Omit<Verdict, "verifierRef" | "independence" | "available"> | null {
   const obj = extractJson(text);
@@ -144,11 +158,12 @@ export function parseVerdict(text: string, deliverable: string, deterministic: {
     ...criteria.filter((c) => !c.met).map((c) => `${c.criterion}: ${c.issue ?? "not met"}`),
     ...(Array.isArray(obj.issues) ? (obj.issues as unknown[]).map(String) : []),
   ].slice(0, 20);
-  const needsHumanDecision = obj.needs_human_decision === true;
+  const humanDecisionReason = String(obj.human_decision_reason ?? "").trim();
+  const needsHumanDecision = requiresHumanDecision(obj.needs_human_decision === true, humanDecisionReason);
   const passed = deterministic.ok && !needsHumanDecision && criteria.every((c) => c.met) && quality >= PASS_QUALITY;
   return {
     passed, quality, criteria, issues, needsHumanDecision,
-    humanDecisionReason: needsHumanDecision ? String(obj.human_decision_reason ?? "verifier reported a required human decision") : null,
+    humanDecisionReason: needsHumanDecision ? (humanDecisionReason || "verifier reported a required human decision") : null,
     deterministic,
   };
 }
