@@ -1,0 +1,44 @@
+name: FKAIOS persisted deliverable regression
+on:
+  pull_request:
+    paths:
+      - "src/components/fkaios/ObjectiveCommand.tsx"
+      - "src/lib/objective-view.ts"
+      - "supabase/functions/founder-objective/index.ts"
+      - ".github/workflows/fkaios-persisted-deliverable.yml"
+      - "package.json"
+      - "package-lock.json"
+  push:
+    branches: [main]
+    paths:
+      - "src/components/fkaios/ObjectiveCommand.tsx"
+      - "src/lib/objective-view.ts"
+      - "supabase/functions/founder-objective/index.ts"
+      - ".github/workflows/fkaios-persisted-deliverable.yml"
+      - "package.json"
+      - "package-lock.json"
+permissions:
+  contents: read
+jobs:
+  build-and-objective-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build Console
+        run: npm run build
+      - uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb
+        with:
+          deno-version: v2.9.7
+      - name: Run deadline and verifier regression tests
+        run: |
+          deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/objective-deadline.test.ts
+          deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/objective-verifier.test.ts

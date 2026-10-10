@@ -36,6 +36,11 @@ export interface ObjectiveProgressData {
   jobsRunning: number;
   tasks?: ObjectiveTaskData[];
   contract?: ObjectiveContractData | null;
+  /** Exact persisted project output; status indicates whether current objective verification passed. */
+  final_output?: string | null;
+  final_output_status?: "completed" | "needs_reverification" | null;
+  final_output_project_status?: string | null;
+  final_output_error?: string | null;
   live?: {
     stage: string;
     current_action: string;

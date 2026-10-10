@@ -225,6 +225,33 @@ export function ObjectiveCard({ row, checkedAt, onOpenDecisionCenter, onRerun, r
           <div><dt className="text-slate-500">{view.terminal ? 'Work recorded' : 'Progress'}</dt>
             <dd><ul className="list-disc list-inside text-slate-400">{view.progress.map((line) => <li key={line}>{line}</li>)}</ul></dd></div>
         )}
+        {row.progress?.final_output && (
+          <section className="rounded-xl border border-cyan-900/70 bg-slate-950/70 p-4 space-y-3" data-persisted-final-output="true">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-cyan-400 font-semibold">Persisted deliverable</p>
+                <h3 className="text-sm font-semibold text-white mt-1">Actual final output saved by FKAIOS</h3>
+              </div>
+              <span className={`text-[10px] uppercase rounded-full border px-2 py-1 ${row.progress.final_output_status === 'completed' ? 'border-emerald-800 text-emerald-300' : 'border-amber-800 text-amber-300'}`}>
+                {row.progress.final_output_status === 'completed' ? 'Current objective verified' : 'Requires re-verification'}
+              </span>
+            </div>
+            {row.progress.final_output_status !== 'completed' && (
+              <p className="text-xs leading-5 text-amber-200">
+                This is the saved work product, not proof that the current objective passed its final verification. The Console preserves it for review while FKAIOS resumes and verifies the objective.
+              </p>
+            )}
+            {row.progress.final_output_error && (
+              <p className="text-xs text-slate-400">Recorded project note: {row.progress.final_output_error}</p>
+            )}
+            <details open={row.status !== 'completed'} className="rounded-lg border border-slate-800">
+              <summary className="cursor-pointer bg-slate-900 px-3 py-2 text-xs font-medium text-cyan-200">
+                View full saved deliverable ({row.progress.final_output.length.toLocaleString()} characters)
+              </summary>
+              <pre className="max-h-[700px] overflow-auto whitespace-pre-wrap break-words p-4 text-xs leading-5 text-slate-200">{row.progress.final_output}</pre>
+            </details>
+          </section>
+        )}
         {view.resultDetails.length > 0 && view.state === 'COMPLETED' && (
           <div className="pt-2 border-t border-slate-800">
             <dt className="text-slate-300 font-semibold mb-2">Objective deliverables</dt>
