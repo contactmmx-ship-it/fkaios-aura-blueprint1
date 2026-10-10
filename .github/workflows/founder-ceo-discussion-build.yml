@@ -34,6 +34,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - name: Install dependencies (current lockfile has one missing transitive entry)
+        run: npm install --no-audit --no-fund
       - name: Build Console and CEO discussion UI
         run: npm run build
