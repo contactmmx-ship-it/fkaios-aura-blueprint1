@@ -67,4 +67,4 @@ The function listing reported `ai-engine` v145, `founder-brain-tick` v149 and `f
 
 ## Archive limitation
 
-The existing `docs/fkaios-archive/FKAIOS_ALL_CHATS_MERGED.md` consolidates the accessible raw source material through 7 October 2026. This 10 October continuation is recorded as a separate indexed addendum because several earlier ChatGPT and Claude conversations were never supplied to the archive, and the existing large merged file has not been regenerated to include this addendum. Never claim all historical conversations have been recovered.
+The 10 October continuation has now been appended to `docs/fkaios-archive/FKAIOS_ALL_CHATS_MERGED.md` as Chapter 16, clearly labelled as a summary rather than a verbatim transcript. Several earlier ChatGPT and Claude conversations were never supplied to the archive and remain missing. Never claim all historical conversations have been recovered.

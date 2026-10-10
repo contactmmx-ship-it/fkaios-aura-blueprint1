@@ -4,7 +4,7 @@
 
 This folder is the **raw layer**: the conversations and records themselves, verbatim.
 The master source of truth is the **reconciled layer** built from it.
-`FKAIOS_ALL_CHATS_MERGED.md` combines the source material listed below through 7 Oct 2026. Later dated addenda are indexed separately until a new merged archive is generated; do not imply that inaccessible conversations have been recovered.
+`FKAIOS_ALL_CHATS_MERGED.md` combines the supplied source material through 7 Oct 2026 plus the 10 Oct consolidated ChatGPT continuation summary (Chapter 16). The 10 Oct chapter is explicitly a summary, not a verbatim transcript. Inaccessible or unpasted conversations remain missing.
 
 | # | File | What it is | Dates | Source |
 |---|---|---|---|---|
