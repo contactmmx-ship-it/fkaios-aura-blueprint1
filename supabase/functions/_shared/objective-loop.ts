@@ -687,10 +687,18 @@ export async function recheckGateBlockedObjectives(
     // deliverables to the Founder. Resume only this narrow output-correction
     // class; genuine payment, credential, security, deletion and physical
     // action approvals remain parked.
-    const verifierOutputBlock = isRecoverableOutputBlocker(summary);
-    if (!evidenceGateBlock && !verifierOutputBlock) continue;
+    const outputBlockCandidate = isRecoverableOutputBlocker(summary);
+    if (!evidenceGateBlock && !outputBlockCandidate) continue;
     const state = await loadObjectiveState(supabase, id);
     if (state.projects.length === 0) continue;
+    const latestProjectId = String(state.projects[0]?.id ?? "");
+    const completedRectifications = state.tasks.filter((task) =>
+      String(task.project_id ?? "") === latestProjectId &&
+      /^Rectify:/i.test(String(task.title ?? "")) &&
+      ["done", "completed", "verified", "approved"].includes(String(task.status ?? "").toLowerCase())
+    ).length;
+    const verifierOutputBlock = isRecoverableOutputBlocker(summary, completedRectifications);
+    if (!evidenceGateBlock && !verifierOutputBlock) continue;
     const gate = assessCurrentTaskSet(state.projects as Array<{ id?: unknown }>, state.tasks as TaskEvidenceRecord[]);
     if (evidenceGateBlock && gate.blocked) continue;
     const note = verifierOutputBlock
