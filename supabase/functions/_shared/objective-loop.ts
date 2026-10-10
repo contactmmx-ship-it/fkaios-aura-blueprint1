@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { reason } from "./founder-brain.ts";
 import { planObjective } from "./executive-planner.ts";
 import { allocateProjectWork, createRectificationTask, resumeTaskFromCheckpoint, returnCompletedWork } from "./work-engine.ts";
-import { contractCriteria, isRecoverableOutputBlocker, verifyObjective } from "./objective-verifier.ts";
+import { contractCriteria, isIndependentVerificationLevel, isRecoverableOutputBlocker, verifyObjective } from "./objective-verifier.ts";
 import { readObjectiveState, syncObjectiveState } from "./objective-state.ts";
 import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, type TaskEvidenceRecord } from "./fact-grounding.ts";
 import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP, projectUpdateForObjective } from "./objective-rerun.ts";
@@ -749,13 +749,13 @@ export async function recheckGateBlockedObjectives(
     const id = String(row.id);
     const { data: passingEvidence, error: evidenceError } = await supabase
       .from("fkaios_verification_evidence")
-      .select("id")
+      .select("id, observed_result")
       .eq("objective_id", id)
       .eq("evidence_type", "independent_objective_verification")
       .eq("status", "passed")
       .limit(1);
     if (evidenceError) throw new Error(`Failed checking verifier evidence for ${id}: ${evidenceError.message}`);
-    if (passingEvidence?.length) continue;
+    if ((passingEvidence ?? []).some((record) => isIndependentVerificationLevel((record.observed_result as Record<string, unknown> | null)?.independence))) continue;
     const state = await loadObjectiveState(supabase, id);
     const latestProject = state.projects[0];
     if (!latestProject || !String(latestProject.final_output ?? "").trim()) continue;
