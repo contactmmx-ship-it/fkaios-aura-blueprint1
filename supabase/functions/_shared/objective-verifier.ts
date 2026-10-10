@@ -58,6 +58,37 @@ export function deterministicChecks(deliverable: string): { ok: boolean; problem
   return { ok: problems.length === 0, problems };
 }
 
+/**
+ * Hard contract guard for the Kids DPS preschool-franchise competitor comparison.
+ * The independent model is not allowed to waive missing required brands, URLs, or source-date status.
+ */
+export function kidsDpsCompetitorChecks(objective: string, criteria: string[], deliverable: string): { ok: boolean; problems: string[] } {
+  const contract = [objective, ...criteria].join("\\n").toLowerCase();
+  const isKidsDps = contract.includes("kids dps") || contract.includes("preschool franchise");
+  const asksCompetitors = contract.includes("competitor") || contract.includes("brand comparison");
+  if (!isKidsDps || !asksCompetitors) return { ok: true, problems: [] };
+
+  const brands = ["Kidzee", "EuroKids", "Bachpan", "Little Millennium", "Shemrock", "Hello Kids", "Tree House", "KLAY"];
+  const rows = deliverable.split(/\\r?\\n/).filter((line) => line.trim().startsWith("|"));
+  const problems: string[] = [];
+  for (const brand of brands) {
+    const row = rows.find((line) => line.toLowerCase().includes(brand.toLowerCase()));
+    if (!row) {
+      problems.push("competitor comparison missing a dedicated table row for " + brand);
+      continue;
+    }
+    if (!row.includes("http://") && !row.includes("https://")) {
+      problems.push("competitor row for " + brand + " has no direct source URL");
+    }
+    const lower = row.toLowerCase();
+    const hasYear = /\\b(19|20)[0-9]{2}\\b/.test(row);
+    if (!hasYear && !lower.includes("date unavailable") && !lower.includes("undated")) {
+      problems.push("competitor row for " + brand + " has no source date or explicit date-unavailable label");
+    }
+  }
+  return { ok: problems.length === 0, problems };
+}
+
 /** Normalises contract acceptance criteria (strings or {metric,target,unit,operator}) to plain sentences. */
 export function contractCriteria(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
@@ -247,7 +278,12 @@ export async function verifyObjective(db: Db, input: {
   producerRefs: string[];
   producingTaskIds: string[];
 }): Promise<Verdict> {
-  const deterministic = deterministicChecks(input.deliverable);
+  const baseChecks = deterministicChecks(input.deliverable);
+  const competitorChecks = kidsDpsCompetitorChecks(input.objective, input.criteria, input.deliverable);
+  const deterministic = {
+    ok: baseChecks.ok && competitorChecks.ok,
+    problems: [...baseChecks.problems, ...competitorChecks.problems].slice(0, 30),
+  };
   const selection = await selectResources(db, "verification", { avoid: input.producerRefs });
   const { system, user } = buildVerifierPrompt(input.objective, input.criteria, input.deliverable.slice(0, 40000), input.evidence.slice(0, 12000));
   const startedAt = new Date();
