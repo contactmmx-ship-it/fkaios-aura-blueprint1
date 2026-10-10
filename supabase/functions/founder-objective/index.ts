@@ -31,6 +31,7 @@ import { reuseBlueprint } from "../_shared/blueprint-reuse.ts";
 import { buildDefaultRouterConfig, callLLMOnResources } from "../_shared/llm-router.ts";
 import { selectResources } from "../_shared/resource-selection.ts";
 import { recordLLMAttempts } from "../_shared/execution-evidence.ts";
+import { buildFounderDiscussionPrompt, parseFounderDiscussionReply, type FounderDiscussionMessage } from "../_shared/founder-discussion.ts";
 
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 const COMMUNICATION_CAPABILITIES = new Set(["send_whatsapp_message", "send_email", "send_sms", "make_voice_call"]);
@@ -270,6 +271,133 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, objectives: await readObjectiveStatus(objectiveId) });
     }
     const raw = body as Record<string, unknown>;
+    if (body.action === "discussion_list") {
+      const { data, error } = await adminClient().from("founder_discussions")
+        .select("id,title,status,proposed_plan,submitted_objective_id,created_at,updated_at")
+        .eq("founder_user_id", user.id).order("updated_at", { ascending: false }).limit(20);
+      if (error) return json({ ok: false, error: "Could not load CEO discussions" }, 500);
+      return json({ ok: true, discussions: data ?? [] });
+    }
+    if (body.action === "discussion_get") {
+      const id = typeof raw.discussionId === "string" ? raw.discussionId : "";
+      if (!id) return json({ ok: false, error: "discussionId required" }, 400);
+      const { data, error } = await adminClient().from("founder_discussions")
+        .select("id,title,status,messages,proposed_plan,submitted_objective_id,created_at,updated_at")
+        .eq("id", id).eq("founder_user_id", user.id).maybeSingle();
+      if (error) return json({ ok: false, error: "Could not load CEO discussion" }, 500);
+      if (!data) return json({ ok: false, error: "CEO discussion not found" }, 404);
+      return json({ ok: true, discussion: data });
+    }
+    if (body.action === "discussion_approve") {
+      const discussionId = typeof raw.discussionId === "string" ? raw.discussionId : "";
+      if (!discussionId) return json({ ok: false, error: "discussionId required" }, 400);
+      const admin = adminClient();
+      const { data: row, error } = await admin.from("founder_discussions")
+        .select("id,title,status,proposed_plan,submitted_objective_id")
+        .eq("id", discussionId).eq("founder_user_id", user.id).maybeSingle();
+      if (error) return json({ ok: false, error: "Could not load the proposed plan" }, 500);
+      if (!row) return json({ ok: false, error: "CEO discussion not found" }, 404);
+      if (row.submitted_objective_id) return json({ ok: true, discussionId, objectiveId: row.submitted_objective_id, status: "submitted", idempotent: true });
+      const marker = `[fkaios-discussion:${discussionId}]`;
+      const { data: existingRequest, error: lookupError } = await admin.from("orchestrator_requests")
+        .select("id,status").ilike("raw_request", `%${marker}%`).limit(1).maybeSingle();
+      if (lookupError) return json({ ok: false, error: "Could not safely check whether this plan was already submitted" }, 500);
+      if (existingRequest?.id) {
+        await admin.from("founder_discussions").update({ status: "submitted", submitted_objective_id: existingRequest.id, updated_at: new Date().toISOString() })
+          .eq("id", discussionId).eq("founder_user_id", user.id);
+        return json({ ok: true, discussionId, objectiveId: existingRequest.id, status: "submitted", idempotent: true });
+      }
+      if (row.status !== "plan_ready" || !row.proposed_plan || typeof row.proposed_plan !== "object") return json({ ok: false, error: "There is no approval-ready plan to execute" }, 409);
+      const { data: claimed, error: claimError } = await admin.from("founder_discussions")
+        .update({ status: "submitting", updated_at: new Date().toISOString() })
+        .eq("id", discussionId).eq("founder_user_id", user.id).eq("status", "plan_ready").select("id").maybeSingle();
+      if (claimError || !claimed) return json({ ok: false, error: "This plan is already being submitted or its state changed. Refresh before retrying." }, 409);
+      const plan = row.proposed_plan as Record<string, unknown>;
+      const lines = [
+        marker,
+        `CEO-approved objective: ${String(plan.objective ?? row.title)}`,
+        `Rationale: ${String(plan.rationale ?? "As discussed with the founder.")}`,
+        "Execution approach:", ...(Array.isArray(plan.approach) ? plan.approach.map((x) => `- ${String(x)}`) : []),
+        "Assumptions:", ...(Array.isArray(plan.assumptions) ? plan.assumptions.map((x) => `- ${String(x)}`) : []),
+        "Research still required:", ...(Array.isArray(plan.researchNeeded) ? plan.researchNeeded.map((x) => `- ${String(x)}`) : []),
+        "Milestones:", ...(Array.isArray(plan.milestones) ? plan.milestones.map((x) => { const m = x as Record<string, unknown>; return `- ${String(m.name)}: ${String(m.outcome)}`; }) : []),
+        "Deliverables:", ...(Array.isArray(plan.deliverables) ? plan.deliverables.map((x) => `- ${String(x)}`) : []),
+        "Risks and mitigations:", ...(Array.isArray(plan.risks) ? plan.risks.map((x) => { const r = x as Record<string, unknown>; return `- ${String(r.risk)} — ${String(r.mitigation)}`; }) : []),
+        `Budget: ${String(plan.budgetEstimate ?? "Not yet established; verify before spending.")}`,
+        `ROI model: ${String(plan.roiModel ?? "Not yet established; no guaranteed return.")}`,
+        "Acceptance criteria:", ...(Array.isArray(plan.acceptanceCriteria) ? plan.acceptanceCriteria.map((x) => `- ${String(x)}`) : []),
+        "Founder approval gates:", ...(Array.isArray(plan.approvalsRequired) ? plan.approvalsRequired.map((x) => `- ${String(x)}`) : []),
+        "Do not spend money, contact third parties, sign contracts, change credentials/security, delete data, or perform physical actions without their separate required approval.",
+      ].join("\n");
+      try {
+        const riskLevel = await assessRisk(lines, correlationId);
+        const departmentCode = await routeToDepartment(lines, correlationId);
+        const result = await createTask("founder", { description: lines, department_code: departmentCode, risk_level: riskLevel }, correlationId);
+        const request = result.data as { id?: string; status?: string } | null;
+        if (result.status !== "success" || !request?.id) throw new Error(result.error ?? "Could not create the approved objective");
+        const { error: classifyError } = await admin.from("orchestrator_requests").update({ classification: FOUNDER_OBJECTIVE_CLASSIFICATION }).eq("id", request.id);
+        if (classifyError) console.error(JSON.stringify({ level: "WARN", message: "CEO-approved objective classification failed", source: "founder-objective", correlationId, objectiveId: request.id, error: classifyError.message }));
+        const { error: saveError } = await admin.from("founder_discussions").update({
+          status: "submitted", submitted_objective_id: request.id, updated_at: new Date().toISOString(),
+        }).eq("id", discussionId).eq("founder_user_id", user.id).eq("status", "submitting");
+        if (saveError) console.error(JSON.stringify({ level: "ERROR", message: "CEO-approved objective created but discussion linkage failed", source: "founder-objective", correlationId, discussionId, objectiveId: request.id, error: saveError.message }));
+        return json({ ok: true, discussionId, objectiveId: request.id, status: request.status ?? "processing", riskLevel, departmentCode });
+      } catch (err) {
+        await admin.from("founder_discussions").update({ status: "plan_ready", updated_at: new Date().toISOString() })
+          .eq("id", discussionId).eq("founder_user_id", user.id).eq("status", "submitting");
+        return json({ ok: false, error: err instanceof Error ? err.message : "Could not submit approved plan" }, 500);
+      }
+    }
+    if (body.action === "discussion_turn") {
+      const message = typeof raw.message === "string" ? raw.message.trim() : "";
+      if (message.length < 2 || message.length > 4000) return json({ ok: false, error: "Message must be 2-4000 characters" }, 400);
+      const now = new Date().toISOString();
+      const admin = adminClient();
+      const discussionId = typeof raw.discussionId === "string" ? raw.discussionId : "";
+      let row: Record<string, unknown>;
+      if (discussionId) {
+        const { data, error } = await admin.from("founder_discussions")
+          .select("id,title,status,messages,updated_at").eq("id", discussionId).eq("founder_user_id", user.id).maybeSingle();
+        if (error) return json({ ok: false, error: "Could not load CEO discussion" }, 500);
+        if (!data) return json({ ok: false, error: "CEO discussion not found" }, 404);
+        if (["submitted", "closed", "submitting"].includes(String(data.status))) return json({ ok: false, error: "Discussion is closed or being submitted. Refresh it before continuing." }, 409);
+        if (data.status === "thinking" && Date.now() - new Date(String(data.updated_at)).getTime() < 120_000) return json({ ok: false, error: "The CEO is still processing the previous turn. Wait for the current response." }, 409);
+        const messages = [...(Array.isArray(data.messages) ? data.messages as FounderDiscussionMessage[] : []), { role: "founder" as const, content: message, created_at: now }].slice(-80);
+        const { data: saved, error: saveError } = await admin.from("founder_discussions").update({ messages, status: "thinking", proposed_plan: null, updated_at: now })
+          .eq("id", discussionId).eq("founder_user_id", user.id).eq("updated_at", data.updated_at).select("id,title,status,messages,updated_at").maybeSingle();
+        if (saveError || !saved) return json({ ok: false, error: "Discussion changed concurrently; refresh before sending again." }, 409);
+        row = saved;
+      } else {
+        const { data, error } = await admin.from("founder_discussions").insert({
+          founder_user_id: user.id, title: message.slice(0, 80), status: "thinking",
+          messages: [{ role: "founder", content: message, created_at: now }],
+        }).select("id,title,status,messages,updated_at").single();
+        if (error || !data) return json({ ok: false, error: "Could not start CEO discussion" }, 500);
+        row = data;
+      }
+      const selection = await selectResources(admin, "general");
+      const started = new Date();
+      const result = await callLLMOnResources({
+        systemPrompt: "You are FKAIOS's AI CEO. Follow the strict JSON contract in the supplied prompt. Never claim actions or research you did not perform.",
+        userContent: buildFounderDiscussionPrompt(row.messages as FounderDiscussionMessage[]),
+        functionName: "founder-objective:ceo-discussion", functionClass: "background_agent", temperature: 0.25, maxTokens: 1800,
+      }, buildDefaultRouterConfig(), selection.resources);
+      await recordLLMAttempts(admin, { stepKind: "task_execution", taskClass: "general", capabilityRef: "capability:founder_ceo_discussion" }, result.log, selection, null, started);
+      const parsed = result.status === "success" && result.content ? parseFounderDiscussionReply(result.content) : null;
+      if (!parsed) {
+        await admin.from("founder_discussions").update({ status: "discussing", updated_at: new Date().toISOString() }).eq("id", row.id).eq("founder_user_id", user.id);
+        return json({ ok: false, error: "The CEO response failed validation. Your message is saved; try again." }, 503);
+      }
+      const messages = [...(row.messages as FounderDiscussionMessage[]), { role: "ceo" as const, content: parsed.reply, created_at: new Date().toISOString() }].slice(-80);
+      const { data: saved, error: saveError } = await admin.from("founder_discussions").update({
+        status: parsed.readyForApproval ? "plan_ready" : "discussing",
+        title: parsed.readyForApproval && parsed.plan ? parsed.plan.title : row.title,
+        messages, proposed_plan: parsed.readyForApproval ? parsed.plan : null, updated_at: new Date().toISOString(),
+      }).eq("id", row.id).eq("founder_user_id", user.id).eq("status", "thinking")
+        .select("id,title,status,messages,proposed_plan,updated_at").maybeSingle();
+      if (saveError || !saved) return json({ ok: false, error: "CEO reply could not be persisted. Refresh to recover the saved discussion." }, 500);
+      return json({ ok: true, discussion: saved, reply: parsed.reply, readyForApproval: parsed.readyForApproval });
+    }
     if (body.action === "transcribe") {
       // Voice as an input modality: the text goes through the same objective path as typed text.
       const audio = audioFromBody(raw);
