@@ -38,3 +38,5 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Build Console and CEO discussion UI
         run: npm run build
+      - name: Validate migration workflow YAML syntax
+        run: ruby -e "require 'yaml'; YAML.load_file('.github/workflows/deploy-fkaios-migrations.yml')"
