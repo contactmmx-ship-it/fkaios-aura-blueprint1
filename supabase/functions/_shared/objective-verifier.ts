@@ -159,6 +159,43 @@ export function isRecoverableOutputBlocker(summary: string, completedRectificati
   return (falseHumanGate || exhaustedVerification) && !externalAction;
 }
 
+/** Parses and hardens the verifier's answer. A quote that is not in the deliverable turns a "met" into "not met". */
+export function parseVerdict(text: string, deliverable: string, deterministic: { ok: boolean; problems: string[] }): Omit<Verdict, "verifierRef" | "independence" | "available"> | null {
+  const obj = extractJson(text);
+  if (!obj || !Array.isArray(obj.criteria)) return null;
+  const hay = norm(deliverable);
+  const criteria: CriterionResult[] = (obj.criteria as Array<Record<string, unknown>>).map((c) => {
+    const criterion = String(c.criterion ?? "").slice(0, 400);
+    const quote = typeof c.evidence_quote === "string" && c.evidence_quote.trim() ? c.evidence_quote.trim() : null;
+    let met = c.met === true;
+    let issue = typeof c.issue === "string" && c.issue.trim() ? c.issue.trim() : null;
+    if (met) {
+      const q = quote ? norm(quote) : "";
+      if (!q || q.length < 8 || !hay.includes(q)) {
+        met = false;
+        issue = `verifier's supporting quote was not found in the deliverable${quote ? `: "${quote.slice(0, 120)}"` : ""}`;
+      }
+    }
+    return { criterion, met, evidence_quote: quote, issue };
+  }).filter((c) => c.criterion.length > 0);
+  if (!criteria.length) return null;
+  const qualityRaw = Number(obj.quality);
+  const quality = Number.isFinite(qualityRaw) ? Math.max(0, Math.min(1, qualityRaw)) : 0;
+  const issues = [
+    ...deterministic.problems,
+    ...criteria.filter((c) => !c.met).map((c) => `${c.criterion}: ${c.issue ?? "not met"}`),
+    ...(Array.isArray(obj.issues) ? (obj.issues as unknown[]).map(String) : []),
+  ].slice(0, 20);
+  const humanDecisionReason = String(obj.human_decision_reason ?? "").trim();
+  const needsHumanDecision = requiresHumanDecision(obj.needs_human_decision === true, humanDecisionReason);
+  const passed = deterministic.ok && !needsHumanDecision && criteria.every((c) => c.met) && quality >= PASS_QUALITY;
+  return {
+    passed, quality, criteria, issues, needsHumanDecision,
+    humanDecisionReason: needsHumanDecision ? (humanDecisionReason || "verifier reported a required human decision") : null,
+    deterministic,
+  };
+}
+
 export function independenceLevel(verifierRef: string | null, producerRefs: string[]): Verdict["independence"] {
   if (!verifierRef) return "none";
   if (producerRefs.length === 0) return "producers_unknown"; // never claim independence that was not measured
