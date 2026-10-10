@@ -6,7 +6,6 @@ on:
     paths:
       - "supabase/migrations/*.sql"
       - ".github/workflows/deploy-fkaios-migrations.yml"
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -32,13 +31,8 @@ jobs:
         env:
           BEFORE_SHA: ${{ github.event.before }}
           AFTER_SHA: ${{ github.sha }}
-          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "::error::Manual dispatch is disabled for this migration runner; push a reviewed migration through main."
-            exit 1
-          fi
           if [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
             echo "::error::Cannot establish a safe migration diff for this push."
             exit 1
