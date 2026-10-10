@@ -83,7 +83,7 @@ export default function FounderCEOConversation() {
     try {
       setVoiceStatus('Preparing spoken reply through FKAIOS speech routing…');
       const { data, error: callError } = await supabase.functions.invoke('founder-objective', {
-        body: { action: 'speak', text: text.slice(0, 4000), voice: 'en-IN' },
+        body: { action: 'speak', text: text.slice(0, 4000) }, // Use the speech resource's configured default voice; en-IN is a locale, not a portable voice ID.
       });
       if (callError) throw new Error(await functionError(callError));
       if (!data?.ok || !data?.audioBase64) throw new Error(data?.error || 'Speech synthesis returned no audio');
@@ -131,7 +131,7 @@ export default function FounderCEOConversation() {
         try {
           setVoiceStatus('Transcribing audio through FKAIOS speech routing…');
           const { data, error: callError } = await supabase.functions.invoke('founder-objective', {
-            body: { action: 'transcribe', audioBase64: await blobToBase64(blob), mimeType: blob.type || 'audio/webm', language: 'en-IN' },
+            body: { action: 'transcribe', audioBase64: await blobToBase64(blob), mimeType: blob.type || 'audio/webm' }, // Leave language unset so FKAIOS can auto-detect Hindi, Hinglish, or English.
           });
           if (callError) throw new Error(await functionError(callError));
           if (!data?.ok || typeof data?.text !== 'string' || !data.text.trim()) throw new Error(data?.error || 'Transcription returned no text');
@@ -207,7 +207,7 @@ export default function FounderCEOConversation() {
           <button onClick={toggleVoiceInput} aria-pressed={listening} className={"flex items-center gap-2 rounded-lg border px-3 py-2 text-xs " + (listening ? "border-rose-600 bg-rose-950/40 text-rose-200" : "border-slate-700 text-slate-300 hover:border-violet-600")}>
             {listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />} {listening ? 'Stop listening' : 'Speak to CEO'}
           </button>
-          <button onClick={() => { setVoiceOutput(v => !v); if (voiceOutput && typeof window !== 'undefined') window.speechSynthesis.cancel(); }} aria-pressed={voiceOutput} className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:border-violet-600">
+          <button onClick={() => setVoiceOutput(v => !v)} aria-pressed={voiceOutput} className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:border-violet-600">
             {voiceOutput ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />} Voice replies {voiceOutput ? 'on' : 'off'}
           </button>
           <button onClick={() => { setActive(null); setDraft(''); setError(null); }} className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:border-violet-600">
