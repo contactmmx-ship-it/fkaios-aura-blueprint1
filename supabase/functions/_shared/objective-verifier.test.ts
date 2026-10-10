@@ -52,11 +52,23 @@ Deno.test("explicit spending approval remains a genuine human gate", () => {
 });
 
 
+Deno.test("visible Markdown source labels can support a verifier quote without link URLs", () => {
+  const deliverable = "Competitor source: (Source: [Expert Market Research](https://example.com/research), Date: 2026-02-02).";
+  const parsed = parseVerdict(JSON.stringify({
+    criteria: [{ criterion: "Source and date are present", met: true, evidence_quote: "Source: Expert Market Research, Date: 2026-02-02", issue: null }],
+    needs_human_decision: false,
+    human_decision_reason: null,
+    quality: 0.9,
+    issues: [],
+  }), deliverable, { ok: true, problems: [] });
+  assertEquals(parsed?.criteria[0]?.met, true);
+  assertEquals(parsed?.passed, true);
+});
+
 Deno.test("recover previously exhausted verification loops without overriding genuine approvals", () => {
-  assertEquals(
-    isRecoverableOutputBlocker("Objective replanned 13 times without reaching achieved/blocked/failed. Last evaluator reason: Independent verification rejected the deliverable: verifier's supporting quote was not found in the deliverable."),
-    true,
-  );
+  const exhausted = "Objective replanned 13 times without reaching achieved/blocked/failed. Last evaluator reason: Independent verification rejected the deliverable: verifier's supporting quote was not found in the deliverable.";
+  assertEquals(isRecoverableOutputBlocker(exhausted, 4), true);
+  assertEquals(isRecoverableOutputBlocker(exhausted, 6), false);
   assertEquals(
     isRecoverableOutputBlocker("Human decision required: Founder approval is required before spending the proposed budget."),
     false,

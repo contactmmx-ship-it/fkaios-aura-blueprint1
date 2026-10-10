@@ -515,7 +515,7 @@ export async function createRectificationTask(input: { projectId: string; object
     project_id: input.projectId,
     role: "rectifier",
     title: `Rectify: corrected final deliverable (round ${input.round})`,
-    description: "Independent verification rejected the deliverable. Produce the COMPLETE corrected final deliverable for the original objective, fixing every listed issue, using only the evidence recorded in the prior completed tasks. Return JSON with a 'deliverable' string.",
+    description: "Independent verification rejected the deliverable. Produce a materially corrected COMPLETE final deliverable for the original objective. Apply EVERY failed criterion and issue below; do not merely reproduce the rejected deliverable. Keep only the requested top-level sections and number them to match the original objective; incorporate extra findings into an existing section instead of shifting every later section. Preserve verified source URLs and publication dates. Where feedback says a quote or section is missing, add the required content explicitly so it is present in the final deliverable. Use only evidence recorded in prior completed tasks. Return JSON with a 'deliverable' string.",
     status: "pending",
     output: JSON.stringify({ rectification: { round: input.round, issues: input.issues.slice(0, 15), failed_criteria: input.failedCriteria.slice(0, 15), rejected_deliverable: input.deliverable.slice(0, 12000), avoid: input.producerRefs } }),
   }).select("id").single();

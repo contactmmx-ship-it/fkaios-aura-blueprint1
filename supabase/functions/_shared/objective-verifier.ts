@@ -103,9 +103,17 @@ JSON schema:
 }
 
 function norm(s: string): string {
-  return s.toLowerCase().replace(/[“”"'`’]/g, "").replace(/\s+/g, " ").trim();
+  // Compare visible Markdown text, not link destinations or formatting syntax.
+  // This verifies source citations when a quote includes the visible source
+  // label but not the URL target.
+  return s
+    .replace(/\[([^\]]+)\]\((?:[^()]|\([^()]*\))*\)/g, "$1")
+    .replace(/[*_~\`]/g, "")
+    .toLowerCase()
+    .replace(/[“”"'’]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
-
 function extractJson(text: string): Record<string, unknown> | null {
   const t = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
   for (const candidate of [t, t.slice(t.indexOf("{"), t.lastIndexOf("}") + 1)]) {
@@ -136,15 +144,22 @@ export function requiresHumanDecision(flag: boolean, reason: string): boolean {
  * asking the Founder to accept an unfinished deliverable. Explicit external
  * actions remain human gates.
  */
-export function isRecoverableOutputBlocker(summary: string): boolean {
+export const MAX_AUTOMATIC_RECTIFICATIONS = 6;
+
+export function isRecoverableOutputBlocker(summary: string, completedRectifications = 0): boolean {
   const text = summary.trim();
   const falseHumanGate = /^Human decision required:/i.test(text) &&
     /raw json|intermediate output|final report|deliverable|re-execut|acceptable|format/i.test(text);
   const exhaustedVerification = /^Objective replanned [0-9]+ times without reaching achieved\/blocked\/failed\./i.test(text) &&
     /independent verification rejected the deliverable|supporting quote was not found|deliverable/i.test(text);
   const externalAction = /payment|pay|purchase|spend|budget|credential|api key|secret|password|contract signature|physical action|in-person|delete data|security setting/i.test(text);
+  // Allow a bounded final recovery cycle, then leave the unresolved quality
+  // failure parked for review instead of resetting the counter forever.
+  if (exhaustedVerification && completedRectifications >= MAX_AUTOMATIC_RECTIFICATIONS) return false;
   return (falseHumanGate || exhaustedVerification) && !externalAction;
-}/** Parses and hardens the verifier's answer. A quote that is not in the deliverable turns a "met" into "not met". */
+}
+
+/** Parses and hardens the verifier's answer. A quote that is not in the deliverable turns a "met" into "not met". */
 export function parseVerdict(text: string, deliverable: string, deterministic: { ok: boolean; problems: string[] }): Omit<Verdict, "verifierRef" | "independence" | "available"> | null {
   const obj = extractJson(text);
   if (!obj || !Array.isArray(obj.criteria)) return null;
