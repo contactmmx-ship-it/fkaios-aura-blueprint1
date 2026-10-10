@@ -15,9 +15,11 @@ import {
   computeProviderHealth,
   buildLogEntry,
   getConfiguredDefaultProviders,
+  prioritizeFreeProviders,
   anthropicAdapter,
   geminiAdapter,
   openaiAdapter,
+  selfHostedAdapter,
   type ProviderAdapter,
   type ProviderName,
   type LLMRequest,
@@ -807,4 +809,19 @@ Deno.test("callLLMOnResources retries a transient capacity failure once after ba
   const r = await callLLMOnResources({ systemPrompt: "s", userContent: "u", functionName: "t", functionClass: "background_agent" }, config, [{ ref: "model:gemini:m", provider: "gemini", model: "m" }], { backoffMs: 1 });
   if (r.status !== "success" || calls !== 2) throw new Error(`status ${r.status}, calls ${calls}`);
   if (r.log.attempts[0].failureCategory !== "rate_limit") throw new Error(`first attempt ${r.log.attempts[0].failureCategory}`);
+});
+
+Deno.test("free-first provider policy prioritizes explicitly free cloud providers", () => {
+  const ordered = prioritizeFreeProviders([anthropicAdapter, geminiAdapter, openaiAdapter], ["gemini"]);
+  assert(ordered.map((p) => p.name).join(",") === "gemini,anthropic,openai", "explicitly free provider must precede paid providers");
+});
+
+Deno.test("free-first policy does not assume a cloud provider is free", () => {
+  const ordered = prioritizeFreeProviders([geminiAdapter, anthropicAdapter, openaiAdapter], []);
+  assert(ordered.map((p) => p.name).join(",") === "gemini,anthropic,openai", "unmarked providers preserve configured order");
+});
+
+Deno.test("self-hosted provider is prioritized when configured", () => {
+  const ordered = prioritizeFreeProviders([anthropicAdapter, selfHostedAdapter, geminiAdapter], ["gemini"]);
+  assert(ordered.map((p) => p.name).join(",") === "self_hosted,gemini,anthropic", "local inference first, explicitly free cloud second");
 });

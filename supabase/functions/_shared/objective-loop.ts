@@ -7,6 +7,7 @@ import { readObjectiveState, syncObjectiveState } from "./objective-state.ts";
 import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, type TaskEvidenceRecord } from "./fact-grounding.ts";
 import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP, projectUpdateForObjective } from "./objective-rerun.ts";
 import { classifyObjective, completionContract, planContractMismatch, projectOutputType } from "./objective-contract.ts";
+import { objectiveDeadline, objectiveDeadlineMinutes } from "./objective-deadline.ts";
 
 type ObjectiveLoopResult = {
   objectiveId: string;
@@ -941,6 +942,25 @@ export async function runObjectiveLoop(
 
   for (const objective of objectives ?? []) {
     try {
+      // A run has a wall-clock deadline in addition to bounded replan and rectification counts.
+      // A deliberate rerun starts a fresh budget at the rerun request timestamp; ordinary work
+      // uses its original submission timestamp. Expired work fails terminally instead of replanning forever.
+      const deadlineStart = isRerunRequested(objective)
+        ? String(objective.updated_at ?? objective.created_at ?? "")
+        : String(objective.created_at ?? "");
+      const budgetMinutes = objectiveDeadlineMinutes(Deno.env.get("OBJECTIVE_DEADLINE_MINUTES"));
+      const deadline = objectiveDeadline(deadlineStart, new Date(), budgetMinutes);
+      if (deadline.expired) {
+        const summary = deadline.reason + " Automatic replanning stopped; inspect persisted task outputs and failure evidence before an explicit rerun.";
+        await markObjective(supabase, String(objective.id), "failed", summary);
+        await syncObjectiveState(
+          supabase,
+          { id: String(objective.id), status: "failed", raw_request: String(objective.raw_request ?? "") },
+          { phase: "failed", reason: summary, patch: { deadline_minutes: budgetMinutes, elapsed_minutes: deadline.elapsedMinutes, next_action: "Review the terminal failure and evidence; rerun only after correcting the blocker." } },
+        );
+        results.push({ objectiveId: String(objective.id), action: "failed", summary });
+        continue;
+      }
       /*
        * Founder-requested re-run (founder-objective `rerun`): start a new
        * planning pass now. Earlier projects/tasks stay as history; the
