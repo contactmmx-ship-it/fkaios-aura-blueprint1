@@ -7,6 +7,7 @@
 import {
   assessObjectiveTasks,
   assessTaskEvidence,
+  researchedSourceUrls,
   buildNoDataSourceResult,
   checkWorkerGrounding,
   NO_DATA_SOURCE,
@@ -82,9 +83,12 @@ Deno.test("A4: a worker that reports no_data_source itself is rejected even for 
   assert(!verdict.ok && verdict.reason === "no system inventory available", "self-reported no_data_source must be honored with its reason");
 });
 
-Deno.test("A5: an external-facts task that requests a capability is allowed through to real dispatch", () => {
-  const verdict = checkWorkerGrounding(MARKET_TASK, { capability: "knowledge.search", payload: { query: "Indian paint market" } });
-  assert(verdict.ok, "a capability request produces measured evidence later and must not be blocked here");
+// The check runs on the final result, after dispatch: a capability counts with
+// its measured result; a bare request means the dispatch never happened (F3).
+Deno.test("A5: an external-facts task with a measured capability dispatch passes", () => {
+  const verdict = checkWorkerGrounding(MARKET_TASK, { capability: "knowledge.search", payload: { query: "Indian paint market" }, capability_result: { matches: [] }, capability_attempts: 1 });
+  assert(verdict.ok, "a dispatched capability with a measured result is evidence");
+  assert(!checkWorkerGrounding(MARKET_TASK, { capability: "knowledge.search", payload: { query: "Indian paint market" } }).ok, "an undispatched request is not");
 });
 
 Deno.test("A6: legitimate internal tasks are not classified as external research and still complete", () => {
@@ -239,8 +243,10 @@ Deno.test("F2: report passes grounding only when its citations are in verified p
   const bad = { sources: [{ url: "https://unrelated.example/claim", title: "Unrelated page" }], prior_evidence };
   assert(checkWorkerGrounding(task, good).ok, "report using a verified prior source must pass");
   assert(!checkWorkerGrounding(task, bad).ok, "report citing an unrelated source must fail");
-  const verdict = assessTaskEvidence({ ...task, status: "done", output: JSON.stringify({ llmResult: good }) });
-  assert(verdict.verdict === "verified", "completed report with valid prior-evidence citations must be verified");
+  const researchTask = { id: "r", title: "Research official guidance", status: "done", output: JSON.stringify(JSON.parse(prior)[0].output) };
+  const researched = researchedSourceUrls([researchTask]);
+  const verdict = assessTaskEvidence({ ...task, status: "done", output: JSON.stringify({ llmResult: good }) }, researched);
+  assert(verdict.verdict === "verified", "completed report with citations fetched by research must be verified");
 });
 
 Deno.test("F3: an unmeasured capability label is not grounding evidence", () => {
