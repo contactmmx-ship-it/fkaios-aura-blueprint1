@@ -6,6 +6,9 @@ on:
       - "supabase/functions/_shared/objective-verifier.ts"
       - "supabase/functions/_shared/objective-verifier.test.ts"
       - "supabase/functions/_shared/objective-loop.ts"
+      - "supabase/functions/_shared/founder-discussion.ts"
+      - "supabase/functions/_shared/founder-discussion.test.ts"
+      - "supabase/functions/founder-objective/index.ts"
       - ".github/workflows/objective-verifier-tests.yml"
   push:
     branches:
@@ -34,3 +37,7 @@ jobs:
           deno-version: v2.9.7
       - name: Run objective verifier regression tests
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/objective-verifier.test.ts
+      - name: Run founder CEO discussion contract tests
+        run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/founder-discussion.test.ts
+      - name: Type-check founder objective endpoint
+        run: deno check --node-modules-dir=auto supabase/functions/founder-objective/index.ts
