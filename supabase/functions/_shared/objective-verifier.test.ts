@@ -1,5 +1,6 @@
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { buildVerifierPrompt, isRecoverableOutputBlocker, parseVerdict, persistVerificationEvidence } from "./objective-verifier.ts";
+import { phasePath } from "./objective-state.ts";
 
 Deno.test("missing client inputs requested by the objective are report findings, not human blockers", () => {
   const prompt = buildVerifierPrompt(
@@ -112,4 +113,10 @@ Deno.test("verification retries supersede the previous active evidence before in
   assertEquals(id, "evidence-new");
   assertEquals(calls[0], "update:superseded");
   assertEquals(calls[calls.length - 1], "insert:passed");
+});
+
+
+Deno.test("completed objectives can reopen only into verification for evidence repair", () => {
+  assertEquals(phasePath("completed", "verifying"), ["verifying"]);
+  assertEquals(phasePath("completed", "executing"), null);
 });
