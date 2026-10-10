@@ -50,6 +50,62 @@ export function needsResearchBeforeAnswer(task: { title?: unknown; description?:
   return RESEARCH_WORDS.test(text) || requiresExternalFacts(task);
 }
 
+export interface PriorEvidenceSummary { verified: boolean; source_count: number; sources: Array<{ url: string; title: string }>; }
+function parsePriorTaskOutput(value: unknown): Record<string, unknown> | null {
+  if (typeof value === "string") {
+    try { const parsed = JSON.parse(value); return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null; }
+    catch { return null; }
+  }
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+export function parsePriorCompletedTasks(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") { try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed : []; } catch { return []; } }
+  return [];
+}
+export function summarizePriorEvidence(value: unknown): PriorEvidenceSummary {
+  const unique = new Map<string, { url: string; title: string }>();
+  for (const task of parsePriorCompletedTasks(value)) {
+    const row = parsePriorTaskOutput(task); if (!row) continue;
+    const output = parsePriorTaskOutput(row.output) ?? (row.output && typeof row.output === "object" ? row.output as Record<string, unknown> : null);
+    if (!output) continue;
+    const dispatch = output.companyOsDispatch && typeof output.companyOsDispatch === "object" ? output.companyOsDispatch as Record<string, unknown> : null;
+    const llm = output.llmResult && typeof output.llmResult === "object" ? output.llmResult as Record<string, unknown> : null;
+    if (dispatch?.status !== "success" || dispatch.capability !== "research.run" || !llm) continue;
+    const excerpt = typeof dispatch.data_excerpt === "string" ? parsePriorTaskOutput(dispatch.data_excerpt) : null;
+    if (!excerpt) continue;
+    const queries = Array.isArray(excerpt.queries) ? excerpt.queries : [excerpt];
+    const grounded = new Map<string, string>();
+    for (const query of queries) {
+      if (!query || typeof query !== "object") continue;
+      const queryRow = query as Record<string, unknown>;
+      for (const result of Array.isArray(queryRow.results) ? queryRow.results : []) {
+        if (!result || typeof result !== "object") continue;
+        for (const item of Array.isArray((result as Record<string, unknown>).sources) ? (result as Record<string, unknown>).sources as unknown[] : []) {
+          if (!item || typeof item !== "object") continue;
+          const source = item as Record<string, unknown>;
+          if (typeof source.url === "string" && (source.url.startsWith("https://") || source.url.startsWith("http://"))) grounded.set(source.url, typeof source.title === "string" ? source.title : source.url);
+        }
+      }
+    }
+    for (const item of Array.isArray(llm.sources) ? llm.sources : []) {
+      if (!item || typeof item !== "object") continue;
+      const source = item as Record<string, unknown>;
+      if (typeof source.url !== "string" || !grounded.has(source.url)) continue;
+      unique.set(source.url, { url: source.url, title: typeof source.title === "string" ? source.title : grounded.get(source.url)! });
+    }
+  }
+  const sources = [...unique.values()];
+  return { verified: sources.length > 0, source_count: sources.length, sources };
+}
+
+function priorEvidenceSupportsResult(result: Record<string, unknown>): boolean {
+  const prior = result.prior_evidence && typeof result.prior_evidence === "object" ? result.prior_evidence as Record<string, unknown> : null;
+  if (prior?.verified !== true || Number(prior.source_count) < 1 || !Array.isArray(prior.sources)) return false;
+  const allowed = new Set(prior.sources.flatMap((source) => source && typeof source === "object" && typeof (source as Record<string, unknown>).url === "string" ? [(source as Record<string, unknown>).url as string] : []));
+  const cited = Array.isArray(result.sources) ? result.sources : [];
+  return cited.length > 0 && cited.every((source) => source && typeof source === "object" && typeof (source as Record<string, unknown>).url === "string" && allowed.has((source as Record<string, unknown>).url as string));
+}
 export type WorkerGrounding = { ok: true } | { ok: false; reason: string };
 
 // Worker-side check, applied to a work_engine_task result BEFORE it may be
@@ -60,7 +116,8 @@ export function checkWorkerGrounding(
   result: unknown,
 ): WorkerGrounding {
   const obj = result && typeof result === "object" && !Array.isArray(result) ? result as Record<string, unknown> : null;
-  if (obj && typeof obj.capability === "string" && obj.capability.length > 0) return { ok: true };
+  if (obj && typeof obj.capability === "string" && obj.capability.length > 0 && ("capability_result" in obj || "capability_attempts" in obj)) return { ok: true };
+  if (obj && priorEvidenceSupportsResult(obj)) return { ok: true };
   if (obj && obj.status === NO_DATA_SOURCE) {
     const reason = typeof obj.reason === "string" && obj.reason ? obj.reason : "worker reported no data source for this task";
     return { ok: false, reason };
@@ -124,6 +181,10 @@ export function assessTaskEvidence(task: TaskEvidenceRecord): { verdict: TaskVer
     }
     if (d.capability === KNOWLEDGE_SEARCH) return assessKnowledgeSearch(task, d);
     return { verdict: "verified", reason: `capability ${String(d.capability ?? "unknown")} succeeded` };
+  }
+  const llmResult = output?.llmResult && typeof output.llmResult === "object" ? output.llmResult as Record<string, unknown> : null;
+  if (llmResult && priorEvidenceSupportsResult(llmResult)) {
+    return { verdict: "verified", reason: "report cites sources from a successful prior research task" };
   }
   // Checked before the missing-output case: returnCompletedWork() truncates
   // output to 5000 chars, so a long fabricated answer is stored as invalid
@@ -210,7 +271,25 @@ export function compactDispatchForStorage(dispatch: unknown): Record<string, unk
     base.evidence = { query: typeof data?.query === "string" ? data.query.slice(0, 300) : null, matches: knowledgeMatches(d).slice(0, 5) };
     return base;
   }
-  if (d.data !== undefined) base.data_excerpt = JSON.stringify(d.data).slice(0, 1500);
+  if (d.capability === "research.run" && d.data && typeof d.data === "object") {
+    const data = d.data as Record<string, unknown>;
+    const queries = (Array.isArray(data.queries) ? data.queries : [data]).slice(0, 3);
+    const compactQueries = queries.slice(0, 6).map((query) => {
+      const q = query && typeof query === "object" ? query as Record<string, unknown> : {};
+      const results = (Array.isArray(q.results) ? q.results : []).slice(0, 2).map((result) => {
+        const r = result && typeof result === "object" ? result as Record<string, unknown> : {};
+        const sources = (Array.isArray(r.sources) ? r.sources : []).slice(0, 8).map((source) => {
+          const src = source && typeof source === "object" ? source as Record<string, unknown> : {};
+          return { url: src.url ?? null, title: src.title ?? null, date: src.date ?? null };
+        });
+        return { query: r.query ?? null, sources };
+      });
+      return { query: q.query ?? null, results };
+    });
+    base.data_excerpt = JSON.stringify({ queries: compactQueries });
+  } else if (d.data !== undefined) {
+    base.data_excerpt = JSON.stringify(d.data).slice(0, 1500);
+  }
   return base;
 }
 

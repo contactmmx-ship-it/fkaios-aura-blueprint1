@@ -10,7 +10,10 @@ import {
   buildNoDataSourceResult,
   checkWorkerGrounding,
   NO_DATA_SOURCE,
+  needsResearchBeforeAnswer,
+  parsePriorCompletedTasks,
   requiresExternalFacts,
+  summarizePriorEvidence,
 } from "./fact-grounding.ts";
 
 function assert(condition: boolean, message: string): void {
@@ -195,4 +198,52 @@ Deno.test("D4: a sales task backed by a relevant sourced vault match is verified
     companyOsDispatch: { capability: "knowledge.search", status: "success", evidence: { matches: [{ chunk_id: "c1", document_id: "d1", similarity: 0.91, excerpt: "Q2 sales report" }] } },
   });
   assert(assessTaskEvidence({ id: "s", ...SALES_TASK, status: "done", output }).verdict === "verified", "real sourced sales evidence must verify");
+});
+
+// ── E: Kids DPS research dispatch regression ─────────────────────────────
+const KIDS_DPS_ACTION_PLAN_TASK = {
+  title: "90-Day Action Plan, KPIs, Dependencies, and Missing Information List",
+  description: "Build a preschool franchise action plan and list competitors, regulatory requirements, and market evidence needed to validate the opportunity.",
+};
+
+Deno.test("E1: Kids DPS action-plan task triggers research before generic worker answer", () => {
+  assert(needsResearchBeforeAnswer(KIDS_DPS_ACTION_PLAN_TASK), "the exact Kids DPS action-plan wording must trigger research.run");
+  assert(requiresExternalFacts(KIDS_DPS_ACTION_PLAN_TASK), "competitor and regulatory evidence must be treated as external facts");
+});
+
+Deno.test("E2: internal rectification task does not trigger a new research pass", () => {
+  assert(!needsResearchBeforeAnswer({ title: "Rectify: 90-Day Action Plan", description: "Revise the existing deliverable using evidence already recorded." }), "rectification must reuse existing evidence rather than dispatch new research");
+});
+
+// ── F: Downstream report reuses source-linked prior task evidence ─────────
+Deno.test("F1: stringified prior_completed_tasks are parsed and source evidence is summarized", () => {
+  const prior = JSON.stringify([{
+    title: "Market and Regulatory Research",
+    output: {
+      companyOsDispatch: { status: "success", capability: "research.run", data_excerpt: JSON.stringify({ queries: [{ query: "official source", results: [{ sources: [{ url: "https://example.gov.in/guideline", title: "Official guideline" }] }] }] }) },
+      llmResult: { sources: [{ url: "https://example.gov.in/guideline", title: "Official guideline" }] },
+    },
+  }]);
+  assert(parsePriorCompletedTasks(prior).length === 1, "stringified prior task array must be parsed");
+  const summary = summarizePriorEvidence(prior);
+  assert(summary.verified && summary.source_count === 1, "successful research with a source URL must be reusable");
+});
+
+Deno.test("F2: report passes grounding only when its citations are in verified prior evidence", () => {
+  const prior = JSON.stringify([{
+    output: { companyOsDispatch: { status: "success", capability: "research.run", data_excerpt: JSON.stringify({ queries: [{ query: "official source", results: [{ sources: [{ url: "https://example.gov.in/guideline", title: "Official guideline" }] }] }] }) }, llmResult: { sources: [{ url: "https://example.gov.in/guideline", title: "Official guideline" }] } },
+  }]);
+  const prior_evidence = summarizePriorEvidence(prior);
+  const task = { title: "Compile and verify the final report", description: "Use prior research and cite sources." };
+  const good = { sources: [{ url: "https://example.gov.in/guideline", title: "Official guideline" }], prior_evidence };
+  const bad = { sources: [{ url: "https://unrelated.example/claim", title: "Unrelated page" }], prior_evidence };
+  assert(checkWorkerGrounding(task, good).ok, "report using a verified prior source must pass");
+  assert(!checkWorkerGrounding(task, bad).ok, "report citing an unrelated source must fail");
+  const verdict = assessTaskEvidence({ ...task, status: "done", output: JSON.stringify({ llmResult: good }) });
+  assert(verdict.verdict === "verified", "completed report with valid prior-evidence citations must be verified");
+});
+
+Deno.test("F3: an unmeasured capability label is not grounding evidence", () => {
+  const task = { title: "Compile market research", description: "Verify competitor counts and regulations." };
+  assert(!checkWorkerGrounding(task, { capability: "research.run" }).ok, "a model-written capability label without measured result data must fail");
 });

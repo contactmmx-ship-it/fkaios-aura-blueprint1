@@ -48,9 +48,13 @@ import { classifyTaskClass, toolRef, workerRef } from "../_shared/resource-ident
 import { callWithContinuation } from "../_shared/continuation.ts";
 import { executeCapability } from "../_shared/company-os.ts";
 import { classifyObjective } from "../_shared/objective-contract.ts";
+import { parseJSONCandidate } from "../_shared/json-parse.ts";
 import {
   checkWorkerGrounding,
   needsResearchBeforeAnswer,
+  requiresExternalFacts,
+  parsePriorCompletedTasks,
+  summarizePriorEvidence,
   buildNoDataSourceResult,
   NO_DATA_SOURCE,
   NO_DATA_SOURCE_DISPOSITION,
@@ -470,7 +474,7 @@ export function extractJSONFromText(text: string): unknown {
       stack.pop();
       if (stack.length === 0) {
         const candidate = trimmed.slice(start, i + 1);
-        return JSON.parse(candidate);
+        return parseJSONCandidate(candidate);
       }
     }
   }
@@ -1097,48 +1101,73 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
   structuredLog("INFO", `Executing job ${job.id} (type: ${job.type})`, { jobId: job.id, agentId: job.agent_id }, cid);
   const capabilityBlock = job.type === "work_engine_task" ? WORK_ENGINE_CAPABILITIES_BLOCK : "";
 
-// Founder-submitted research tasks get a real evidence acquisition pass BEFORE
-// the LLM is asked to draft the answer. This closes the previous failure mode
-// where the model could correctly say "no_data_source" even though the approved
-// research.run capability existed. The orchestrator has already established
-// founderSubmitted in the job payload; resource intelligence inside
-// executeCapability() decides whether a configured research resource is available.
-// No research is triggered for non-founder work or non-research tasks.
+function buildFounderResearchQueries(taskTitle: string, taskDescription: string): string[] {
+  const text = (taskTitle + "\n" + taskDescription).toLowerCase();
+  const preschool = /preschool|early childhood|kids dps|pre-primary/.test(text);
+  if (preschool) {
+    const market = /market|competitor|franchise|demand|growth|benchmark/.test(text);
+    const regulatory = /regulat|compliance|law|safety|ncpcr|nep|licensing/.test(text);
+    const queries: string[] = [];
+    if (market) queries.push("India preschool franchise market competitors Kidzee EuroKids Bachpan Little Millennium franchise models demand official brand sources");
+    if (regulatory) {
+      queries.push("India National Education Policy 2020 foundational stage early childhood care education official Ministry of Education site:education.gov.in");
+      queries.push("India preschool child safety guidelines NCPCR registration state government official site:ncpcr.gov.in OR site:gov.in");
+    }
+    if (queries.length > 0) return queries;
+    return ["India preschool early childhood education official market and regulatory sources"];
+  }
+  return [(taskTitle + " " + taskDescription.slice(0, 160)).replace(/\s+/g, " ").trim().slice(0, 240)];
+}
+
+function compactResearchEvidence(data: unknown, query: string): Record<string, unknown> {
+  const root = data && typeof data === "object" ? data as Record<string, unknown> : {};
+  const rawResults = Array.isArray(root.results) ? root.results : [];
+  const results = rawResults.slice(0, 3).map((item) => {
+    const row = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    const organic = Array.isArray(row.organicResults) ? row.organicResults : [];
+    const sources = organic.slice(0, 8).map((entry) => {
+      const source = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
+      return { url: source.url ?? null, title: source.title ?? source.websiteTitle ?? null, date: source.date ?? source.publishedDate ?? null, description: typeof source.description === "string" ? source.description.slice(0, 700) : null };
+    }).filter((source) => typeof source.url === "string" && typeof source.title === "string");
+    const searchQuery = row.searchQuery && typeof row.searchQuery === "object" ? row.searchQuery as Record<string, unknown> : {};
+    return { query: typeof searchQuery.term === "string" ? searchQuery.term : query, sources };
+  });
+  return { actor: root.actor ?? null, query, run_id: root.run_id ?? null, results };
+}
+
+// Founder-submitted research tasks acquire actual external evidence before the LLM drafts.
 let researchEvidence = "";
 let researchResultData: unknown = null;
 let researchResultAttempts = 0;
-// taskText is also read by the downstream verification gate below, so it is
-// declared at function scope rather than inside the research branch.
 const taskText = [job.payload?.title, job.payload?.description].filter((v) => typeof v === "string").join("\n").trim();
-// Rectification revises a deliverable built from evidence prior tasks already
-// recorded: no new paid research, and not the research-fact output contract.
 const isRectification = typeof job.payload?.rectification_of === "string";
+const priorCompletedTasks = parsePriorCompletedTasks(job.payload?.prior_completed_tasks);
+const hasPriorCompletedEvidence = priorCompletedTasks.length > 0;
+const isDownstreamSynthesisTask = hasPriorCompletedEvidence && /\b(compile|final report|synthesis|verify|verification)\b/i.test(taskText);
 if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true || (typeof job.payload?.objective_id === "string" && job.payload.objective_id.length > 0))) {
-  const researchNeeded = !isRectification && needsResearchBeforeAnswer({ title: job.payload?.title, description: job.payload?.description });
+  const taskNeedsExternalFacts = requiresExternalFacts({ title: job.payload?.title, description: job.payload?.description });
+  const researchNeeded = !isRectification && !isDownstreamSynthesisTask && (needsResearchBeforeAnswer({ title: job.payload?.title, description: job.payload?.description }) || taskNeedsExternalFacts);
   if (researchNeeded && taskText) {
-    const researchStartedAt = Date.now();
-    const research = await executeCapability(
-      "research.run",
-      { query: taskText.slice(0, 1200), requested_by: "fkaios-orchestrator" },
-      cid,
-    );
-    await recordToolStep("research.run", research.status, researchStartedAt, research.status === "success" ? null : String(research.error ?? research.status));
-    if (research.status !== "success") {
-      throw new NonRetryableJobError(
-        `Founder research task could not acquire real external evidence: ${research.error ?? research.status}`,
-        "NO_DATA_SOURCE",
-      );
+    const researchTitle = typeof job.payload?.title === "string" ? job.payload.title : taskText;
+    const researchDescription = typeof job.payload?.description === "string" ? job.payload.description : "";
+    const researchQueries = buildFounderResearchQueries(researchTitle, researchDescription);
+    const researchResults: Array<Record<string, unknown>> = [];
+    for (const researchQuery of researchQueries) {
+      const researchStartedAt = Date.now();
+      const research = await executeCapability("research.run", { query: researchQuery, requested_by: "fkaios-orchestrator" }, cid);
+      await recordToolStep("research.run", research.status, researchStartedAt, research.status === "success" ? null : String(research.error ?? research.status));
+      if (research.status !== "success") {
+        throw new NonRetryableJobError(`Founder research task could not acquire real external evidence for query '${researchQuery}': ${research.error ?? research.status}`, "NO_DATA_SOURCE");
+      }
+      researchResults.push(compactResearchEvidence(research.data ?? null, researchQuery));
+      researchResultAttempts += research.attempts;
     }
-    researchResultData = research.data ?? null;
-    researchResultAttempts = research.attempts;
-    researchEvidence = `\n\n[REAL EXTERNAL RESEARCH EVIDENCE — USE ONLY THIS DATA; DO NOT FABRICATE]\n${JSON.stringify(research.data).slice(0, 12000)}\n[/REAL EXTERNAL RESEARCH EVIDENCE]`;
-    structuredLog("INFO", "Founder research evidence acquired before task generation", {
-      objectiveId: job.payload?.objective_id ?? null,
-      taskId: job.payload?.task_id ?? null,
-      capability: "research.run",
-    }, cid);
+    researchResultData = researchResults.length === 1 ? researchResults[0] : { queries: researchResults };
+    researchEvidence = `\n\n[REAL EXTERNAL RESEARCH EVIDENCE — USE ONLY THIS DATA; DO NOT FABRICATE]\n${JSON.stringify(researchResultData).slice(0, 12000)}\n[/REAL EXTERNAL RESEARCH EVIDENCE]`;
+    structuredLog("INFO", "Founder research evidence acquired before task generation", { objectiveId: job.payload?.objective_id ?? null, taskId: job.payload?.task_id ?? null, capability: "research.run", queryCount: researchQueries.length }, cid);
   }
 }
+
   if (job.agent_id) {
     await checkRateLimit(job.agent_id, cid);
     const { data: agent } = await supabase.from("ai_agents").select("*").eq("id", job.agent_id).single();
@@ -1161,14 +1190,17 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
       const invoiceSchemaBlock = job.type === "GENERATE_INVOICE"
         ? `\nThis is a GENERATE_INVOICE job. Respond with ONLY this JSON structure:\n\n{\n  "line_items": [\n    {\n      "description": "string",\n      "quantity": number,\n      "unit_price_inr": number\n    }\n  ]\n}\n\nRules:\n- Use only real payload/lead/brand data.\n- Never invent products, services, or amounts.\n- If no real billable data exists, return:\n{\n  "line_items": []\n}`
         : "";
-      const priorEvidence = Array.isArray(job.payload?.prior_completed_tasks)
-        ? "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(job.payload.prior_completed_tasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
+      const priorTasks = parsePriorCompletedTasks(job.payload?.prior_completed_tasks);
+      const priorEvidence = priorTasks.length > 0
+        ? "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(priorTasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
         : "";
       const verificationContract = !isRectification && priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)
-        ? "\n\nThis is a downstream verification/report task. Return ONLY JSON with verified_facts (at least 3 when the objective asks for three facts), report, and sources. Every verified_fact must include fact, source_url, source_title, and verification_note. Every source_url must appear in the supplied prior evidence. Do not include unsupported facts."
+        ? "\n\nThis is a downstream verification/report task. Return ONLY JSON with verified_facts (at least 3 when the objective asks for three facts), report, and sources. Every verified_fact must include fact, source_url, source_title, and verification_note. Every source_url must appear in the supplied prior evidence. Do not include unsupported facts. If prior evidence lacks suitable sources, state the exact missing evidence."
         : "";
-      const systemPrompt = `${agent.prompt}${groundedContext}${principlesBlock}\n\nYou will receive a job payload as JSON.\nExecute the task and respond with ONLY a valid JSON object.\nNo prose.\nNo markdown fences.\n${NO_FABRICATED_PERSISTENCE_BLOCK}\n${invoiceSchemaBlock}${capabilityBlock}`;
-      const userContent = JSON.stringify({ type: job.type, payload: job.payload }) + researchEvidence + priorEvidence + verificationContract;
+      const researchCitationContract = researchEvidence
+        ? "\n\nRESEARCH CITATION CONTRACT: Use only specific sources contained in the attached research results. For every external factual claim, include a source URL and source title from an organic result; never cite a Google search-results URL as proof. Include a sources array with title, url, published_date (null if unavailable), and claims_supported. Separate verified facts, estimates, assumptions, and recommendations. Treat all numeric KPIs as proposed targets unless explicitly substantiated by a source. If the evidence does not support a claim, label it unverified or omit it. Never invent source names, URLs, dates, market sizes, competitor outlet counts, franchise fees, or returns."
+        : "";
+      const systemPrompt = `${agent.prompt}${groundedContext}${principlesBlock}${researchCitationContract}${verificationContract}\n\nYou will receive a job payload as JSON.\nExecute the task and respond with ONLY a valid JSON object.\nNo prose.\nNo markdown fences.\n${NO_FABRICATED_PERSISTENCE_BLOCK}\n${invoiceSchemaBlock}${capabilityBlock}`;      const userContent = JSON.stringify({ type: job.type, payload: job.payload }) + researchEvidence + priorEvidence + researchCitationContract + verificationContract;
       // NOTE: any failure here THROWS. runJobs() records retry/failed with the real
       // error. It does NOT invent a result. This is the fix.
       // GENERATE_INVOICE gets a forced structured-output tool schema (see
@@ -1206,28 +1238,53 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
           capability_attempts: researchResultAttempts,
         };
       }
-      return await executeRequestedCapability(job, parsed, cid);
+      const requestedResult = await executeRequestedCapability(job, parsed, cid);
+      const priorSummary = summarizePriorEvidence(job.payload?.prior_completed_tasks);
+      if (priorSummary.verified && requestedResult && typeof requestedResult === "object" && !Array.isArray(requestedResult) && !(typeof (requestedResult as Record<string, unknown>).capability === "string")) {
+        return { ...(requestedResult as Record<string, unknown>), prior_evidence: priorSummary };
+      }
+      return requestedResult;
     }
   }
 
   // No agent prompt — generic path. THIS is where 5,970 fabrications came from.
   // There is NO simulation fallback any more. If the LLM cannot run, the job FAILS.
   const principlesBlock = await getFounderPrinciplesBlock("ai-engine");
+  const priorTasks = parsePriorCompletedTasks(job.payload?.prior_completed_tasks);
+  const priorEvidence = priorTasks.length > 0
+    ? "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(priorTasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
+    : "";
+  const verificationContract = !isRectification && priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)
+    ? "\n\nThis is a downstream verification/report task. Return ONLY JSON with verified_facts, report, and sources. Every verified_fact must include fact, source_url, source_title, and verification_note. Every source_url must appear in the supplied prior evidence. Do not include unsupported facts. If prior evidence lacks suitable sources, say so clearly and list the exact missing evidence instead of substituting unrelated sources."
+    : "";
+  const researchCitationContract = researchEvidence
+    ? "\n\nRESEARCH CITATION CONTRACT: Use only specific sources contained in the attached research results. For every external factual claim, include a source URL and source title from an organic result; never cite a Google search-results URL as proof. Include a sources array with title, url, published_date (null if unavailable), and claims_supported. Separate verified facts, estimates, assumptions, and recommendations. Treat all numeric KPIs as proposed targets unless explicitly substantiated by a source. If the evidence does not support a claim, label it unverified or omit it. Never invent source names, URLs, dates, market sizes, competitor outlet counts, franchise fees, or returns."
+    : "";
+  const systemPrompt = `You are an AI engine. Job type: ${job.type}. Respond with ONLY a valid JSON object. No prose, no markdown fences. Never invent data.\n${NO_FABRICATED_PERSISTENCE_BLOCK}${capabilityBlock}${principlesBlock}${researchCitationContract}${verificationContract}`;
+  const userContent = JSON.stringify({ type: job.type, payload: job.payload }) + researchEvidence + priorEvidence + researchCitationContract + verificationContract;
   const llmResult = await callLLM(
-    `You are an AI engine. Job type: ${job.type}. Respond with ONLY a valid JSON object. No prose, no markdown fences. Never invent data.\n${NO_FABRICATED_PERSISTENCE_BLOCK}${capabilityBlock}${principlesBlock}`,
-    JSON.stringify({ type: job.type, payload: job.payload }),
+    systemPrompt,
+    userContent,
     cid,
     job.type === "GENERATE_INVOICE" ? INVOICE_TOOL_SCHEMA : undefined,
   );
   await trackTokenUsage(null, llmResult.model, llmResult.inputTokens, llmResult.outputTokens, llmResult.provider, cid);
   try {
-    return job.type === "GENERATE_INVOICE"
+    const parsed = job.type === "GENERATE_INVOICE"
       ? parseAndValidateInvoicePayload(llmResult.toolCall, llmResult.text)
       : asJSONObject(extractJSONFromText(llmResult.text.replace(/```json|```/g, "").trim()), `Job ${job.id} (${job.type})`);
+    validateGrounding(llmResult.text, `${systemPrompt}\n${userContent}`, cid);
+    const priorSummary = summarizePriorEvidence(job.payload?.prior_completed_tasks);
+    const sanitizedParsed = { ...parsed };
+    delete sanitizedParsed.capability;
+    delete sanitizedParsed.capability_result;
+    delete sanitizedParsed.capability_attempts;
+    const resultWithPriorEvidence = !researchEvidence && priorSummary.verified ? { ...sanitizedParsed, prior_evidence: priorSummary } : sanitizedParsed;
+    if (researchEvidence) {
+      return { ...sanitizedParsed, capability: "research.run", capability_result: researchResultData, capability_attempts: researchResultAttempts };
+    }
+    return resultWithPriorEvidence;
   } catch (err) {
-    // Even an unparseable/invalid response is a REAL FAILURE, not a
-    // placeholder. Re-thrown with the job's own identity for the retry/
-    // failed path in runJobs() to log and persist.
     const detail = err instanceof Error ? err.message : String(err);
     throw new Error(`Job ${job.id} (${job.type}): ${detail}`);
   }
