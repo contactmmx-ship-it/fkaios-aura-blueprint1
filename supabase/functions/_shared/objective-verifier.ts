@@ -69,7 +69,7 @@ export function kidsDpsCompetitorChecks(objective: string, criteria: string[], d
   if (!isKidsDps || !asksCompetitors) return { ok: true, problems: [] };
 
   const brands = ["Kidzee", "EuroKids", "Bachpan", "Little Millennium", "Shemrock", "Hello Kids", "Tree House", "KLAY"];
-  const rows = deliverable.split(/\\r?\\n/).filter((line) => line.trim().startsWith("|"));
+  const rows = deliverable.split(/\r?\n/).filter((line) => line.trim().startsWith("|"));
   const problems: string[] = [];
   for (const brand of brands) {
     const row = rows.find((line) => line.toLowerCase().includes(brand.toLowerCase()));
@@ -81,7 +81,7 @@ export function kidsDpsCompetitorChecks(objective: string, criteria: string[], d
       problems.push("competitor row for " + brand + " has no direct source URL");
     }
     const lower = row.toLowerCase();
-    const hasYear = /\\b(19|20)[0-9]{2}\\b/.test(row);
+    const hasYear = /\b(19|20)[0-9]{2}\b/.test(row);
     if (!hasYear && !lower.includes("date unavailable") && !lower.includes("undated")) {
       problems.push("competitor row for " + brand + " has no source date or explicit date-unavailable label");
     }
