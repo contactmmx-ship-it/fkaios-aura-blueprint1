@@ -699,6 +699,24 @@ export async function recheckGateBlockedObjectives(
       .eq("id", id)
       .eq("status", "awaiting_approval");
     if (upErr) throw new Error(`Failed resuming ${id}: ${upErr.message}`);
+    if (verifierOutputBlock) {
+      // This is a new correction cycle, not a request to repeat the exhausted
+      // planning loop. Reset the per-objective rectification budget so the
+      // existing report can be rebuilt and independently verified again.
+      await syncObjectiveState(
+        supabase,
+        { id, status: "processing" },
+        {
+          phase: "rectifying",
+          reason: note.slice(0, 500),
+          patch: {
+            rectification_round: 0,
+            blocked_reason: null,
+            next_action: "Rebuild the final report, then independently verify it.",
+          },
+        },
+      );
+    }
     resumed.push(id);
   }
   return resumed;
