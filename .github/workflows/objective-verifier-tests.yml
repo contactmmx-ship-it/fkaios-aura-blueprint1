@@ -18,6 +18,10 @@ on:
       - "supabase/functions/_shared/objective-verifier.ts"
       - "supabase/functions/_shared/objective-verifier.test.ts"
       - "supabase/functions/_shared/objective-loop.ts"
+      - "supabase/functions/_shared/objective-deadline.ts"
+      - "supabase/functions/_shared/objective-deadline.test.ts"
+      - "supabase/functions/_shared/llm-router.ts"
+      - "supabase/functions/_shared/llm-router.test.ts"
       - ".github/workflows/objective-verifier-tests.yml"
 
 permissions:
