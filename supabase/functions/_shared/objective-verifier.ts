@@ -204,6 +204,33 @@ export function independenceLevel(verifierRef: string | null, producerRefs: stri
   return producerRefs.some((p) => parseRef(p)?.provider === vp) ? "different_model" : "different_provider";
 }
 
+/**
+ * Keep one active verification record per objective/requirement while retaining
+ * prior attempts as superseded history. Never allow a passing verdict to escape
+ * if its evidence could not be persisted.
+ */
+export async function persistVerificationEvidence(
+  db: Db,
+  input: { objectiveId: string | null; requirementKey: string; row: Record<string, unknown> },
+): Promise<string | null> {
+  if (input.objectiveId) {
+    const { error: supersedeError } = await db
+      .from("fkaios_verification_evidence")
+      .update({ status: "superseded" })
+      .eq("objective_id", input.objectiveId)
+      .eq("requirement_key", input.requirementKey)
+      .neq("status", "superseded");
+    if (supersedeError) throw new Error(`Failed superseding prior verification evidence: ${supersedeError.message}`);
+  }
+  const { data, error } = await db
+    .from("fkaios_verification_evidence")
+    .insert(input.row)
+    .select("id")
+    .single();
+  if (error) throw new Error(`Failed persisting verification evidence: ${error.message}`);
+  return data?.id ?? null;
+}
+
 export async function verifyObjective(db: Db, input: {
   /** null only for self-tests (evidence key self_test:...). */
   objectiveId: string | null;
@@ -238,18 +265,22 @@ export async function verifyObjective(db: Db, input: {
   }
   const verdict: Verdict = { ...parsed, verifierRef, independence, available: true };
 
-  const { data: ev } = await db.from("fkaios_verification_evidence").insert({
-    objective_id: input.objectiveId,
-    project_id: input.projectId,
-    requirement_key: input.requirementKey ?? VERIFIER_VERSION,
-    evidence_type: "independent_objective_verification",
-    verifier: verifierRef ?? "unknown",
-    status: verdict.passed ? "passed" : "failed",
-    observed_result: { criteria: verdict.criteria, quality: verdict.quality, issues: verdict.issues, independence, deterministic, producer_refs: input.producerRefs, needs_human_decision: verdict.needsHumanDecision },
-    verification_notes: verdict.passed ? `All ${verdict.criteria.length} criteria met with quotes found in the deliverable (independence: ${independence}).` : `Failed: ${verdict.issues.slice(0, 3).join(" | ")}`,
-    verified_at: new Date().toISOString(),
-  }).select("id").single();
-  verdict.evidenceId = ev?.id ?? null;
+  const requirementKey = input.requirementKey ?? VERIFIER_VERSION;
+  verdict.evidenceId = await persistVerificationEvidence(db, {
+    objectiveId: input.objectiveId,
+    requirementKey,
+    row: {
+      objective_id: input.objectiveId,
+      project_id: input.projectId,
+      requirement_key: requirementKey,
+      evidence_type: "independent_objective_verification",
+      verifier: verifierRef ?? "unknown",
+      status: verdict.passed ? "passed" : "failed",
+      observed_result: { criteria: verdict.criteria, quality: verdict.quality, issues: verdict.issues, independence, deterministic, producer_refs: input.producerRefs, needs_human_decision: verdict.needsHumanDecision },
+      verification_notes: verdict.passed ? `All ${verdict.criteria.length} criteria met with quotes found in the deliverable (independence: ${independence}).` : `Failed: ${verdict.issues.slice(0, 3).join(" | ")}`,
+      verified_at: new Date().toISOString(),
+    },
+  });
 
   // Only verified outcomes train routing: stamp the producing steps.
   if (input.producingTaskIds.length) {
