@@ -4,7 +4,7 @@
 
 This folder is the **raw layer**: the conversations and records themselves, verbatim.
 The master source of truth is the **reconciled layer** built from it.
-`FKAIOS_ALL_CHATS_MERGED.md` is everything below combined into one file.
+`FKAIOS_ALL_CHATS_MERGED.md` combines the source material listed below through 7 Oct 2026. Later dated addenda are indexed separately until a new merged archive is generated; do not imply that inaccessible conversations have been recovered.
 
 | # | File | What it is | Dates | Source |
 |---|---|---|---|---|
@@ -13,6 +13,7 @@ The master source of truth is the **reconciled layer** built from it.
 | 02 | `02_chatgpt_conversations_pasted.md` | The two ChatGPT FKAIOS conversations Rajeev pasted on 7 Oct, verbatim. (`fkaios_chats.txt`, uploaded later, is the same text and was not duplicated.) | → 7 Oct | ChatGPT |
 | 02b | `02b_gomax_brief_uploaded_2026-10-04.md` | The GoMax recovery brief and patch Rajeev uploaded (prepared in ChatGPT) | 4 Oct | ChatGPT → Claude Code |
 | 03 | `03_claude_code_session_2026-10-04_to_07.md` | Full transcript of Claude Code session 210c0e58: GoMax recovery, PRs #25–#28, and building this archive (the latest chat) | 4 → 7 Oct | Claude Code |
+| 04 | `04_chatgpt_conversation_2026-10-10_master_history_continuation.md` | Current ChatGPT continuation: current repository head, live Supabase objective/evidence reconciliation, latest CI failures, conflicts and next actions (summary, not verbatim transcript) | 10 Oct | ChatGPT + read-only GitHub/Supabase evidence |
 
 ## Not in this archive yet (no access from here)
 
