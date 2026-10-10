@@ -238,6 +238,8 @@ Superseded by later decisions: the fixed "41 permanent agents" model (H12), "Ope
 - Supabase Functions deploy `38047998737`: failed because Supabase CLI returned HTTP 401, `Invalid access token`, at “Deploy changed FKAIOS functions”.
 - Production migration drift check `38047998740`: failed listing production migrations with HTTP 401, `Invalid access token`. The comparison step was skipped; drift is unknown, not passed.
 
+**Confirmed production/repository drift behind deadline failure:** the deployed `objective-loop.ts` uses `String(objective.updated_at ?? objective.created_at ?? "")` as its deadline start, while `main` uses `objectiveRunStartedAt(objective)`. The deployed `objective-deadline.ts` lacks that helper. Scheduler updates can reset/extend the effective start and produce the false/incorrect 1490-minute elapsed result. The repo fix is not in the deployed shared loop yet. By contrast, deployed `objective-verifier.ts` exactly matches `main`; the existing same-model evidence row is historical and still requires a fresh run/state reconciliation.
+
 **Credential blocker:** GitHub Actions `SUPABASE_ACCESS_TOKEN` is invalid or no longer accepted. Founder/repository admin must replace it with a valid token that has required deploy and migration-read permissions. Never paste the token into ChatGPT or commit it. After replacement, rerun both workflows and capture exact run IDs, deployed function versions, and results.
 
 **Live Supabase evidence — Kids DPS objective `20cbf892-0e6b-4689-9d1f-1a3a4030ce8f`:**
