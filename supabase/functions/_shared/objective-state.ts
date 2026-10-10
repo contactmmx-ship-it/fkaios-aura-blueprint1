@@ -18,7 +18,8 @@ const TRANSITIONS: Record<Phase, Phase[]> = {
   verifying: ["rectifying", "planning", "executing", "completed", "blocked", "failed"],
   rectifying: ["executing", "verifying", "planning", "blocked", "failed"],
   blocked: ["planning", "executing", "verifying", "failed"],
-  completed: [],
+  // A completed objective may re-enter verification only for evidence repair; the scheduler gate checks that the passing verifier record is missing.
+  completed: ["verifying"],
   failed: [],
 };
 
