@@ -31,6 +31,6 @@ jobs:
       - name: Set up Deno
         uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
         with:
-          deno-version: v2.2.8
+          deno-version: v2.9.7
       - name: Run objective verifier regression tests
         run: deno test --allow-env --allow-net supabase/functions/_shared/objective-verifier.test.ts
