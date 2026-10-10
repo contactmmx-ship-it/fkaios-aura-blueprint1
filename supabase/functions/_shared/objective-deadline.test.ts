@@ -1,5 +1,5 @@
 /// <reference lib="deno.ns" />
-import { objectiveDeadline, objectiveDeadlineMinutes, DEFAULT_OBJECTIVE_DEADLINE_MINUTES } from "./objective-deadline.ts";
+import { objectiveDeadline, objectiveDeadlineMinutes, resolveObjectiveStartAt, DEFAULT_OBJECTIVE_DEADLINE_MINUTES } from "./objective-deadline.ts";
 
 function assert(condition: boolean, message: string): void { if (!condition) throw new Error(message); }
 
@@ -25,4 +25,20 @@ Deno.test("deadline configuration is bounded", () => {
   assert(objectiveDeadlineMinutes("5") === DEFAULT_OBJECTIVE_DEADLINE_MINUTES, "too-small budget uses default");
   assert(objectiveDeadlineMinutes("999") === 360, "too-large budget is capped");
   assert(objectiveDeadlineMinutes("90") === 90, "valid override is honored");
+});
+
+Deno.test("deadline start persists across rerun flag clearing", () => {
+  const now = new Date("2026-10-10T12:00:00.000Z");
+  const requested = "Re-run requested at 2026-10-10T11:00:00.000Z. New planning pass starts next tick.";
+  const start = resolveObjectiveStartAt("2026-10-01T00:00:00.000Z", requested, null, true, now);
+  assert(start === "2026-10-10T11:00:00.000Z", "rerun must use requested timestamp");
+  const afterFlagCleared = resolveObjectiveStartAt("2026-10-01T00:00:00.000Z", null, start, false, now);
+  assert(afterFlagCleared === start, "persisted timestamp must win after rerun marker is cleared");
+});
+
+Deno.test("verification repair gets a fresh deadline instead of the original submission date", () => {
+  const now = new Date("2026-10-10T12:00:00.000Z");
+  const summary = "Reopened for verification evidence repair at 2026-10-10T11:55:00.000Z: verify again.";
+  const start = resolveObjectiveStartAt("2026-10-01T00:00:00.000Z", summary, "2026-10-01T00:00:00.000Z", true, now);
+  assert(start === "2026-10-10T11:55:00.000Z", "verification repair must start a fresh bounded run");
 });
