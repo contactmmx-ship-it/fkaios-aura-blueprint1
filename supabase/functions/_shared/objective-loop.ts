@@ -730,6 +730,56 @@ export async function recheckGateBlockedObjectives(
     }
     resumed.push(id);
   }
+  // Repair completed objectives whose summary claims independent verification
+  // but whose passing verifier evidence was never persisted. Re-open at most one
+  // per scheduler cycle; the verifier must pass again before completion survives.
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: completedCandidates, error: completedError } = await supabase
+    .from("orchestrator_requests")
+    .select("id, result_summary")
+    .eq("requested_by", "founder-brain")
+    .eq("status", "completed")
+    .like("result_summary", "Independently verified:%")
+    .gte("created_at", cutoff)
+    .order("created_at", { ascending: true })
+    .limit(250);
+  if (completedError) throw new Error(`Failed loading completed objectives for evidence repair: ${completedError.message}`);
+  for (const row of completedCandidates ?? []) {
+    const id = String(row.id);
+    const { data: passingEvidence, error: evidenceError } = await supabase
+      .from("fkaios_verification_evidence")
+      .select("id")
+      .eq("objective_id", id)
+      .eq("evidence_type", "independent_objective_verification")
+      .eq("status", "passed")
+      .limit(1);
+    if (evidenceError) throw new Error(`Failed checking verifier evidence for ${id}: ${evidenceError.message}`);
+    if (passingEvidence?.length) continue;
+    const state = await loadObjectiveState(supabase, id);
+    const latestProject = state.projects[0];
+    if (!latestProject || !String(latestProject.final_output ?? "").trim()) continue;
+    const note = "Reopened for verification evidence repair: the stored completion summary has no persisted passing independent-verification record. The stored final report must be verified again before completion is retained.";
+    const { error: reopenError } = await supabase
+      .from("orchestrator_requests")
+      .update({ status: "processing", result_summary: note })
+      .eq("id", id)
+      .eq("status", "completed");
+    if (reopenError) throw new Error(`Failed reopening ${id} for evidence repair: ${reopenError.message}`);
+    await syncObjectiveState(
+      supabase,
+      { id, status: "processing" },
+      {
+        phase: "verifying",
+        reason: note,
+        patch: {
+          blocked_reason: null,
+          next_action: "Re-verify the persisted final report and store independent verification evidence.",
+        },
+      },
+    );
+    resumed.push(id);
+    break;
+  }
   return resumed;
 }
 
