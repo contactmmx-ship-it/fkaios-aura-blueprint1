@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { buildVerifierPrompt, parseVerdict } from "./objective-verifier.ts";
+import { buildVerifierPrompt, isRecoverableOutputBlocker, parseVerdict } from "./objective-verifier.ts";
 
 Deno.test("missing client inputs requested by the objective are report findings, not human blockers", () => {
   const prompt = buildVerifierPrompt(
@@ -49,4 +49,16 @@ Deno.test("explicit spending approval remains a genuine human gate", () => {
   }), deliverable, { ok: true, problems: [] });
   assertEquals(parsed?.needsHumanDecision, true);
   assertEquals(parsed?.passed, false);
+});
+
+
+Deno.test("recover previously exhausted verification loops without overriding genuine approvals", () => {
+  assertEquals(
+    isRecoverableOutputBlocker("Objective replanned 13 times without reaching achieved/blocked/failed. Last evaluator reason: Independent verification rejected the deliverable: verifier's supporting quote was not found in the deliverable."),
+    true,
+  );
+  assertEquals(
+    isRecoverableOutputBlocker("Human decision required: Founder approval is required before spending the proposed budget."),
+    false,
+  );
 });
