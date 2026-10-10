@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { reason } from "./founder-brain.ts";
 import { planObjective } from "./executive-planner.ts";
 import { allocateProjectWork, createRectificationTask, resumeTaskFromCheckpoint, returnCompletedWork } from "./work-engine.ts";
-import { contractCriteria, verifyObjective } from "./objective-verifier.ts";
+import { contractCriteria, isRecoverableOutputBlocker, verifyObjective } from "./objective-verifier.ts";
 import { readObjectiveState, syncObjectiveState } from "./objective-state.ts";
 import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, type TaskEvidenceRecord } from "./fact-grounding.ts";
 import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP, projectUpdateForObjective } from "./objective-rerun.ts";
@@ -672,7 +672,7 @@ export async function recheckGateBlockedObjectives(
     .eq("requested_by", "founder-brain")
     .eq("status", "awaiting_approval")
     .eq("action_taken", OBJECTIVE_LOOP)
-    .order("updated_at", { ascending: true })
+    .order("created_at", { ascending: true })
     .limit(100);
   if (error) throw new Error(`Failed loading gate-blocked objectives: ${error.message}`);
   const resumed: string[] = [];
@@ -684,9 +684,7 @@ export async function recheckGateBlockedObjectives(
     // deliverables to the Founder. Resume only this narrow output-correction
     // class; genuine payment, credential, security, deletion and physical
     // action approvals remain parked.
-    const verifierOutputBlock = /^Human decision required:/i.test(summary) &&
-      /raw json|intermediate output|final report|deliverable|re-execut|acceptable|format/i.test(summary) &&
-      !/payment|pay|purchase|spend|budget|credential|api key|secret|password|contract signature|physical action|in-person|delete data|security setting/i.test(summary);
+    const verifierOutputBlock = isRecoverableOutputBlocker(summary);
     if (!evidenceGateBlock && !verifierOutputBlock) continue;
     const state = await loadObjectiveState(supabase, id);
     if (state.projects.length === 0) continue;
