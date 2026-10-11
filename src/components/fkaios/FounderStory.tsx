@@ -194,7 +194,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
       pendingApprovals: (data.approval_totals?.approval_records_pending ?? approvals.length) + (data.approval_totals?.gated_delegations_pending ?? collab.filter(c => c.requires_founder_approval && c.status !== 'completed').length),
       last24, producingList: producing, discoveredEvents, qualifiedEvents, failureEvents, approvalRows,
     };
-  }, [wf, stream, collab, approvals, data.activity_totals_24h, data.workforce_truth]);
+  }, [wf, stream, collab, approvals, data.activity_totals_24h, data.workforce_truth, data.approval_totals]);
 
   // ── P2 LINEAGE (Palantir principle): every number clicks through to its
   // source rows, built from the SAME live payload — zero extra queries, zero
