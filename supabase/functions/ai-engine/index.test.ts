@@ -241,6 +241,15 @@ t("resultReportsUnperformedVerification: rejects an audit report admitting missi
   assert(typeof reason === "string" && reason.includes("cannot be marked completed"), "A report admitting missing verification evidence must not count as completed work");
 });
 
+t("resultReportsUnperformedVerification: catches the live 'Missing exact evidence' failure shape", async () => {
+  const { resultReportsUnperformedVerification } = await import("./index.ts");
+  const reason = resultReportsUnperformedVerification(
+    { title: "Database Schema and Edge Function Health Verification", description: "Perform an exhaustive automated diagnostic sweep across tables, functions and cron routines" },
+    { report: "Prior completed task evidence lacks suitable sources. Missing exact evidence: automated diagnostic sweep results, live connectivity logs, and RLS security checks." },
+  );
+  assert(typeof reason === "string" && reason.includes("cannot be marked completed"), "Missing exact evidence must be rejected as unperformed verification");
+});
+
 t("resultReportsUnperformedVerification: leaves ordinary analytical tasks alone", async () => {
   const { resultReportsUnperformedVerification } = await import("./index.ts");
   const reason = resultReportsUnperformedVerification(
