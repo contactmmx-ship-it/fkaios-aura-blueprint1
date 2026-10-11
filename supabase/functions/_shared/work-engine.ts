@@ -218,10 +218,10 @@ export async function allocateProjectWork(projectId: string): Promise<{ allocate
   return { allocated: results.filter((r) => r.jobId).length, results };
 }
 
-// ── Automatic reassignment — a job stuck 'running' or 'pending' past a
-//    staleness window gets reassigned to a different (available) employee
-//    of the same department. The stale job is marked 'failed' with a
-//    reason, not silently deleted — the record stays for review. ──────
+// ── Automatic reassignment — failed work for an active objective is handed
+//    to a different available employee selected against the objective's
+//    canonical department (not the possibly-wrong original worker's department).
+//    One bounded reassignment per failed job; the original record is preserved.
 // SPRINT 10 (M1-S10) CORRECTION: this function originally polled for
 // 'pending'/'running' jobs stuck past a time window and reassigned them.
 // While auditing for the Execution Engine sprint, found that this DUPLICATES
@@ -243,15 +243,15 @@ export async function allocateProjectWork(projectId: string): Promise<{ allocate
 // fit employee — extending the existing reaper instead of duplicating it.
 export async function reassignStuckWork(): Promise<{ reassigned: number }> {
   const client = getClient();
-  const { data: failedJobs } = await client.from("ai_jobs").select("id, agent_id, payload, status").eq("status", "failed").eq("type", "work_engine_task").limit(20);
+  const { data: failedJobs } = await client.from("ai_jobs").select("id, agent_id, payload, status").eq("status", "failed").eq("type", "work_engine_task").order("updated_at", { ascending: false }).limit(50);
   if (!failedJobs || failedJobs.length === 0) return { reassigned: 0 };
 
   const workforce = await getWorkforce();
   let reassigned = 0;
 
   for (const job of failedJobs) {
-    const payload = job.payload as { task_id?: string; title?: string; description?: string; _reassignedFrom?: string } | null;
-    if (!payload?.task_id || payload._reassignedFrom) continue; // never re-reassign a job we already moved once — avoid an infinite ping-pong
+    const payload = job.payload as { task_id?: string; title?: string; description?: string; objective_id?: string; _reassignedFrom?: string; _reassignment_processed?: boolean } | null;
+    if (!payload?.task_id || payload._reassignedFrom || payload._reassignment_processed) continue; // one bounded reassignment per failed job
 
     // The underlying task might already be done via a different path (e.g.
     // returnCompletedWork() on an earlier attempt) — skip if so.
@@ -259,18 +259,43 @@ export async function reassignStuckWork(): Promise<{ reassigned: number }> {
     if (!task || task.status === "done" || task.status === "approved") continue;
 
     const previousAgent = workforce.find((e) => e.id === job.agent_id);
-    const departmentCode = previousAgent?.department ?? null;
+    let departmentCode: string | null = previousAgent?.department ?? null;
+    if (payload.objective_id) {
+      // Active objective routing must follow the objective's canonical
+      // department, not the (possibly incorrect) department of the failed
+      // worker. Do not resurrect work from completed/blocked objectives.
+      const { data: objective } = await client
+        .from("orchestrator_requests")
+        .select("department_code, status")
+        .eq("id", payload.objective_id)
+        .maybeSingle();
+      if (!objective || objective.status !== "processing") continue;
+      departmentCode = objective.department_code ?? null;
+    }
     const alternative = selectBestEmployee(workforce.filter((e) => e.id !== job.agent_id), departmentCode);
     if (!alternative) continue;
 
-    const { data: newJob } = await client
+    const { data: newJob, error: newJobError } = await client
       .from("ai_jobs")
-      .insert({ agent_id: alternative.id, type: "work_engine_task", payload: { ...payload, work_package_id: payload.work_package_id ?? null, _reassignedFrom: job.agent_id, handoff_required: true }, status: "pending" })
+      .insert({ agent_id: alternative.id, type: "work_engine_task", payload: { ...payload, work_package_id: payload.work_package_id ?? null, _reassignedFrom: job.agent_id, _reassignment_processed: true, handoff_required: true }, status: "pending" })
       .select("id")
       .single();
+    if (newJobError || !newJob) continue;
 
-    if (newJob) {
-      reassigned++;
+    // Claim the original failure so the next tick cannot spawn another copy.
+    const { data: claimedJob, error: claimError } = await client
+      .from("ai_jobs")
+      .update({ payload: { ...payload, _reassignment_processed: true, _reassigned_to_job_id: newJob.id }, updated_at: new Date().toISOString() })
+      .eq("id", job.id)
+      .eq("status", "failed")
+      .select("id")
+      .maybeSingle();
+    if (claimError || !claimedJob) {
+      await client.from("ai_jobs").update({ status: "failed", error: "Reassignment cancelled because the original failure was already claimed." }).eq("id", newJob.id).eq("status", "pending");
+      continue;
+    }
+
+    reassigned++;
       const wpId = payload.work_package_id ? String(payload.work_package_id) : null;
       const { data: wp } = wpId
         ? await client.from("work_packages").select("id,objective_id,selected_provider,contract_snapshot,acceptance_criteria,input_artifacts,required_outputs,state,handoff_notes").eq("id",wpId).maybeSingle()
@@ -315,7 +340,6 @@ export async function reassignStuckWork(): Promise<{ reassigned: number }> {
           output_summary: `after failure, moved from ${previousAgent?.name ?? job.agent_id} to ${alternative.name}`,
         });
       } catch { /* non-blocking */ }
-    }
   }
 
   return { reassigned };
