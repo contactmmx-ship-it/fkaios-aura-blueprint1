@@ -324,9 +324,15 @@ export function infrastructureInventoryCompletionGap(
       return;
     }
     const record = value as Record<string, unknown>;
-    if (typeof record.capability === "string" &&
-        record.capability_result && typeof record.capability_result === "object") {
-      observedCapabilities.add(record.capability);
+    // Only accept a successful execution envelope persisted by the capability
+    // dispatcher. A model-generated JSON claim containing capability_result
+    // is not, by itself, evidence that the capability actually ran.
+    const dispatch = record.companyOsDispatch;
+    if (dispatch && typeof dispatch === "object") {
+      const measured = dispatch as Record<string, unknown>;
+      if (measured.status === "success" && typeof measured.capability === "string") {
+        observedCapabilities.add(measured.capability);
+      }
     }
     for (const nested of Object.values(record)) visit(nested, seen);
   };
