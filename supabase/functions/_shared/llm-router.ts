@@ -748,7 +748,7 @@ export function getConfiguredDefaultProviders(): ProviderAdapter[] {
   if (getGroqApiKey() && isProviderEnabled("PROVIDER_GROQ_ENABLED")) providers.push(groqAdapter);
   if (getMistralApiKey() && isProviderEnabled("PROVIDER_MISTRAL_ENABLED")) providers.push(mistralAdapter);
   if (getHuggingFaceApiKey() && isProviderEnabled("PROVIDER_HUGGINGFACE_ENABLED")) providers.push(huggingFaceAdapter);
-  if (getSelfHostedBaseUrl() && isProviderEnabled("PROVIDER_SELF_HOSTED_ENABLED")) providers.push(selfHostedAdapter);
+  if ((getSelfHostedBaseUrl() || Deno.env.get("FKAIOS_LOCAL_INFERENCE_BRIDGE_ENABLED") === "true") && isProviderEnabled("PROVIDER_SELF_HOSTED_ENABLED")) providers.push(selfHostedAdapter);
   return prioritizeFreeProviders(providers, explicitlyFreeTierProviders());
 }
 
