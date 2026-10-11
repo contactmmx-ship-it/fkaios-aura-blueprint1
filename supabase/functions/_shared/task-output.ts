@@ -44,5 +44,5 @@ export function hasSubstantiveTaskOutput(value: unknown, depth = 0): boolean {
   ]);
   return Object.entries(value as Record<string, unknown>)
     .filter(([key]) => !ignoredKeys.has(key))
-    .some(([, item]) => hasSubstantiveTaskOutput(item, depth + 1));
+    .some(([, item]) => typeof item === "boolean" || hasSubstantiveTaskOutput(item, depth + 1));
 }
