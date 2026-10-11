@@ -41,6 +41,7 @@ interface GovData {
   department_activity: { dept: string; total: number; pending: number }[];
   recent_activity: { from_agent: string; to_agent: string; task_description: string; status: string; created_at: string }[];
   workforce?: WorkforceMember[];
+  activity_totals_24h?: { total: number; discovered: number; qualified: number; failures: number; dispatch_events: number; execution_events: number };
   workforce_truth?: {
     total_employees: number; producing_24h: number; dormant: number; nameplate: number;
     burning: number; total_llm_spend_usd: number; headline: string; burning_warning: string | null;
