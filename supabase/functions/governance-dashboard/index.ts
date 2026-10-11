@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 // governance-dashboard v6 -> Chairman's Command Center data source.
 // v6 adds (World Class Enterprise Constitution — "1100 Crore Progress Engine"):
 //   mission : public.compute_mission_progress() — the single answer to
