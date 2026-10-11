@@ -307,7 +307,7 @@ export default function DecisionCenter({ compact = false, limit }: { compact?: b
                     {modelEvidence?.suite && <p className="text-slate-500">Benchmark: {modelEvidence.suite} · candidate score {candidateScoreDisplay} · regressions {modelEvidence.regressions ?? 'not reported'}</p>}
                     {evidenceHold && <p className="text-amber-300">Cost has not been verified. The recorded incumbent score is zero, so this comparison is not enough to justify a switch.</p>}
                   </div>
-                ) : null}
+                )}
                 {readOnly ? (
                   <p className="mt-2 flex items-center gap-1.5 text-[10px] text-slate-500"><Info className="w-3 h-3" /> Informational only — this request type has no wired approve/reject path yet. Manage via AI Company.</p>
                 ) : evidenceHold ? (
