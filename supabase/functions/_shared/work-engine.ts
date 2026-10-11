@@ -218,10 +218,10 @@ export async function allocateProjectWork(projectId: string): Promise<{ allocate
   return { allocated: results.filter((r) => r.jobId).length, results };
 }
 
-// ── Automatic reassignment — a job stuck 'running' or 'pending' past a
-//    staleness window gets reassigned to a different (available) employee
-//    of the same department. The stale job is marked 'failed' with a
-//    reason, not silently deleted — the record stays for review. ──────
+// ── Automatic reassignment — failed work for an active objective is handed
+//    to a different available employee selected against the objective's
+//    canonical department (not the possibly-wrong original worker's department).
+//    One bounded reassignment per failed job; the original record is preserved.
 // SPRINT 10 (M1-S10) CORRECTION: this function originally polled for
 // 'pending'/'running' jobs stuck past a time window and reassigned them.
 // While auditing for the Execution Engine sprint, found that this DUPLICATES
