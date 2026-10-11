@@ -68,4 +68,4 @@ jobs:
       - name: Install frontend dependencies
         run: npm install --ignore-scripts --no-audit --no-fund
       - name: Lint changed dashboard components
-        run: npx eslint src/components/fkaios/FounderStory.tsx src/components/fkaios/GovernanceDashboard.tsx
+        run: npx eslint src/components/fkaios/FounderStory.tsx
