@@ -21,6 +21,19 @@ Deno.test("local candidate is not synthesized when endpoint is missing or explic
   } as Record<string, string>)[key]), null);
 });
 
+Deno.test("bridge flag enables a local candidate without a direct hosted URL", () => {
+  const local = configuredLocalModelEntry((key) => ({
+    FKAIOS_LOCAL_INFERENCE_BRIDGE_ENABLED: "true",
+    SELF_HOSTED_LLM_MODEL: "qwen2.5:7b",
+  } as Record<string, string>)[key]);
+  assert(local);
+  assertEquals(local.resource_ref, "model:self_hosted:qwen2.5:7b");
+  assertEquals(configuredLocalModelEntry((key) => ({
+    FKAIOS_LOCAL_INFERENCE_BRIDGE_ENABLED: "true",
+    PROVIDER_SELF_HOSTED_ENABLED: "false",
+  } as Record<string, string>)[key]), null);
+});
+
 Deno.test("configured local model precedes active cloud-only policy resources", () => {
   const local = configuredLocalModelEntry((key) => ({
     SELF_HOSTED_LLM_BASE_URL: "http://127.0.0.1:11434/v1",
