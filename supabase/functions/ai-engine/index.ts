@@ -1722,6 +1722,13 @@ async function runJobs(cid: string) {
           if (verificationGap) {
             throw new NonRetryableJobError(verificationGap, "VERIFICATION_NOT_PERFORMED");
           }
+          const liveInfrastructureGap = resultLacksLiveInfrastructureEvidence(
+            { title: job.payload?.title, description: job.payload?.description },
+            result,
+          );
+          if (liveInfrastructureGap) {
+            throw new NonRetryableJobError(liveInfrastructureGap, "VERIFICATION_NOT_PERFORMED");
+          }
         }
         // FACT GROUNDING: a work_engine_task that needs real-world facts and
         // was answered without a capability dispatch cannot be verified (the
