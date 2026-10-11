@@ -1,0 +1,7 @@
+project_id = "nrlsqshkjuuwiovthrnb"
+
+[functions.local-inference-bridge]
+# The handler enforces a dedicated high-entropy bearer token and fails closed
+# if the secret is missing/invalid. The Windows worker does not have a Supabase
+# JWT, so JWT verification is disabled for this function only.
+verify_jwt = false
