@@ -12,6 +12,8 @@ on:
       - "supabase/functions/_shared/llm-router.test.ts"
       - "supabase/functions/_shared/resource-selection.ts"
       - "supabase/functions/_shared/resource-selection.test.ts"
+      - "supabase/functions/ai-engine/index.ts"
+      - "supabase/functions/ai-engine/index.test.ts"
       - ".github/workflows/objective-verifier-tests.yml"
   push:
     branches:
@@ -26,6 +28,8 @@ on:
       - "supabase/functions/_shared/llm-router.test.ts"
       - "supabase/functions/_shared/resource-selection.ts"
       - "supabase/functions/_shared/resource-selection.test.ts"
+      - "supabase/functions/ai-engine/index.ts"
+      - "supabase/functions/ai-engine/index.test.ts"
       - ".github/workflows/objective-verifier-tests.yml"
 
 permissions:
@@ -52,3 +56,5 @@ jobs:
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/llm-router.test.ts
       - name: Run resource selection regression tests
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/resource-selection.test.ts
+      - name: Run AI engine execution-truth regression tests
+        run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/ai-engine/index.test.ts

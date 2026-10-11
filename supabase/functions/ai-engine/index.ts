@@ -237,6 +237,40 @@ export function resultReportsFailure(parsed: unknown): string | null {
   return null;
 }
 
+// A verification/audit task is not complete merely because the worker wrote a
+// useful-looking report describing evidence it would need. This was observed
+// in production: tasks titled "Verify ...", "Audit ...", and "Validate ..."
+// were marked completed while their own outputs admitted that the checks had
+// not run. Keep the guard narrow: only verification-oriented tasks, and only
+// explicit admissions that the verification itself was not performed.
+export function resultReportsUnperformedVerification(
+  task: { title?: unknown; description?: unknown },
+  result: unknown,
+): string | null {
+  const taskText = [task.title, task.description]
+    .filter((v) => typeof v === "string")
+    .join(" ")
+    .toLowerCase();
+  const verificationTask =
+    /\b(verify|verification|validate|validation|audit|health check|test|testing|confirm|check)\b/.test(taskText) &&
+    /\b(deployment|production|runtime|console|cron|connectivity|uptime|integration|end.to.end|acceptance criteria|health check|functionality|feature|evidence|system|repository|repo|test|checks?)\b/.test(taskText);
+  if (!verificationTask) return null;
+
+  const output = typeof result === "string" ? result : JSON.stringify(result ?? "");
+  const admissions = [
+    /(?:could not|couldn't|cannot|can't|unable to|not able to)\s+(?:actually\s+)?(?:verify|validate|test|check|confirm|access|inspect|run)/i,
+    /(?:verification|validation|test|check)s?\s+(?:were|was|have been|has been)\s+not\s+(?:run|performed|executed|completed)/i,
+    /(?:missing|lack of|no|without)\s+(?:the\s+)?(?:required\s+)?(?:verification\s+)?evidence/i,
+    /(?:no|missing|unavailable)\s+(?:runtime\s+)?(?:logs|build logs|deployment logs|cron logs)/i,
+    /does not prove (?:that )?(?:the )?(?:system|feature|deployment|cron|console|checks?)/i,
+    /checks? (?:were|was) not performed/i,
+  ];
+  const admission = admissions.find((pattern) => pattern.test(output));
+  return admission
+    ? "Verification task cannot be marked completed: its output admits the required check was not performed or lacks the evidence needed to establish the result. Run the check and attach observable evidence, or fail/block the task."
+    : null;
+}
+
 // HANDS — FIRST REAL ACTION (2026-07-27): QUALIFY_LEAD has been running for
 // real (75 completed, real LLM calls) and producing a well-formed, real
 // verdict every time — {score, stage, notes, hot_lead, recommended_action} —
@@ -1638,6 +1672,15 @@ async function runJobs(cid: string) {
         // already told us about.
         const failureReason = resultReportsFailure(result);
         if (failureReason) throw new Error(`Job reported its own failure: ${failureReason}`);
+        if (job.type === "work_engine_task") {
+          const verificationGap = resultReportsUnperformedVerification(
+            { title: job.payload?.title, description: job.payload?.description },
+            result,
+          );
+          if (verificationGap) {
+            throw new NonRetryableJobError(verificationGap, "VERIFICATION_NOT_PERFORMED");
+          }
+        }
         // FACT GROUNDING: a work_engine_task that needs real-world facts and
         // was answered without a capability dispatch cannot be verified (the
         // worker has no research access), so it is never stored as completed.
