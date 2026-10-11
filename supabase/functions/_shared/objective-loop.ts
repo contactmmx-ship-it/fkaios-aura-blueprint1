@@ -8,6 +8,7 @@ import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, for
 import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP, projectUpdateForObjective } from "./objective-rerun.ts";
 import { classifyObjective, completionContract, planContractMismatch, projectOutputType } from "./objective-contract.ts";
 import { objectiveDeadline, objectiveDeadlineMinutes, objectiveRunStartedAt } from "./objective-deadline.ts";
+import { hasSubstantiveTaskOutput } from "./task-output.ts";
 
 type ObjectiveLoopResult = {
   objectiveId: string;
@@ -1125,6 +1126,51 @@ export async function runObjectiveLoop(
         supabase,
         String(objective.id),
       );
+
+      // RECOVER PERSISTED EMPTY COMPLETIONS: older work-engine versions could
+      // mark a task done with an empty model envelope such as { payload: {} }.
+      // The verifier then rejected the overall deliverable, but the done task
+      // was never eligible for normal job reconciliation. Reopen only these
+      // provably empty results, preserve the previous envelope, and quarantine
+      // the linked completed job so a fresh attempt can be allocated.
+      for (const task of state.tasks) {
+        if (String(task.status ?? "") !== "done") continue;
+        const storedOutput = task.output;
+        let normalizedOutput: unknown = storedOutput;
+        if (typeof storedOutput === "string") {
+          const trimmed = storedOutput.trim();
+          if (!trimmed) normalizedOutput = null;
+          else {
+            try { normalizedOutput = JSON.parse(trimmed); }
+            catch { normalizedOutput = trimmed; }
+          }
+        }
+        if (hasSubstantiveTaskOutput(normalizedOutput)) continue;
+        const reasonText = "Reopened because the stored completed-task output is empty or metadata-only; no substantive deliverable/evidence was persisted.";
+        const preservedOutput = JSON.stringify({
+          status: "pending",
+          recovery_reason: reasonText,
+          previous_output: storedOutput ?? null,
+        });
+        const { data: reopenedTask, error: reopenError } = await supabase
+          .from("orchestration_tasks")
+          .update({ status: "pending", output: preservedOutput })
+          .eq("id", task.id)
+          .eq("status", "done")
+          .select("id")
+          .maybeSingle();
+        if (reopenError) throw new Error("Failed reopening empty completed task " + String(task.id) + ": " + reopenError.message);
+        if (!reopenedTask) continue; // another tick already changed it
+        const { error: quarantineError } = await supabase
+          .from("ai_jobs")
+          .update({ status: "failed", error: reasonText.slice(0, 1000), updated_at: new Date().toISOString() })
+          .eq("type", "work_engine_task")
+          .eq("status", "completed")
+          .eq("payload->>task_id", String(task.id));
+        if (quarantineError) throw new Error("Failed quarantining empty-result job for task " + String(task.id) + ": " + quarantineError.message);
+        task.status = "pending";
+        task.output = preservedOutput;
+      }
 
       // ORPHANED TASK RECOVERY: an ai_jobs failure is terminal for the job,
       // but older work-engine code can leave its orchestration_task stuck at
