@@ -73,6 +73,7 @@ Deno.serve(async (req: Request) => {
       supabase.from("founder_notifications").select("type,title,detail,department_code,created_at").eq("type", "silence").eq("is_read", false).order("created_at", { ascending: false }).limit(100),
       supabase.from("leads").select("stage,lead_score,created_at,contact_phone,contact_email").eq("is_active", true).limit(1000),
     ]);
+    if (leadsQ.error) throw new Error("Could not read active lead rows for Command Center truth: " + leadsQ.error.message);
 
     const { data: autonomy } = await supabase.from("ai_agents").select("name,autonomy_level,department,company_id").order("autonomy_level", { ascending: false }).limit(80);
 
