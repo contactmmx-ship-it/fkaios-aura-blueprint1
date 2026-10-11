@@ -6,6 +6,7 @@ on:
       - "supabase/functions/_shared/objective-verifier.ts"
       - "supabase/functions/_shared/objective-verifier.test.ts"
       - "supabase/functions/_shared/objective-loop.ts"
+      - "supabase/functions/_shared/objective-loop-inventory.test.ts"
       - "supabase/functions/_shared/objective-deadline.ts"
       - "supabase/functions/_shared/objective-deadline.test.ts"
       - "supabase/functions/_shared/llm-router.ts"
@@ -48,6 +49,8 @@ jobs:
         uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
         with:
           deno-version: v2.9.7
+      - name: Run objective-loop infrastructure inventory regression tests
+        run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/objective-loop-inventory.test.ts
       - name: Run objective verifier regression tests
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/objective-verifier.test.ts
       - name: Run objective deadline regression tests

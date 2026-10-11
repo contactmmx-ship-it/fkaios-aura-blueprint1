@@ -297,6 +297,64 @@ async function syncDeterministicVerificationEvidence(
   return { passed, required: requirements.length };
 }
 
+/**
+ * Prevent a broad infrastructure inventory objective from passing on narrative
+ * output alone. A successful HTTP reachability probe is not evidence that
+ * tables, functions, scheduled jobs, UI routes, or business brands were
+ * exhaustively inspected. Evidence must be persisted as structured capability
+ * results in task output.
+ */
+export function infrastructureInventoryCompletionGap(
+  objectiveText: string,
+  tasks: Record<string, unknown>[],
+): string | null {
+  const text = objectiveText.toLowerCase();
+  const broadInventoryIntent =
+    /infrastructure|production|system health|system connectivity/.test(text) &&
+    /(audit|verify|verification|inventory|health check|connectivity)/.test(text) &&
+    /(\b\d+\s*\+?\s*(supabase\s+)?tables?\b|\b\d+\s*\+?\s*(edge\s+)?functions?\b|\b\d+\s*\+?\s*crons?\b|\b\d+\s*\+?\s*(console\s+)?screens?\b|\b\d+\s*\+?\s*brands?\b)/.test(text);
+  if (!broadInventoryIntent) return null;
+
+  const observedCapabilities = new Set<string>();
+  const visit = (value: unknown, seen = new Set<unknown>()): void => {
+    if (!value || typeof value !== "object" || seen.has(value)) return;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, seen);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    // Only accept a successful execution envelope persisted by the capability
+    // dispatcher. A model-generated JSON claim containing capability_result
+    // is not, by itself, evidence that the capability actually ran.
+    const dispatch = record.companyOsDispatch;
+    if (dispatch && typeof dispatch === "object") {
+      const measured = dispatch as Record<string, unknown>;
+      if (measured.status === "success" && typeof measured.capability === "string") {
+        observedCapabilities.add(measured.capability);
+      }
+    }
+    for (const nested of Object.values(record)) visit(nested, seen);
+  };
+
+  for (const task of tasks) {
+    const raw = task.output;
+    if (typeof raw !== "string") continue;
+    try { visit(JSON.parse(raw)); } catch { /* plain prose is not structured evidence */ }
+  }
+
+  const required: Array<{ pattern: RegExp; capability: string; label: string }> = [
+    { pattern: /\b\d+\s*\+?\s*(supabase\s+)?tables?\b/, capability: "system.table_inventory", label: "Supabase table inventory" },
+    { pattern: /\b\d+\s*\+?\s*(edge\s+)?functions?\b/, capability: "system.function_inventory", label: "Edge/SQL function inventory" },
+    { pattern: /\b\d+\s*\+?\s*crons?\b/, capability: "system.cron_inventory", label: "scheduled-job/cron inventory" },
+    { pattern: /\b\d+\s*\+?\s*(console\s+)?screens?\b/, capability: "system.route_inventory", label: "Console screen/route inventory" },
+    { pattern: /\b\d+\s*\+?\s*brands?\b/, capability: "business.brand_inventory", label: "brand integration inventory" },
+  ];
+  const missing = required.filter((item) => item.pattern.test(text) && !observedCapabilities.has(item.capability));
+  if (!missing.length) return null;
+  return `Infrastructure objective cannot be marked complete: machine-observed evidence is missing for ${missing.map((item) => item.label).join(", ")}. A narrative report or HTTP reachability check is insufficient. Execute the relevant inventory capabilities, persist their structured results, then independently verify the findings.`;
+}
+
 async function evaluateObjective(
   objective: Record<string, unknown>,
   projects: Record<string, unknown>[],
@@ -304,6 +362,17 @@ async function evaluateObjective(
   correlationId?: string,
 ): Promise<ObjectiveEvaluation> {
   const contract = completionContract(String(objective.raw_request ?? ""));
+  const inventoryGap = infrastructureInventoryCompletionGap(String(objective.raw_request ?? ""), tasks);
+  if (inventoryGap) {
+    return {
+      achieved: false,
+      blocked: false,
+      failed: false,
+      verificationUnavailable: true,
+      reason: inventoryGap,
+      next_action: "Discover or implement the missing read-only inventory capabilities, collect machine-observed evidence, and rerun independent verification. Do not claim the requested inventory was completed until each required domain is evidenced.",
+    };
+  }
   const { data: objectiveContract } = await getSupabaseAdmin().from("objective_contracts").select("objective_type,intent,requirements,acceptance_criteria,quality_benchmark,discovery,solution_plan,continuity,status").eq("objective_id", String(objective.id)).maybeSingle();
   const productLiveEvidence = contract.requiresLiveArtifact && (
     projects.some((p) => (String(p.final_output ?? "").includes("http://") || String(p.final_output ?? "").includes("https://")) && /live|deploy|url/i.test(String(p.final_output ?? ""))) ||
