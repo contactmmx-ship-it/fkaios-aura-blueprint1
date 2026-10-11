@@ -172,7 +172,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
     // Use the same evidence-backed verdict as the workforce truth RPC.
     const producing = wf.filter(a => a.verdict === 'PRODUCING');
     const active = producing;
-    const matchAction = (needle: string) => last24.filter(e => (e.action || '').toLowerCase().includes(needle));
+    const matchAction = (needle: string) => last24.filter(e => `${e.action || ''} ${e.actor || ''}`.toLowerCase().includes(needle));
     const discoveredEvents = [...matchAction('hunt'), ...matchAction('discover')];
     const qualifiedEvents = matchAction('qualify');
     const failureEvents = last24.filter(e => e.status === 'failed' || e.status === 'error');
