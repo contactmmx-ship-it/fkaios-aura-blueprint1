@@ -1,5 +1,5 @@
 /// <reference lib="deno.ns" />
-import { serializeTaskOutput } from "./task-output.ts";
+import { hasSubstantiveTaskOutput, serializeTaskOutput } from "./task-output.ts";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -35,4 +35,23 @@ Deno.test("plain task output remains valid JSON", () => {
   const input = { deliverable: "x".repeat(25000) };
   const serialized = serializeTaskOutput(input);
   assert((JSON.parse(serialized) as { deliverable: string }).deliverable.length === 25000, "long deliverables must not be cut mid-JSON");
+});
+
+
+Deno.test("empty envelopes are not substantive task output", () => {
+  for (const value of [null, undefined, {}, { payload: {} }, { payload: {}, status: "completed" }, { items: [] }, { success: true }]) {
+    if (hasSubstantiveTaskOutput(value)) throw new Error("empty envelope must be rejected: " + JSON.stringify(value));
+  }
+});
+
+Deno.test("real deliverables and measured evidence are substantive", () => {
+  for (const value of [
+    "A real report",
+    { deliverable: "Verified output" },
+    { findings: ["Finding with source"] },
+    { companyOsDispatch: { capability: "research.run", status: "success", data_excerpt: "result_count=3" } },
+    { live: true },
+  ]) {
+    if (!hasSubstantiveTaskOutput(value)) throw new Error("substantive output must be accepted: " + JSON.stringify(value));
+  }
 });
