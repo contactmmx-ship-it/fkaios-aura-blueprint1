@@ -73,7 +73,8 @@ function verifiedRate(p: PerformanceEntry | undefined): number | null {
 
 /** Build a non-persisted catalog candidate for the configured local model.
  * This makes active cloud-only routing policies local-first without mutating
- * production routing rows. The endpoint must be reachable from this runtime.
+ * production routing rows. Either a direct endpoint or the durable outbound
+ * local-worker bridge must be explicitly configured.
  */
 export function configuredLocalModelEntry(
   env: (key: string) => string | undefined = (key) => Deno.env.get(key),
