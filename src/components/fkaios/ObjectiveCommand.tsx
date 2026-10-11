@@ -103,7 +103,8 @@ function extractFinalArtifact(progress: ObjectiveStatusRow['progress']) {
     .map((t) => t.output as string);
   const joined = outputs.join('\n');
   const urls = joined.match(/https?:\/\/[^\s"'<>\\]+/g) ?? [];
-  const liveUrl = urls.find((u) => u.includes('/product/') || u.includes('vercel.app')) ?? urls[0] ?? null;
+  // Never treat an arbitrary URL in generated prose as the deliverable. Only FKAIOS's explicit product artifact route is eligible for the product preview.
+  const liveUrl = urls.find((u) => u.includes('/product/')) ?? null;
   const buildId = joined.match(/build[_-]?id["'\s:]+([0-9a-f]{8}-[0-9a-f-]{27,})/i)?.[1] ?? null;
   const httpStatus = joined.match(/http[_ -]?status["'\s:]+(\d{3})/i)?.[1] ?? null;
   const responsive = joined.match(/responsive[_ -]?status["'\s:]+["']?([^,"'}\n]+)/i)?.[1]?.trim() ?? null;
@@ -258,7 +259,8 @@ export function ObjectiveCard({ row, checkedAt, onOpenDecisionCenter, onRerun, r
             <dd className="space-y-3">
               {view.resultDetails.map((detail) => {
                 const urls = detail.output.match(/https?:\/\/[^\s"'<>\\]+/g) ?? [];
-                const liveUrl = urls.find((u) => u.includes('/product/') || u.includes('vercel.app') || u.includes('netlify.app')) ?? null;
+                // Only render a URL as a finished product when it is an explicit FKAIOS product artifact route; research/article URLs and generic hosting URLs are not proof of a built product.
+                const liveUrl = urls.find((u) => u.includes('/product/')) ?? null;
                 const looksLikeProduct =
                   /product\\.(build|deploy|verify)|build_id|build type|product_status|deployed_url|live product|finished product/i.test(
                     `${detail.title} ${detail.output}`,
