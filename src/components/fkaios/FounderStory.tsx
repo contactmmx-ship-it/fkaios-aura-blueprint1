@@ -14,6 +14,8 @@ interface StreamEvent { ts: string; actor: string; actor_type: string; action: s
 interface Collab { from_agent: string; to_agent: string; task: string; status: string; requires_founder_approval: boolean; created_at: string; }
 interface DeptStatus { code: string; name: string; staffed: number; output_24h: number; status: string; reason: string; }
 interface SilenceAlert { title: string; detail: string; department: string; created_at: string; }
+interface ActivityTotals { total: number; dispatch_events: number; execution_events: number; completed_jobs: number; qualified: number; failures: number; }
+interface ApprovalTotals { approval_records_pending: number; approval_records_aged_48h: number; gated_delegations_pending: number; gated_delegations_aged_48h: number; }
 interface Revenue { invoices_total: number; invoiced_inr: number; received_inr: number; paid_invoices: number; pending_approval_invoices?: number; approved_invoices?: number; sent_invoices?: number; delivered_invoices?: number; invoices_with_approval_evidence?: number; invoice_state_note?: string; }
 interface Mission {
   target_inr: number; target_crore: number; received_inr: number; gap_inr: number; gap_crore: number;
@@ -59,6 +61,8 @@ interface StoryData {
   alerts?: SilenceAlert[];
   workforce?: { is_active: boolean; status: string; verdict?: string | null; total_tasks_completed: number | null; tasks_completed: number; name: string; success_rate: number | null; department?: string | null }[];
   activity_stream?: StreamEvent[];
+  activity_totals_24h?: ActivityTotals;
+  approval_totals?: ApprovalTotals;
   collaboration?: Collab[];
   approval_queue?: { action_type: string; risk_level: string; amount_inr: number | null; reason: string }[];
   executive_cycles?: { founder_briefing: string; opportunities: any[]; risks: any[]; created_at: string }[];
@@ -166,8 +170,8 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
   const s = useMemo(() => {
     const dayAgo = Date.now() - 24 * 3600 * 1000;
     const last24 = stream.filter(e => new Date(e.ts).getTime() > dayAgo);
-    const producing = wf.filter(a => (a.total_tasks_completed ?? 0) > 0 || a.tasks_completed > 0);
-    const active = wf.filter(a => a.verdict === 'PRODUCING');
+    const producing = wf.filter(a => a.verdict === 'PRODUCING');
+    const active = producing;
     const matchAction = (needle: string) => last24.filter(e => (e.action || '').toLowerCase().includes(needle));
     const discoveredEvents = [...matchAction('hunt'), ...matchAction('discover')];
     const qualifiedEvents = matchAction('qualify');
@@ -177,13 +181,19 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
       ...approvals.map(a => ({ primary: a.action_type, secondary: a.reason, status: a.risk_level, meta: a.amount_inr != null ? `₹${Number(a.amount_inr).toLocaleString('en-IN')}` : undefined } as LineageRow)),
       ...collab.filter(c => c.requires_founder_approval && c.status !== 'completed').map(c => ({ primary: `${c.from_agent} → ${c.to_agent}`, secondary: c.task, status: c.status, ts: c.created_at } as LineageRow)),
     ];
+    const exact = data.activity_totals_24h;
+    const approvalTotals = data.approval_totals;
     return {
-      ops24: last24.length, producing: producing.length, total: wf.length, active: active.length,
-      discovered: discoveredEvents.length, qualified: qualifiedEvents.length,
-      failures: failureEvents.length, topWorker, pendingApprovals: approvalRows.length,
+      ops24: exact?.total ?? last24.length,
+      producing: data.workforce_truth?.producing_24h ?? producing.length,
+      total: data.workforce_truth?.total_employees ?? wf.length, active: active.length,
+      discovered: discoveredEvents.length,
+      qualified: exact?.qualified ?? qualifiedEvents.length,
+      failures: exact?.failures ?? failureEvents.length, topWorker,
+      pendingApprovals: approvalTotals ? approvalTotals.approval_records_pending + approvalTotals.gated_delegations_pending : approvalRows.length,
       last24, producingList: producing, discoveredEvents, qualifiedEvents, failureEvents, approvalRows,
     };
-  }, [wf, stream, collab, approvals]);
+  }, [wf, stream, collab, approvals, data.activity_totals_24h, data.approval_totals, data.workforce_truth]);
 
   // ── P2 LINEAGE (Palantir principle): every number clicks through to its
   // source rows, built from the SAME live payload — zero extra queries, zero
@@ -299,7 +309,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
               In the last 24 hours your AI workforce ran{' '}
               <NumBtn value={s.ops24} onOpen={() => setLineage({
                 title: 'Operations in the last 24 hours', value: String(s.ops24),
-                source: 'agent_dispatch_log + execution_log (via governance-dashboard → activity_stream)',
+                source: 'Exact COUNT(*) queries over agent_dispatch_log + execution_log, UTC rolling 24h; recent feed is a bounded sample',
                 derivation: streamCaveat,
                 rows: s.last24.map(evRow),
                 emptyTruth: 'No agent dispatches or engine executions were recorded in the last 24h. The workforce did nothing measurable.',
