@@ -5,6 +5,7 @@ import { Scale, ShieldCheck, Brain, Activity, AlertTriangle, RefreshCw } from 'l
 import ChairmanHero from './ChairmanHero';
 import WorkforcePanel, { WorkforceMember } from './WorkforcePanel';
 import FounderStory from './FounderStory';
+import DecisionCenter from './DecisionCenter';
 
 // Founder Governance Dashboard — every widget reads LIVE data from the
 // governance-dashboard edge function (service-role reads over the real
@@ -163,6 +164,15 @@ export default function GovernanceDashboard() {
           activity stream, collaboration, and what needs you. Full cockpit is
           opt-in below (progressive disclosure — nothing removed). */}
       <FounderStory data={data} expanded={showDetail} onToggle={() => setShowDetail(v => !v)} />
+
+      {/* Actionable approvals must be visible on the Command Center itself, not only in a separate navigation page. */}
+      <section className="rounded-xl border border-amber-900/70 bg-amber-950/10 p-4 space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold text-white">Decisions requiring your approval</h3>
+          <p className="text-xs text-slate-400 mt-1">Review the actual pending request, its risk and reason here. High-risk decisions require explicit confirmation; nothing is approved automatically.</p>
+        </div>
+        <DecisionCenter compact />
+      </section>
 
       {showDetail && (<>
       {/* LIVING COMMAND CENTER HERO — Enterprise Pulse, Health, Mission 2030,

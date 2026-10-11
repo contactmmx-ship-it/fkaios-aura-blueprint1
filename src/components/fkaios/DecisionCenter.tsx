@@ -40,6 +40,7 @@ interface ApprovalItem {
   risk_level: RiskLevel;
   amount_inr: number | null;
   payload: {
+    description?: string;
     rejected_alternatives?: RejectedAlternative[];
     candidate?: string;
     incumbent?: string;
@@ -134,7 +135,7 @@ export function useDecisionItems() {
             .eq('status', 'awaiting_approval')
             .not('approval_id', 'is', null)
             .order('created_at', { ascending: false })
-            .limit(1)
+            .limit(100)
           ).data || []).map((r: any) => r.approval_id)
         ),
       supabase.from('agent_task_delegations').select('id, from_agent, to_agent, task_description, context, created_at').eq('requires_founder_approval', true).neq('status', 'completed').order('created_at', { ascending: true }),
@@ -283,7 +284,9 @@ export default function DecisionCenter({ compact = false, limit }: { compact?: b
           {visible.map((item) => {
             const key = `${item.source}-${item.id}`;
             const amount = item.source === 'approvals' ? formatCurrency(item.amount_inr) : null;
-            const title = item.source === 'approvals' ? approvalTitle(item.action_type) : item.source === 'delegation' ? `${item.from_agent} → ${item.to_agent}` : item.raw_request;
+            const approvalDescription = item.source === 'approvals' ? item.payload?.description?.trim() : undefined;
+            const objectiveTitle = approvalDescription?.match(/OBJECTIVE:\s*([^\n]+)/i)?.[1]?.trim();
+            const title = item.source === 'approvals' ? (item.action_type === 'founder_brain_task' && objectiveTitle ? objectiveTitle : approvalTitle(item.action_type)) : item.source === 'delegation' ? `${item.from_agent} → ${item.to_agent}` : item.raw_request;
             const detail = item.source === 'approvals' ? item.reason : item.source === 'delegation' ? item.task_description : `Department: ${item.department_code || '—'}`;
             const readOnly = item.source === 'request';
             const evidenceHold = needsEvidenceHold(item);
