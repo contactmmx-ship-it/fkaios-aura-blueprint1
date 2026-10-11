@@ -30,7 +30,7 @@
 
 import { cognitiveTick, getGoals, seedGoalHierarchy } from "../_shared/founder-brain.ts";
 import { planObjective, escalateBlocked } from "../_shared/executive-planner.ts";
-import { allocateProjectWork, returnCompletedWork } from "../_shared/work-engine.ts";
+import { allocateProjectWork, reassignStuckWork, returnCompletedWork } from "../_shared/work-engine.ts";
 import { runObjectiveLoop } from "../_shared/objective-loop.ts";
 import { COGNITIVE_CYCLE_ACTION, cognitiveIntervalMinutes, shouldRunCognitiveCycle } from "../_shared/cognitive-budget.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
@@ -198,21 +198,19 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // PARALLEL EXECUTION (permanent constitution rule 8): escalateBlocked
-    // and returnCompletedWork read/write DIFFERENT data and none of their
-    // outputs feed each other's inputs within this tick.
-    // ECOSYSTEM STEP (2026-07-18): buildIntuition(), reflect(), and now
-    // reassignStuckWork() have all been extracted to their own independent
-    // cells (founder-confidence-cell, founder-reflection-cell,
-    // founder-reassignment-cell) — none run as part of this pipeline
-    // anymore. Three of four batch members extracted so far.
+    // PARALLEL EXECUTION: these independent operations have separate inputs.
+    // The reassignment cell exists but has no cron trigger, so invoke the
+    // underlying recovery function here rather than leave failed objective
+    // work permanently stranded. Reassignment is bounded to one handoff per
+    // failed job and only resumes objectives that are still processing.
     const parallelStartedAt = Date.now();
-    const [escalateResult, returnResult] = await Promise.allSettled([
+    const [escalateResult, returnResult, reassignmentResult] = await Promise.allSettled([
       escalateBlocked(result.correlationId),
       returnCompletedWork(),
+      reassignStuckWork(),
     ]);
     const parallelWallClockMs = Date.now() - parallelStartedAt;
-    const parallelResults = [escalateResult, returnResult];
+    const parallelResults = [escalateResult, returnResult, reassignmentResult];
     const parallelExecutionSummary = {
       tasksExecuted: parallelResults.length,
       tasksSucceeded: parallelResults.filter((r) => r.status === "fulfilled").length,
@@ -228,12 +226,14 @@ Deno.serve(async (req: Request) => {
 
     let returned = 0;
     let dispatched = 0;
-    // SPRINT 11: returnCompletedWork() also reports how many completions
-    // triggered a real Company OS business-action dispatch.
+    let reassigned = 0;
+    // SPRINT 11: returnCompletedWork() reports real Company OS dispatches.
     if (returnResult.status === "fulfilled") { returned = returnResult.value.returned; dispatched = returnResult.value.dispatched; }
     else console.error("founder-brain-tick: returnCompletedWork failed", returnResult.reason instanceof Error ? returnResult.reason.message : String(returnResult.reason));
+    if (reassignmentResult.status === "fulfilled") reassigned = reassignmentResult.value.reassigned;
+    else console.error("founder-brain-tick: reassignStuckWork failed", reassignmentResult.reason instanceof Error ? reassignmentResult.reason.message : String(reassignmentResult.reason));
 
-    return new Response(JSON.stringify({ ...result, planned, allocated, escalated, returned, dispatched, objectiveLoop, discovery, parallelExecutionSummary }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ ...result, planned, allocated, escalated, returned, dispatched, reassigned, objectiveLoop, discovery, parallelExecutionSummary }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("founder-brain-tick error:", msg);
