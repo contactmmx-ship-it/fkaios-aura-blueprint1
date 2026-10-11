@@ -637,6 +637,22 @@ async function markObjective(
       .in("project_id", projects.map((p) => p.id));
     if (taskError) throw new Error(`Completion gate could not load tasks: ${taskError.message}`);
 
+    // Defense in depth: markObjective is the final persistence boundary. Even
+    // if a future caller bypasses evaluateObjective(), a broad infrastructure
+    // objective must not be marked completed without successful dispatch
+    // evidence for each requested inventory domain.
+    const { data: objectiveRow, error: objectiveReadError } = await supabase
+      .from("orchestrator_requests")
+      .select("raw_request")
+      .eq("id", objectiveId)
+      .maybeSingle();
+    if (objectiveReadError) throw new Error(`Completion gate could not load objective request: ${objectiveReadError.message}`);
+    const inventoryGap = infrastructureInventoryCompletionGap(
+      String(objectiveRow?.raw_request ?? ""),
+      (allTasks ?? []) as Record<string, unknown>[],
+    );
+    if (inventoryGap) throw new Error(`Completion gate rejected objective: ${inventoryGap}`);
+
     for (const project of projects) {
       const projectTasks = (allTasks ?? []).filter((t) => String(t.project_id ?? "") === String(project.id));
       const gate = assessObjectiveTasks(projectTasks as TaskEvidenceRecord[]);
