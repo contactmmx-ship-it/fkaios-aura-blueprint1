@@ -146,7 +146,7 @@ export function rankResources(input: {
     if (entry.unavailable_until && new Date(entry.unavailable_until).getTime() > now.getTime()) penalty += 2;
     if (entry.access_state === "no_credit") penalty += 2;
     if (avoid.has(ref)) penalty += 1;
-    scored.push({ entry, policyRank: policyRank < 0 ? Number.MAX_SAFE_INTEGER : policyRank, tier: LIFECYCLE_TIER[entry.lifecycle_state] ?? 5, penalty, learned: verifiedRate(perf.get(ref)) });
+    scored.push({ entry, policyRank: isConfiguredLocal ? -1 : (policyRank < 0 ? Number.MAX_SAFE_INTEGER : policyRank), tier: LIFECYCLE_TIER[entry.lifecycle_state] ?? 5, penalty, learned: verifiedRate(perf.get(ref)) });
   }
 
   // Learning: a policy resource with enough verified evidence that is clearly
