@@ -957,6 +957,9 @@ APPROVED CAPABILITIES:
 - "research.status" — check whether the research engine's external data connection is alive.
   Payload: {} (no fields required)
 
+- "system.health_check" — run read-only live HTTP checks against the FKAIOS production console and this project's Supabase REST API. Returns per-target HTTP evidence; a reachable service is not proof that every feature is healthy.
+  Payload: {} (no fields required)
+
 - "research.run" — run the project's configured external research engine for a founder-requested research task.
   This is an orchestrator-approved, read-only research action. It may consume the configured Apify account's credits.
   Payload: { "query": "string (required)", "requested_by": "fkaios-orchestrator" }
@@ -973,11 +976,28 @@ Rules:
 - If no approved capability can satisfy a task requiring real-world facts, return ONLY:
 { "status": "no_data_source", "reason": "<what data is missing>" }
 `;
+export type SystemHealthCheckConfig = { consoleUrl: string; supabaseUrl: string; serviceRoleKey: string };
+export type SystemHealthCheckResult = { checked_at: string; healthy: boolean; checks: Array<{ target: "console" | "supabase_rest"; url: string; reachable: boolean; http_status: number | null; error?: string }> };
+export async function performSystemHealthCheck(config: SystemHealthCheckConfig, fetcher: typeof fetch = fetch): Promise<SystemHealthCheckResult> {
+  const consoleUrl = config.consoleUrl || "https://fkaios-aura-blueprint1.vercel.app/console";
+  const base = config.supabaseUrl.replace(/\/$/, "");
+  const checks: SystemHealthCheckResult["checks"] = [];
+  const targets: Array<{ target: "console" | "supabase_rest"; url: string; headers?: HeadersInit }> = [
+    { target: "console", url: consoleUrl },
+    { target: "supabase_rest", url: base + "/rest/v1/orchestrator_requests?select=id&limit=1", headers: { apikey: config.serviceRoleKey, Authorization: "Bearer " + config.serviceRoleKey } },
+  ];
+  await Promise.all(targets.map(async ({ target, url, headers }) => {
+    if (target === "supabase_rest" && (!base || !config.serviceRoleKey)) { checks.push({ target, url, reachable: false, http_status: null, error: "Supabase URL or service-role configuration is missing." }); return; }
+    try { const response = await fetcher(url, { method: "GET", headers, redirect: "follow", signal: AbortSignal.timeout(10000) }); checks.push({ target, url, reachable: response.ok, http_status: response.status, ...(response.ok ? {} : { error: "HTTP " + response.status }) }); }
+    catch (error) { checks.push({ target, url, reachable: false, http_status: null, error: error instanceof Error ? error.message : String(error) }); }
+  }));
+  return { checked_at: new Date().toISOString(), healthy: checks.length === 2 && checks.every((check) => check.reachable), checks: checks.sort((a, b) => a.target.localeCompare(b.target)) };
+}
 async function executeRequestedCapability(job: AIJob, parsed: Record<string, unknown>, cid: string): Promise<Record<string, unknown>> {
   const capability = typeof parsed.capability === "string" ? parsed.capability : "";
   if (!capability) return parsed;
   const founderSubmitted = job.payload?.founder_submitted === true || (typeof job.payload?.objective_id === "string" && job.payload.objective_id.length > 0);
-  const allowed = capability === "research.run" || capability === "research.status" || capability === "knowledge.search";
+  const allowed = capability === "research.run" || capability === "research.status" || capability === "knowledge.search" || capability === "system.health_check";
   if (!founderSubmitted || !allowed) {
     throw new NonRetryableJobError(
       `Capability request '${capability}' was not authorized for this work_engine_task; refusing autonomous external dispatch.`,
@@ -987,6 +1007,11 @@ async function executeRequestedCapability(job: AIJob, parsed: Record<string, unk
   const payload = parsed.payload && typeof parsed.payload === "object" && !Array.isArray(parsed.payload)
     ? parsed.payload as Record<string, unknown>
     : {};
+  if (capability === "system.health_check") {
+    const result = await performSystemHealthCheck({ consoleUrl: Deno.env.get("FKAIOS_CONSOLE_URL") ?? "https://fkaios-aura-blueprint1.vercel.app/console", supabaseUrl: Deno.env.get("SUPABASE_URL") ?? "", serviceRoleKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "" });
+    structuredLog("INFO", "Read-only system health check executed", { capability, healthy: result.healthy, checks: result.checks.map(({ target, reachable, http_status }) => ({ target, reachable, http_status })), objectiveId: job.payload?.objective_id ?? null }, cid);
+    return { status: "success", capability, capability_result: result };
+  }
   if (capability === "research.run") payload.requested_by = "fkaios-orchestrator";
   const dispatch = await executeCapability(capability, payload, cid);
   if (dispatch.status !== "success") {
