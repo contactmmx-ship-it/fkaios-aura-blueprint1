@@ -61,10 +61,28 @@ Deno.test("selectBestEmployee: department match is case-insensitive", () => {
   if (result?.id !== "ops-1") throw new Error(`expected ops-1, got ${JSON.stringify(result)}`);
 });
 
-Deno.test("selectBestEmployee: falls back to the whole workforce when no one matches the department", () => {
+Deno.test("selectBestEmployee: refuses an unrelated worker when the department has no match", () => {
   const workforce = [employee({ id: "sales-1", department: "SALES" })];
-  const result = selectBestEmployee(workforce, "OPERATIONS");
-  if (result?.id !== "sales-1") throw new Error(`expected fallback to sales-1, got ${JSON.stringify(result)}`);
+  const result = selectBestEmployee(workforce, "LEGAL");
+  if (result !== null) throw new Error(`expected no suitable worker, got ${JSON.stringify(result)}`);
+});
+
+Deno.test("selectBestEmployee: maps EXECUTIVE objective code to AT_EXEC employees", () => {
+  const workforce = [
+    employee({ id: "marketing-lead", department: "AT_SALES_MKT", activeJobs: 0 }),
+    employee({ id: "executive-ceo", department: "AT_EXEC", activeJobs: 2 }),
+  ];
+  const result = selectBestEmployee(workforce, "EXECUTIVE");
+  if (result?.id !== "executive-ceo") throw new Error(`expected executive-ceo, got ${JSON.stringify(result)}`);
+});
+
+Deno.test("selectBestEmployee: maps SALES to legacy SALES and AT_SALES_MKT employees", () => {
+  const workforce = [
+    employee({ id: "marketing-lead", department: "AT_SALES_MKT" }),
+    employee({ id: "legacy-sales", department: "SALES" }),
+  ];
+  const result = selectBestEmployee(workforce, "SALES");
+  if (result?.id !== "marketing-lead" && result?.id !== "legacy-sales") throw new Error(`expected a sales-aligned employee, got ${JSON.stringify(result)}`);
 });
 
 Deno.test("selectBestEmployee: an employee with fewer active jobs wins over one with a higher success rate", () => {
