@@ -212,6 +212,35 @@ t("resultReportsFailure: returns null for a normal-looking success result", () =
   assert(resultReportsFailure({ line_items: [{ description: "ok", quantity: 1, unit_price_inr: 1 }] }) === null, "A normal result must not be flagged as a failure");
 });
 
+// Verification work must not be marked complete when the worker only lists
+// evidence it would need, rather than performing the requested check.
+t("resultReportsUnperformedVerification: rejects an audit report admitting missing cron logs", async () => {
+  const { resultReportsUnperformedVerification } = await import("./index.ts");
+  const reason = resultReportsUnperformedVerification(
+    { title: "Verify background cron operation and autonomous execution", description: "Check cron logs and execution evidence" },
+    { status: "incomplete", report: "Cron logs are unavailable; this does not prove the cron is healthy." },
+  );
+  assert(typeof reason === "string" && reason.includes("cannot be marked completed"), "A report admitting missing verification evidence must not count as completed work");
+});
+
+t("resultReportsUnperformedVerification: leaves ordinary analytical tasks alone", async () => {
+  const { resultReportsUnperformedVerification } = await import("./index.ts");
+  const reason = resultReportsUnperformedVerification(
+    { title: "Research the Indian preschool market", description: "Compare competitors and business models" },
+    { summary: "The source evidence is limited; findings are provisional." },
+  );
+  assert(reason === null, "Non-verification research must not be rejected by this guard");
+});
+
+t("resultReportsUnperformedVerification: allows a verification task with concrete findings", async () => {
+  const { resultReportsUnperformedVerification } = await import("./index.ts");
+  const reason = resultReportsUnperformedVerification(
+    { title: "Verify production deployment and console health", description: "Run endpoint checks and inspect runtime" },
+    { status: "verified", http_status: 200, deployment_url: "https://example.test", checks: ["HTTP 200", "console rendered"] },
+  );
+  assert(reason === null, "A report with concrete findings should pass this narrow guard");
+});
+
 // ---------------------------------------------------------------------------
 // NonRetryableJobError — retry behavior classification (item 3).
 // ---------------------------------------------------------------------------
