@@ -240,7 +240,12 @@ Deno.serve(async (req: Request) => {
       };
     }).sort((a: any, b: any) => (a.status === "NO_GO" ? -1 : 1) - (b.status === "NO_GO" ? -1 : 1));
 
-    const alerts = (silenceQ.data ?? []).map((n: any) => ({
+    // Silence Monitor cards are grouped by title so one recurring alert does
+    // not occupy the whole Command Center. Query is newest-first; keep the newest
+    // observation for each title and retain its actual generation timestamp.
+    const alertByTitle = new Map<string, any>();
+    for (const n of silenceQ.data ?? []) if (!alertByTitle.has(n.title)) alertByTitle.set(n.title, n);
+    const alerts = Array.from(alertByTitle.values()).map((n: any) => ({
       title: n.title, detail: n.detail, department: n.department_code, created_at: n.created_at,
     }));
 
