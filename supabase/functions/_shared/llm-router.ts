@@ -519,7 +519,7 @@ function buildOpenAICompatibleAdapter(
   name: ProviderName,
   envKey: () => string,
   modelResolver: (fc?: FunctionClass) => string,
-  baseUrl: string,
+  baseUrl: string | (() => string),
   extraHeaders: Record<string,string> = {},
   /** Local servers (Ollama, llama.cpp, vLLM) usually need no key: the base URL is the credential. */
   keyOptional = false,
@@ -530,10 +530,13 @@ function buildOpenAICompatibleAdapter(
     async call(request) {
       const apiKey = envKey();
       const model = request.model ?? modelResolver(request.functionClass);
-      if (!baseUrl) return {ok:false,httpStatus:401,rawBody:{error:"base URL not configured"},latencyMs:0,model};
+      // Resolve configuration at call time so local-first mode works when
+      // tests/development set the endpoint after this module has been imported.
+      const resolvedBaseUrl = typeof baseUrl === "function" ? baseUrl() : baseUrl;
+      if (!resolvedBaseUrl) return {ok:false,httpStatus:401,rawBody:{error:"base URL not configured"},latencyMs:0,model};
       if (!apiKey && !keyOptional) return {ok:false,httpStatus:401,rawBody:{error:"API key not configured"},latencyMs:0,model};
       const start=Date.now();
-      const response=await fetch(baseUrl+"/chat/completions",{
+      const response=await fetch(resolvedBaseUrl+"/chat/completions",{
         method:"POST",
         headers:{...(apiKey?{Authorization:"Bearer "+apiKey}:{}),"Content-Type":"application/json",...extraHeaders},
         body:JSON.stringify({model,max_tokens:request.maxTokens??4096,messages:[{role:"system",content:request.systemPrompt+structuredOutputInstruction(request.toolSchema)},{role:"user",content:request.userContent}],temperature:request.temperature}),
@@ -615,7 +618,7 @@ export const selfHostedAdapter: ProviderAdapter = buildOpenAICompatibleAdapter(
   "self_hosted",
   getSelfHostedApiKey,
   getSelfHostedModel,
-  getSelfHostedBaseUrl().replace(/\/+$/, ""),
+  () => getSelfHostedBaseUrl().replace(/\/+$/, ""),
   {},
   true,
 );
