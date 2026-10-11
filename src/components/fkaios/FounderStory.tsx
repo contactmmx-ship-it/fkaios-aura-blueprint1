@@ -52,6 +52,7 @@ interface WorkforceTruth {
 interface StoryData {
   revenue?: Revenue;
   workforce_truth?: WorkforceTruth;
+  activity_totals_24h?: { total: number; discovered: number; qualified: number; failures: number; dispatch_events: number; execution_events: number };
   mission?: Mission;
   economics?: Economics;
   blockers?: Blockers;
@@ -61,6 +62,7 @@ interface StoryData {
   activity_stream?: StreamEvent[];
   collaboration?: Collab[];
   approval_queue?: { action_type: string; risk_level: string; amount_inr: number | null; reason: string }[];
+  approval_totals?: { approval_records_pending: number; approval_records_aged_48h: number; gated_delegations_pending: number; gated_delegations_aged_48h: number };
   executive_cycles?: { founder_briefing: string; opportunities: any[]; risks: any[]; created_at: string }[];
   kpi_latest?: Record<string, { value: number }>;
   summary?: { violations: number } | null;
@@ -106,7 +108,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
   const workforceLineage = (w: WorkforceTruth): LineageSpec => ({
     title: 'The AI workforce, graded',
     value: `${w.producing_24h} of ${w.total_employees} producing`,
-    source: 'public.compute_workforce_truth() over ai_agents × agent_dispatch_log × agent_performance_metrics',
+    source: 'public.compute_workforce_truth() over ai_agents × ai_jobs × agent_performance_metrics',
     derivation:
       `PRODUCING = completed a dispatch in the last 24h. DORMANT = has produced before, but nothing in 24h. ` +
       `NAMEPLATE = has NEVER completed a single task in its existence. BURNING = has spent money and produced nothing, ever (the worst class). ` +
@@ -166,9 +168,11 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
   const s = useMemo(() => {
     const dayAgo = Date.now() - 24 * 3600 * 1000;
     const last24 = stream.filter(e => new Date(e.ts).getTime() > dayAgo);
-    const producing = wf.filter(a => (a.total_tasks_completed ?? 0) > 0 || a.tasks_completed > 0);
-    const active = wf.filter(a => a.verdict === 'PRODUCING');
-    const matchAction = (needle: string) => last24.filter(e => (e.action || '').toLowerCase().includes(needle));
+    // A lifetime task counter is not evidence of work in the last 24 hours.
+    // Use the same evidence-backed verdict as the workforce truth RPC.
+    const producing = wf.filter(a => a.verdict === 'PRODUCING');
+    const active = producing;
+    const matchAction = (needle: string) => last24.filter(e => `${e.action || ''} ${e.actor || ''}`.toLowerCase().includes(needle));
     const discoveredEvents = [...matchAction('hunt'), ...matchAction('discover')];
     const qualifiedEvents = matchAction('qualify');
     const failureEvents = last24.filter(e => e.status === 'failed' || e.status === 'error');
@@ -178,19 +182,26 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
       ...collab.filter(c => c.requires_founder_approval && c.status !== 'completed').map(c => ({ primary: `${c.from_agent} → ${c.to_agent}`, secondary: c.task, status: c.status, ts: c.created_at } as LineageRow)),
     ];
     return {
-      ops24: last24.length, producing: producing.length, total: wf.length, active: active.length,
-      discovered: discoveredEvents.length, qualified: qualifiedEvents.length,
-      failures: failureEvents.length, topWorker, pendingApprovals: approvalRows.length,
+      ops24: data.activity_totals_24h?.total ?? last24.length,
+      producing: data.workforce_truth?.producing_24h ?? producing.length,
+      total: data.workforce_truth?.total_employees ?? wf.length, active: active.length,
+      discovered: data.activity_totals_24h?.discovered ?? discoveredEvents.length,
+      qualified: data.activity_totals_24h?.qualified ?? qualifiedEvents.length,
+      failures: data.activity_totals_24h?.failures ?? failureEvents.length,
+      topWorker,
+      approvalRecordsPending: data.approval_totals?.approval_records_pending ?? approvals.length,
+      gatedDelegationsPending: data.approval_totals?.gated_delegations_pending ?? collab.filter(c => c.requires_founder_approval && c.status !== 'completed').length,
+      pendingApprovals: (data.approval_totals?.approval_records_pending ?? approvals.length) + (data.approval_totals?.gated_delegations_pending ?? collab.filter(c => c.requires_founder_approval && c.status !== 'completed').length),
       last24, producingList: producing, discoveredEvents, qualifiedEvents, failureEvents, approvalRows,
     };
-  }, [wf, stream, collab, approvals]);
+  }, [wf, stream, collab, approvals, data.activity_totals_24h, data.workforce_truth, data.approval_totals]);
 
   // ── P2 LINEAGE (Palantir principle): every number clicks through to its
   // source rows, built from the SAME live payload — zero extra queries, zero
   // fabrication. A generic panel shows source, derivation, rows, reconciliation.
   const [lineage, setLineage] = useState<LineageSpec | null>(null);
   const evRow = (e: StreamEvent): LineageRow => ({ primary: e.actor, secondary: `${e.action}${e.outcome ? ` — ${e.outcome}` : ''}`, status: e.status, ts: e.ts });
-  const streamCaveat = 'Computed over the live activity_stream payload (agent_dispatch_log joined to agent names + execution_log), capped at the 60 most recent events by the server, filtered to the last 24 hours client-side.';
+  const streamCaveat = 'Headline counts are exact database counts across agent_dispatch_log + execution_log for the last 24 hours. The drill-down displays the most recent activity rows returned by the feed (up to 60), so the sample row count may be lower than the exact total.';
 
   // Revenue is THE number. Its lineage is the most important one in the system:
   // it must be impossible to believe ₹0 is a rendering bug rather than reality.
@@ -260,7 +271,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
       title: `${d.name} — reporting ${d.status.replace('_', '-')}`,
       value: `${d.output_24h} outcomes / 24h`,
       source: 'departments × ai_agents × agent_dispatch_log (via governance-dashboard → department_status)',
-      derivation: `Staffed = agents whose department = '${d.code}'. Output = agent_dispatch_log rows from those agents in the last 24h with status 'completed' or 'success'. A staffed department with 0 outcomes reports NO-GO — silence is never consent (Mission Control rule). ${d.reason}.`,
+      derivation: `Staffed = agents whose department = '${d.code}'. Output = completed ai_jobs for those agents in the last 24h. A staffed department with 0 verified completed jobs reports NO-GO — silence is never consent (Mission Control rule). ${d.reason}.`,
       reconciles: false,
       rows: roster.length === 0
         ? []
@@ -295,20 +306,20 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
 
           <div className="space-y-2 text-sm text-slate-300 leading-relaxed max-w-3xl">
             <p>
-              In the last 24 hours your AI workforce ran{' '}
+              In the last 24 hours your systems recorded{' '}
               <NumBtn value={s.ops24} onOpen={() => setLineage({
                 title: 'Operations in the last 24 hours', value: String(s.ops24),
                 source: 'agent_dispatch_log + execution_log (via governance-dashboard → activity_stream)',
                 derivation: streamCaveat,
                 rows: s.last24.map(evRow),
                 emptyTruth: 'No agent dispatches or engine executions were recorded in the last 24h. The workforce did nothing measurable.',
-              })} /> operations.{' '}
+              })} /> activity events.{' '}
               <NumBtn value={s.producing} tone={s.producing > 0 ? 'text-emerald-300' : 'text-amber-300'} onOpen={() => setLineage({
                 title: 'Employees that produced real work', value: String(s.producing),
-                source: 'ai_agents.total_tasks_completed + agent_workday.tasks_completed (via governance-dashboard → workforce)',
-                derivation: 'An agent counts as producing when total_tasks_completed > 0 OR today\'s agent_workday.tasks_completed > 0. Lifetime output, not a 24h window.',
+                source: 'public.compute_workforce_truth() over ai_agents × ai_jobs',
+                derivation: 'An agent counts as producing only when at least one ai_jobs row for that agent completed in the last 24 hours. Lifetime task counters and stale workday summaries do not count as current output.',
                 rows: s.producingList.map(a => ({ primary: a.name, secondary: a.department ? `dept: ${a.department}` : undefined, status: a.status, meta: `${a.total_tasks_completed ?? 0} lifetime tasks${a.success_rate != null ? ` · ${Math.round(Number(a.success_rate))}% success` : ''}` } as LineageRow)),
-                emptyTruth: 'Not one agent has ever completed a task. The workforce is nameplates only.',
+                emptyTruth: 'No agent has a verified completed job in the last 24 hours. Historical lifetime tasks do not establish current production.',
               })} /> of{' '}
               <NumBtn value={s.total} onOpen={() => setLineage({
                 title: 'Total AI employees on the roster', value: String(s.total),
@@ -316,8 +327,8 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
                 derivation: 'Every row in ai_agents returned by the governance payload — active and idle alike. Being on the roster is not evidence of output; see the producing count.',
                 rows: [...wf].sort((a, b) => (b.total_tasks_completed ?? 0) - (a.total_tasks_completed ?? 0)).map(a => ({ primary: a.name, secondary: a.department ? `dept: ${a.department}` : undefined, status: a.status, meta: `${a.total_tasks_completed ?? 0} lifetime tasks` } as LineageRow)),
               })} /> employees produced real work
-              {s.producing < s.total && <span className="text-slate-400"> — the other {s.total - s.producing} were scheduled but idle</span>}.
-              {s.topWorker && (s.topWorker.total_tasks_completed ?? 0) > 0 && <> Your hardest worker is <b className="text-white">{s.topWorker.name}</b> ({s.topWorker.total_tasks_completed} tasks{s.topWorker.success_rate != null ? `, ${Math.round(Number(s.topWorker.success_rate))}% success` : ''}).</>}
+              {s.producing < s.total && <span className="text-slate-400"> — the other {s.total - s.producing} have no verified completed job in the last 24 hours</span>}.
+              {s.topWorker && (s.topWorker.total_tasks_completed ?? 0) > 0 && <> Your highest lifetime task counter belongs to <b className="text-white">{s.topWorker.name}</b> ({s.topWorker.total_tasks_completed} historical tasks{s.topWorker.success_rate != null ? `, ${Math.round(Number(s.topWorker.success_rate))}% historical success` : ''}); this is not a measure of work completed today.</>}
             </p>
             <p>
               Commercially, the enterprise {s.discovered > 0 ? <>discovered/hunted{' '}
@@ -331,7 +342,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
                 <NumBtn value={s.qualified} onOpen={() => setLineage({
                   title: 'Lead qualification passes (24h)', value: String(s.qualified),
                   source: 'agent_dispatch_log + execution_log (activity_stream)',
-                  derivation: `Events in the last 24h whose action contains "qualify". ${streamCaveat} NOTE: a qualification pass is not a qualified lead — 0 leads have ever scored ≥40 and advanced past stage='new'.`,
+                  derivation: `Events in the last 24h whose action contains "qualify". ${streamCaveat} NOTE: a qualification pass is not a qualified lead. Current source rows show 5 leads scored ≥40, but 0 have advanced past stage='new'.`,
                   rows: s.qualifiedEvents.map(evRow),
                 })} /> scoring passes</> : <>was idle</>}.
               {' '}Revenue recorded so far:{' '}
@@ -536,6 +547,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-amber-200">{a.title}</p>
                     <p className="text-[11px] text-amber-200/70 leading-snug">{a.detail}</p>
+                    <p className="text-[9px] text-amber-400/50 mt-1">Notification generated {rel(a.created_at)} · {hhmm(a.created_at)}</p>
                   </div>
                 </div>
               ))}
@@ -547,18 +559,18 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
             {s.pendingApprovals > 0 ? (
               <button onClick={() => setLineage({
                 title: 'Decisions waiting on the Chairman',
-                value: String(s.pendingApprovals),
-                source: 'approvals (status=pending) + agent_task_delegations (requires_founder_approval)',
-                derivation: 'Every open item in the approval queue, plus every agent-to-agent delegation flagged requires_founder_approval that has not completed. These are the items the enterprise cannot proceed past without you.',
+                value: `${s.approvalRecordsPending} approval records + ${s.gatedDelegationsPending} founder-gated delegations`,
+                source: 'Exact counts from approvals (status=pending) and agent_task_delegations (requires_founder_approval; open statuses)',
+                derivation: 'The two queues are shown separately and their counts are not guaranteed to be distinct business decisions. Inspect the source rows before treating the combined count as unique decisions.',
                 rows: s.approvalRows,
               })} className="flex items-center gap-2 rounded-lg bg-amber-950/40 border border-amber-800 px-3 py-1.5 hover:border-amber-600 cursor-pointer">
                 <AlertTriangle className="w-4 h-4 text-amber-400" />
-                <span className="text-sm text-amber-200 font-medium">{s.pendingApprovals} {s.pendingApprovals === 1 ? 'decision needs' : 'decisions need'} your approval</span>
+                <span className="text-sm text-amber-200 font-medium">{s.approvalRecordsPending} approval records · {s.gatedDelegationsPending} founder-gated delegations</span>
               </button>
             ) : (
               <div className="flex items-center gap-2 rounded-lg bg-emerald-950/30 border border-emerald-900 px-3 py-1.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span className="text-sm text-emerald-200">Nothing needs you right now — the enterprise is running itself.</span>
+                <span className="text-sm text-emerald-200">No approval records or founder-gated delegations are currently waiting on you.</span>
               </div>
             )}
             <button onClick={onToggle} className="ml-auto flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 border border-slate-700 rounded-lg px-3 py-1.5">

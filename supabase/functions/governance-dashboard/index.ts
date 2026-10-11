@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 // governance-dashboard v6 -> Chairman's Command Center data source.
 // v6 adds (World Class Enterprise Constitution — "1100 Crore Progress Engine"):
 //   mission : public.compute_mission_progress() — the single answer to
@@ -43,7 +44,7 @@ Deno.serve(async (req: Request) => {
   try {
     const [summary, laws, decisions, profiles, kpiHistory, kpiLatest, cycles, predictions, auditTimeline, violations, approvalQueue,
            board, execCommittee, orgUnits, companies, market, competitors, knowledgeGrowth, delegations,
-           agentsFull, workdays, departments, dispatches, execLog, invoicesQ, silenceQ] = await Promise.all([
+           agentsFull, workdays, departments, dispatches, execLog, invoicesQ, silenceQ, leadsQ] = await Promise.all([
       supabase.from("v_governance_dashboard_summary").select("*").single(),
       supabase.from("engineering_constitution").select("law_number,name,active").order("law_number"),
       supabase.from("governed_decisions").select("id,domain,proposing_agent,title,status,review_verdict,created_at,updated_at").order("updated_at", { ascending: false }).limit(25),
@@ -62,15 +63,17 @@ Deno.serve(async (req: Request) => {
       supabase.from("market_intelligence").select("signal_type,industry,headline,detail,source_url,confidence,relevance_to_founder_vision,captured_at").order("captured_at", { ascending: false }).limit(15),
       supabase.from("competitor_intelligence").select("competitor_name,category,observation,implication_for_us,source_url,confidence,captured_at").order("captured_at", { ascending: false }).limit(15),
       supabase.from("fleet_memory").select("created_at").order("created_at", { ascending: true }).limit(500),
-      supabase.from("agent_task_delegations").select("from_agent,to_agent,task_description,context,status,result,requires_founder_approval,created_at").order("created_at", { ascending: false }).limit(30),
+      supabase.from("agent_task_delegations").select("from_agent,to_agent,task_description,context,status,result,requires_founder_approval,created_at").order("requires_founder_approval", { ascending: false }).order("created_at", { ascending: false }).limit(100),
       supabase.from("ai_agents").select("id,name,department,dept,status,is_active,autonomy_level,success_rate,total_tasks_completed,last_active_at,company_id,tools,escalation_rule").order("name"),
       supabase.from("agent_workday").select("agent_id,work_date,status,morning_plan,midday_update,midday_on_track,evening_summary,self_rating,tasks_planned,tasks_completed,real_activity_count").order("work_date", { ascending: false }).limit(400),
       supabase.from("departments").select("code,name,company_id,automation_level").eq("is_active", true),
       supabase.from("agent_dispatch_log").select("agent_id,action,status,output_data,created_at").order("created_at", { ascending: false }).limit(300),
       supabase.from("execution_log").select("function_name,department_code,action,output_summary,status,created_at").order("created_at", { ascending: false }).limit(40),
       supabase.from("company_invoices").select("total_inr,amount_received_inr,status,created_at"),
-      supabase.from("founder_notifications").select("type,title,detail,department_code,created_at").eq("type", "silence").eq("is_read", false).order("created_at", { ascending: false }).limit(10),
+      supabase.from("founder_notifications").select("type,title,detail,department_code,created_at").eq("type", "silence").eq("is_read", false).order("created_at", { ascending: false }).limit(100),
+      supabase.from("leads").select("stage,lead_score,created_at,contact_phone,contact_email").eq("is_active", true).limit(1000),
     ]);
+    if (leadsQ.error) throw new Error("Could not read active lead rows for Command Center truth: " + leadsQ.error.message);
 
     const { data: autonomy } = await supabase.from("ai_agents").select("name,autonomy_level,department,company_id").order("autonomy_level", { ascending: false }).limit(80);
 
@@ -81,11 +84,68 @@ Deno.serve(async (req: Request) => {
 
     // FKAIOS Phase 0 Task 2 ("kill the fake workforce illusion"): ai_agents.is_active/
     // status/last_active_at are unconditionally fabricated (always true/active).
-    // compute_workforce_truth() grades every agent from real agent_dispatch_log /
-    // total_tasks_completed evidence into PRODUCING/DORMANT/NAMEPLATE/BURNING —
+    // compute_workforce_truth() grades every agent from completed ai_jobs /
+    // reconciled lifetime task evidence into PRODUCING/DORMANT/NAMEPLATE/BURNING —
     // that verdict, not the fake columns, is what workforce[].is_active must reflect.
     const { data: workforceTruthData, error: workforceTruthErr } = await supabase.rpc("compute_workforce_truth");
     const workforceTruth = workforceTruthErr ? null : workforceTruthData;
+
+    // Exact counts are separate from the bounded activity feed below. The feed
+    // is deliberately capped for payload size and must never be used as a total.
+    const since24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const [dispatchTotalQ, execTotalQ, dispatchDiscoverQ, execDiscoverQ,
+      dispatchQualifyQ, execQualifyQ, dispatchFailQ, execFailQ] = await Promise.all([
+      supabase.from("agent_dispatch_log").select("id", { count: "exact", head: true }).gte("created_at", since24h),
+      supabase.from("execution_log").select("id", { count: "exact", head: true }).gte("created_at", since24h),
+      supabase.from("agent_dispatch_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).or("action.ilike.%hunt%,action.ilike.%discover%"),
+      supabase.from("execution_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).or("action.ilike.%hunt%,action.ilike.%discover%,function_name.ilike.%hunt%,function_name.ilike.%discover%"),
+      supabase.from("agent_dispatch_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).ilike("action", "%qualify%"),
+      supabase.from("execution_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).or("action.ilike.%qualify%,function_name.ilike.%qualify%"),
+      supabase.from("agent_dispatch_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).in("status", ["failed", "error"]),
+      supabase.from("execution_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).in("status", ["failed", "error"]),
+    ]);
+    const activityCountErrors = [dispatchTotalQ, execTotalQ, dispatchDiscoverQ, execDiscoverQ,
+      dispatchQualifyQ, execQualifyQ, dispatchFailQ, execFailQ].filter((q) => q.error);
+    if (activityCountErrors.length) {
+      throw new Error("Exact Command Center activity counts unavailable: " +
+        activityCountErrors.map((q) => q.error?.message).join("; "));
+    }
+    const since48h = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+    const [pendingApprovalCountQ, agedApprovalCountQ, gatedDelegationCountQ, agedGatedDelegationCountQ] = await Promise.all([
+      supabase.from("approvals").select("id", { count: "exact", head: true }).eq("status", "pending"),
+      supabase.from("approvals").select("id", { count: "exact", head: true }).eq("status", "pending").lt("created_at", since48h),
+      supabase.from("agent_task_delegations").select("id", { count: "exact", head: true }).eq("requires_founder_approval", true).not("status", "in", '("completed","rejected","cancelled")'),
+      supabase.from("agent_task_delegations").select("id", { count: "exact", head: true }).eq("requires_founder_approval", true).not("status", "in", '("completed","rejected","cancelled")').lt("created_at", since48h),
+    ]);
+    const approvalCountErrors = [pendingApprovalCountQ, agedApprovalCountQ, gatedDelegationCountQ, agedGatedDelegationCountQ].filter((q) => q.error);
+    if (approvalCountErrors.length) {
+      throw new Error("Exact Command Center approval counts unavailable: " +
+        approvalCountErrors.map((q) => q.error?.message).join("; "));
+    }
+    const approvalTotals = {
+      approval_records_pending: pendingApprovalCountQ.count ?? 0,
+      approval_records_aged_48h: agedApprovalCountQ.count ?? 0,
+      gated_delegations_pending: gatedDelegationCountQ.count ?? 0,
+      gated_delegations_aged_48h: agedGatedDelegationCountQ.count ?? 0,
+    };
+    const leadRows = leadsQ.data ?? [];
+    const leadTotals = {
+      active: leadRows.length,
+      new: leadRows.filter((l: any) => l.stage === "new").length,
+      new_aged_48h: leadRows.filter((l: any) => l.stage === "new" && String(l.created_at) < since48h).length,
+      qualified_40_plus: leadRows.filter((l: any) => Number(l.lead_score ?? 0) >= 40).length,
+      scored: leadRows.filter((l: any) => l.lead_score !== null && l.lead_score !== undefined).length,
+      advanced: leadRows.filter((l: any) => l.stage !== "new").length,
+      contactable: leadRows.filter((l: any) => Boolean(l.contact_phone || l.contact_email)).length,
+    };
+    const activityTotals24h = {
+      total: (dispatchTotalQ.count ?? 0) + (execTotalQ.count ?? 0),
+      discovered: (dispatchDiscoverQ.count ?? 0) + (execDiscoverQ.count ?? 0),
+      qualified: (dispatchQualifyQ.count ?? 0) + (execQualifyQ.count ?? 0),
+      failures: (dispatchFailQ.count ?? 0) + (execFailQ.count ?? 0),
+      dispatch_events: dispatchTotalQ.count ?? 0,
+      execution_events: execTotalQ.count ?? 0,
+    };
     const verdictByName: Record<string, string> = {};
     for (const e of (workforceTruth?.employees ?? [])) verdictByName[e.name] = e.verdict;
 
@@ -173,13 +233,12 @@ Deno.serve(async (req: Request) => {
     };
 
     // ---- GO / NO-GO CONSOLES (Mission Control: silence is never consent) ----
-    const dayAgo = Date.now() - 24 * 3600 * 1000;
-    const outputByAgentId: Record<string, number> = {};
-    for (const d of dispatches.data ?? []) {
-      if (!d.agent_id) continue;
-      if (new Date(d.created_at).getTime() > dayAgo && (d.status === "completed" || d.status === "success")) {
-        outputByAgentId[d.agent_id] = (outputByAgentId[d.agent_id] || 0) + 1;
-      }
+    // Department production uses the same verified ai_jobs evidence as
+    // compute_workforce_truth(), not agent_dispatch_log, which records dispatch
+    // rather than completed execution in this pipeline.
+    const outputByAgentName: Record<string, number> = {};
+    for (const e of (workforceTruth?.employees ?? [])) {
+      outputByAgentName[e.name] = Number(e.output_24h || 0);
     }
     const deptOfAgent: Record<string, string> = {};
     for (const a of agentsFull.data ?? []) deptOfAgent[a.id] = a.department || a.dept || "UNASSIGNED";
@@ -189,7 +248,7 @@ Deno.serve(async (req: Request) => {
       const code = deptOfAgent[a.id];
       deptAgents[code] = deptAgents[code] || { staffed: 0, output: 0 };
       deptAgents[code].staffed++;
-      deptAgents[code].output += outputByAgentId[a.id] || 0;
+      deptAgents[code].output += outputByAgentName[a.name] || 0;
     }
     const department_status = (departments.data ?? []).map((d: any) => {
       const s2 = deptAgents[d.code] || { staffed: 0, output: 0 };
@@ -202,8 +261,36 @@ Deno.serve(async (req: Request) => {
       };
     }).sort((a: any, b: any) => (a.status === "NO_GO" ? -1 : 1) - (b.status === "NO_GO" ? -1 : 1));
 
-    const alerts = (silenceQ.data ?? []).map((n: any) => ({
-      title: n.title, detail: n.detail, department: n.department_code, created_at: n.created_at,
+    // Notifications are historical events, not live truth. Deduplicate repeated
+    // silence alerts by title and refresh the details that can be grounded in the
+    // current source rows. Preserve other alert types with their last-observed time.
+    const latestSilenceByTitle = new Map<string, any>();
+    for (const n of silenceQ.data ?? []) {
+      if (!latestSilenceByTitle.has(n.title)) latestSilenceByTitle.set(n.title, n);
+    }
+    const liveAlertDetail: Record<string, string> = {
+      "Approvals aging": approvalTotals.approval_records_aged_48h + " approval records and " +
+        approvalTotals.gated_delegations_aged_48h + " founder-gated delegations are older than 48h. These are separate queues; inspect source rows before treating them as distinct decisions.",
+      "Leads stalled in New": leadTotals.new_aged_48h + " active leads remain in stage=new for more than 48h (of " + leadTotals.active + " active leads).",
+      "Zero conversion": leadTotals.active + " active leads: " + leadTotals.scored + " have stored scores, " +
+        leadTotals.qualified_40_plus + " score >= 40, and " + leadTotals.advanced +
+        " have advanced beyond stage=new. Qualification score and stage transition are separate checks.",
+      "Invoices never paid": revenue.invoices_total + " invoices totalling ₹" +
+        Number(revenue.invoiced_inr).toLocaleString("en-IN") + "; ₹" +
+        Number(revenue.received_inr).toLocaleString("en-IN") + " received across " +
+        revenue.paid_invoices + " invoices with money received.",
+      "Qualifier producing nothing": activityTotals24h.qualified === 0
+        ? "No qualification invocation was recorded in the last 24h in the activity logs. The current lead table has " +
+          leadTotals.qualified_40_plus + " scores >= 40 and " + leadTotals.advanced +
+          " leads advanced beyond stage=new; this alert's old invocation/score count is not current evidence."
+        : activityTotals24h.qualified + " qualification-related activity events were recorded in the last 24h. Current lead table: " +
+          leadTotals.qualified_40_plus + " scores >= 40, " + leadTotals.advanced + " advanced beyond stage=new.",
+    };
+    const alerts = Array.from(latestSilenceByTitle.values()).map((n: any) => ({
+      title: n.title === "Qualifier producing nothing" ? "Lead qualification status" : n.title,
+      detail: liveAlertDetail[n.title] ?? n.detail,
+      department: n.department_code,
+      created_at: n.created_at,
     }));
 
     const collaboration = (delegations.data ?? []).map((d: any) => ({
@@ -229,6 +316,9 @@ Deno.serve(async (req: Request) => {
       departments: (departments.data ?? []).map((d: any) => ({ ...d, company: d.company_id ? (companyName[d.company_id] || null) : null, agent_count: (deptRoster[d.code] || []).length })),
       dept_roster: deptRoster,
       activity_stream,
+      activity_totals_24h: activityTotals24h,
+      approval_totals: approvalTotals,
+      lead_totals: leadTotals,
       collaboration,
       revenue,
       department_status,

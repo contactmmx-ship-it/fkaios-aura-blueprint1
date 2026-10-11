@@ -30,6 +30,8 @@ interface GovData {
   audit_timeline: { action: string; resource_type: string | null; actor_type: string | null; decision_reasoning: string | null; requires_human_review: boolean; created_at: string }[];
   violations: { created_at: string; actor: string; attempted_action: string; violation_message: string; kind: string }[];
   approval_queue: { action_type: string; risk_level: string; amount_inr: number | null; reason: string; created_at: string }[];
+  approval_totals?: { approval_records_pending: number; approval_records_aged_48h: number; gated_delegations_pending: number; gated_delegations_aged_48h: number };
+  lead_totals?: { active: number; new: number; new_aged_48h: number; qualified_40_plus: number; scored: number; advanced: number; contactable: number };
   board: { seat: string; holder_type: string; holder_name: string; authority: string; accountability: string }[];
   executive_committee: { role: string; holder_agent: string; scope: string; measurable_objective: string; reports_to: string }[];
   org_units: { unit_name: string; unit_type: string; company: string }[];
@@ -41,6 +43,7 @@ interface GovData {
   department_activity: { dept: string; total: number; pending: number }[];
   recent_activity: { from_agent: string; to_agent: string; task_description: string; status: string; created_at: string }[];
   workforce?: WorkforceMember[];
+  activity_totals_24h?: { total: number; discovered: number; qualified: number; failures: number; dispatch_events: number; execution_events: number };
   workforce_truth?: {
     total_employees: number; producing_24h: number; dormant: number; nameplate: number;
     burning: number; total_llm_spend_usd: number; headline: string; burning_warning: string | null;
