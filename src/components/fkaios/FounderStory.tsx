@@ -14,7 +14,7 @@ interface StreamEvent { ts: string; actor: string; actor_type: string; action: s
 interface Collab { from_agent: string; to_agent: string; task: string; status: string; requires_founder_approval: boolean; created_at: string; }
 interface DeptStatus { code: string; name: string; staffed: number; output_24h: number; status: string; reason: string; }
 interface SilenceAlert { title: string; detail: string; department: string; created_at: string; }
-interface Revenue { invoices_total: number; invoiced_inr: number; received_inr: number; paid_invoices: number; }
+interface Revenue { invoices_total: number; invoiced_inr: number; received_inr: number; paid_invoices: number; pending_approval_invoices?: number; approved_invoices?: number; sent_invoices?: number; delivered_invoices?: number; invoices_with_approval_evidence?: number; invoice_state_note?: string; }
 interface Mission {
   target_inr: number; target_crore: number; received_inr: number; gap_inr: number; gap_crore: number;
   pct_achieved: number; deadline: string; days_remaining: number; months_remaining: number;
@@ -95,7 +95,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
   const collab = data.collaboration ?? [];
   const approvals = data.approval_queue ?? [];
   const cycle = (data.executive_cycles ?? [])[0];
-  const rev = data.revenue ?? { invoices_total: 0, invoiced_inr: 0, received_inr: 0, paid_invoices: 0 };
+  const rev = data.revenue ?? { invoices_total: 0, invoiced_inr: 0, received_inr: 0, paid_invoices: 0, pending_approval_invoices: 0, approved_invoices: 0, sent_invoices: 0, delivered_invoices: 0, invoices_with_approval_evidence: 0 };
   const mission = data.mission;
   const econ = data.economics;
   const blk = data.blockers;
@@ -202,6 +202,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
     reconciles: false,
     rows: rev.invoices_total === 0 ? [] : [
       { primary: 'Invoices on record', secondary: `${rev.invoices_total} total · ${rev.paid_invoices} with money received`, meta: `Invoiced ${inr(rev.invoiced_inr)} · Received ${inr(rev.received_inr)}` },
+      { primary: 'Invoice lifecycle evidence', secondary: `${rev.pending_approval_invoices ?? 'unknown'} pending approval · ${rev.approved_invoices ?? 'unknown'} approved · ${rev.sent_invoices ?? 'unknown'} sent · ${rev.delivered_invoices ?? 'unknown'} delivered`, meta: `${rev.invoices_with_approval_evidence ?? 'unknown'} of ${rev.invoices_total} have approval evidence. Sent/delivered is not inferred from a draft or invoice row.` },
     ],
     emptyTruth: 'company_invoices is EMPTY. Zero invoices have ever been created, so zero rupees have ever been received. This is not a display error and not a loading state — the enterprise has never billed a customer. ₹0 is the true and current state.',
   });
