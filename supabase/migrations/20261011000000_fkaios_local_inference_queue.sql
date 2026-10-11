@@ -77,6 +77,10 @@ begin
            lease_token = gen_random_uuid(),
            lease_expires_at = now() + make_interval(secs => p_lease_seconds),
            attempts = j.attempts + 1,
+           result_payload = null,
+           error_code = null,
+           error_detail = null,
+           completed_at = null,
            updated_at = now()
       from candidates c
      where j.id = c.id
