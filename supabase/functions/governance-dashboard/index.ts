@@ -68,8 +68,21 @@ Deno.serve(async (req: Request) => {
       supabase.from("departments").select("code,name,company_id,automation_level").eq("is_active", true),
       supabase.from("agent_dispatch_log").select("agent_id,action,status,output_data,created_at").order("created_at", { ascending: false }).limit(300),
       supabase.from("execution_log").select("function_name,department_code,action,output_summary,status,created_at").order("created_at", { ascending: false }).limit(40),
-      supabase.from("company_invoices").select("total_inr,amount_received_inr,status,created_at"),
+      supabase.from("company_invoices").select("id,total_inr,amount_received_inr,status,created_at,approval_id,approved_at,sent_at,delivery_status"),
       supabase.from("founder_notifications").select("type,title,detail,department_code,created_at").eq("type", "silence").eq("is_read", false).order("created_at", { ascending: false }).limit(10),
+    ]);
+
+    const cutoff48h = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+    const [
+      { count: pendingApprovalCount },
+      { count: agedApprovalCount },
+      { count: gatedDelegationCount },
+      { count: agedGatedDelegationCount },
+    ] = await Promise.all([
+      supabase.from("approvals").select("id", { count: "exact", head: true }).eq("status", "pending"),
+      supabase.from("approvals").select("id", { count: "exact", head: true }).eq("status", "pending").lt("created_at", cutoff48h),
+      supabase.from("agent_task_delegations").select("id", { count: "exact", head: true }).eq("requires_founder_approval", true).neq("status", "completed"),
+      supabase.from("agent_task_delegations").select("id", { count: "exact", head: true }).eq("requires_founder_approval", true).neq("status", "completed").lt("created_at", cutoff48h),
     ]);
 
     const { data: autonomy } = await supabase.from("ai_agents").select("name,autonomy_level,department,company_id").order("autonomy_level", { ascending: false }).limit(80);
@@ -170,6 +183,12 @@ Deno.serve(async (req: Request) => {
       invoiced_inr: inv.reduce((s: number, i: any) => s + Number(i.total_inr || 0), 0),
       received_inr: inv.reduce((s: number, i: any) => s + Number(i.amount_received_inr || 0), 0),
       paid_invoices: inv.filter((i: any) => Number(i.amount_received_inr || 0) > 0).length,
+      pending_approval_invoices: inv.filter((i: any) => i.status === "pending_approval").length,
+      approved_invoices: inv.filter((i: any) => i.status === "approved").length,
+      sent_invoices: inv.filter((i: any) => i.status === "sent" || i.sent_at != null).length,
+      delivered_invoices: inv.filter((i: any) => i.delivery_status === "delivered").length,
+      invoices_with_approval_evidence: inv.filter((i: any) => i.approval_id != null || i.approved_at != null).length,
+      invoice_state_note: "Drafted/invoiced amounts are not revenue received. Approval, sending, delivery and payment are reported separately from their persisted evidence.",
     };
 
     // ---- GO / NO-GO CONSOLES (Mission Control: silence is never consent) ----
@@ -219,6 +238,12 @@ Deno.serve(async (req: Request) => {
       kpi_latest: latestKpi, kpi_history: kpiHistory.data ?? [], executive_cycles: cycles.data ?? [],
       executive_predictions: predictions.data ?? [], audit_timeline: auditTimeline.data ?? [],
       violations: violations.data ?? [], approval_queue: approvalQueue.data ?? [],
+      approval_totals: {
+        approval_records_pending: pendingApprovalCount ?? 0,
+        approval_records_aged_48h: agedApprovalCount ?? 0,
+        gated_delegations_pending: gatedDelegationCount ?? 0,
+        gated_delegations_aged_48h: agedGatedDelegationCount ?? 0,
+      },
       board: board.data ?? [], executive_committee: execCommittee.data ?? [],
       org_units: (orgUnits.data ?? []).map((u: any) => ({ ...u, company: companyName[u.company_id] ?? "group" })),
       subsidiaries: companies.data ?? [], market_intelligence: market.data ?? [], competitor_intelligence: competitors.data ?? [],
