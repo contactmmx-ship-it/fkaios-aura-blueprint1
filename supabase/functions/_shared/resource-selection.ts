@@ -193,6 +193,12 @@ export function configuredProviderNames(env: (k: string) => string | undefined =
       !["false", "0"].includes((env("PROVIDER_SELF_HOSTED_ENABLED") ?? "").toLowerCase())) {
     configured.push("self_hosted");
   }
+  // Bridge mode is intended for zero-key execution. Do not silently spend on
+  // cloud providers when the local worker is offline unless the operator has
+  // explicitly enabled cloud fallback.
+  if (bridgeEnabled && (env("FKAIOS_ALLOW_CLOUD_FALLBACK") ?? "").toLowerCase() !== "true") {
+    return configured.includes("self_hosted") ? ["self_hosted"] : [];
+  }
   return configured;
 }
 
