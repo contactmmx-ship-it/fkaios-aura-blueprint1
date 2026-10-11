@@ -110,9 +110,9 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
   const workforceLineage = (w: WorkforceTruth): LineageSpec => ({
     title: 'The AI workforce, graded',
     value: `${w.producing_24h} of ${w.total_employees} producing`,
-    source: 'public.compute_workforce_truth() over ai_agents × agent_dispatch_log × agent_performance_metrics',
+    source: 'public.compute_workforce_truth() over ai_agents × ai_jobs × agent_performance_metrics',
     derivation:
-      `PRODUCING = completed a dispatch in the last 24h. DORMANT = has produced before, but nothing in 24h. ` +
+      `PRODUCING = has at least one ai_jobs row with status=completed in the rolling 24h. This is job-completion evidence, not independent QA verification. DORMANT = has completed a job before, but none in 24h. ` +
       `NAMEPLATE = has NEVER completed a single task in its existence. BURNING = has spent money and produced nothing, ever (the worst class). ` +
       `${w.headline}` + (w.burning_warning ? ` ⚠ ${w.burning_warning}` : ''),
     reconciles: false,
@@ -200,7 +200,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
   // fabrication. A generic panel shows source, derivation, rows, reconciliation.
   const [lineage, setLineage] = useState<LineageSpec | null>(null);
   const evRow = (e: StreamEvent): LineageRow => ({ primary: e.actor, secondary: `${e.action}${e.outcome ? ` — ${e.outcome}` : ''}`, status: e.status, ts: e.ts });
-  const streamCaveat = 'Computed over the live activity_stream payload (agent_dispatch_log joined to agent names + execution_log), capped at the 60 most recent events by the server, filtered to the last 24 hours client-side.';
+  const streamCaveat = 'Headline activity count is exact from COUNT(*) over agent_dispatch_log + execution_log in the rolling 24h. Drill-down rows are a capped recent sample (up to 60), not the full counted set.';
 
   // Revenue is THE number. Its lineage is the most important one in the system:
   // it must be impossible to believe ₹0 is a rendering bug rather than reality.
@@ -270,8 +270,8 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
     return {
       title: `${d.name} — reporting ${d.status.replace('_', '-')}`,
       value: `${d.output_24h} outcomes / 24h`,
-      source: 'departments × ai_agents × agent_dispatch_log (via governance-dashboard → department_status)',
-      derivation: `Staffed = agents whose department = '${d.code}'. Output = agent_dispatch_log rows from those agents in the last 24h with status 'completed' or 'success'. A staffed department with 0 outcomes reports NO-GO — silence is never consent (Mission Control rule). ${d.reason}.`,
+      source: 'departments × ai_agents × completed ai_jobs in rolling 24h (via governance-dashboard → department_status)',
+      derivation: `Staffed = agents whose department = '${d.code}'. Output = ai_jobs rows assigned to those agents with status 'completed' in the rolling 24h. This is completed-job evidence, not independent QA verification. A staffed department with 0 completed jobs reports NO-GO — silence is never consent. ${d.reason}.`,
       reconciles: false,
       rows: roster.length === 0
         ? []
@@ -315,7 +315,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
                 emptyTruth: 'No agent dispatches or engine executions were recorded in the last 24h. The workforce did nothing measurable.',
               })} /> operations.{' '}
               <NumBtn value={s.producing} tone={s.producing > 0 ? 'text-emerald-300' : 'text-amber-300'} onOpen={() => setLineage({
-                title: 'Employees that produced real work', value: String(s.producing),
+                title: 'Employees with completed jobs in the last 24 hours', value: String(s.producing),
                 source: 'ai_agents.total_tasks_completed + agent_workday.tasks_completed (via governance-dashboard → workforce)',
                 derivation: 'An agent counts as producing when total_tasks_completed > 0 OR today\'s agent_workday.tasks_completed > 0. Lifetime output, not a 24h window.',
                 rows: s.producingList.map(a => ({ primary: a.name, secondary: a.department ? `dept: ${a.department}` : undefined, status: a.status, meta: `${a.total_tasks_completed ?? 0} lifetime tasks${a.success_rate != null ? ` · ${Math.round(Number(a.success_rate))}% success` : ''}` } as LineageRow)),
@@ -326,7 +326,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
                 source: 'ai_agents (via governance-dashboard → workforce)',
                 derivation: 'Every row in ai_agents returned by the governance payload — active and idle alike. Being on the roster is not evidence of output; see the producing count.',
                 rows: [...wf].sort((a, b) => (b.total_tasks_completed ?? 0) - (a.total_tasks_completed ?? 0)).map(a => ({ primary: a.name, secondary: a.department ? `dept: ${a.department}` : undefined, status: a.status, meta: `${a.total_tasks_completed ?? 0} lifetime tasks` } as LineageRow)),
-              })} /> employees produced real work
+              })} /> employees completed a job
               {s.producing < s.total && <span className="text-slate-400"> — the other {s.total - s.producing} were scheduled but idle</span>}.
               {s.topWorker && (s.topWorker.total_tasks_completed ?? 0) > 0 && <> Your hardest worker is <b className="text-white">{s.topWorker.name}</b> ({s.topWorker.total_tasks_completed} tasks{s.topWorker.success_rate != null ? `, ${Math.round(Number(s.topWorker.success_rate))}% success` : ''}).</>}
             </p>
@@ -342,7 +342,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
                 <NumBtn value={s.qualified} onOpen={() => setLineage({
                   title: 'Lead qualification passes (24h)', value: String(s.qualified),
                   source: 'agent_dispatch_log + execution_log (activity_stream)',
-                  derivation: `Events in the last 24h whose action contains "qualify". ${streamCaveat} NOTE: a qualification pass is not a qualified lead — 0 leads have ever scored ≥40 and advanced past stage='new'.`,
+                  derivation: `Events in the last 24h whose action contains "qualify". ${streamCaveat} NOTE: a qualification job is not proof that the lead advanced. The revenue-blocker RPC reports current score-threshold and lifecycle-stage counts separately.`,
                   rows: s.qualifiedEvents.map(evRow),
                 })} /> scoring passes</> : <>was idle</>}.
               {' '}Revenue recorded so far:{' '}
