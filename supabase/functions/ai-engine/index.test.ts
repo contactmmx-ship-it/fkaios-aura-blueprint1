@@ -28,6 +28,7 @@ const {
   resultReportsFailure,
   NonRetryableJobError,
   getHealthTtlMinutes,
+  normalizeLeadQualification,
 } = await import("./index.ts");
 
 function assert(condition: boolean, message: string): void {
@@ -157,6 +158,30 @@ t("parseAndValidateInvoicePayload: rejects a non-object payload even if it parse
     threw = true;
   }
   assert(threw, "A JSON array is not a valid invoice payload shape");
+});
+
+// ---------------------------------------------------------------------------
+// QUALIFY_LEAD write-back: research_required is a disposition, not a CRM stage.
+// ---------------------------------------------------------------------------
+
+t("normalizeLeadQualification: persists research_required without advancing CRM stage", () => {
+  const update = normalizeLeadQualification({ score: 62, stage: "research_required", notes: "Missing current investment data" });
+  assert(update.lead_score === 62, "Qualification score must be preserved");
+  assert(update.qualification_disposition === "research_required", "Research disposition must be persisted explicitly");
+  assert(!("stage" in update), "Research-required must not be coerced into a CRM lifecycle stage");
+  assert(update.notes === "Missing current investment data", "Reasoning notes must be preserved");
+});
+
+t("normalizeLeadQualification: allows known lifecycle stages and clamps scores", () => {
+  const update = normalizeLeadQualification({ score: 130, stage: "qualified", notes: "Ready" });
+  assert(update.lead_score === 100, "Scores must be clamped to 0-100");
+  assert(update.stage === "qualified" && update.qualification_disposition === "qualified", "Known disposition should update both disposition and lifecycle stage");
+});
+
+t("normalizeLeadQualification: ignores untrusted unknown stage values", () => {
+  const update = normalizeLeadQualification({ score: -5, stage: "delete_everything" });
+  assert(update.lead_score === 0, "Negative scores must be clamped");
+  assert(!("stage" in update) && !("qualification_disposition" in update), "Unknown disposition must not enter CRM state");
 });
 
 // ---------------------------------------------------------------------------
