@@ -108,6 +108,8 @@ export function scoreCase(output: string, checks: EvalCheck[]): { score: number;
 export const VERIFY_THRESHOLD = 0.6;
 export const ADOPT_MARGIN = 0.15;
 export const AUTONOMOUS_MIN_SCORE = 0.75;
+// Minimum paired successful examples before proposing a production routing change.
+export const MIN_ADOPTION_CASES_PER_CLASS = 3;
 
 export interface ComparisonInput {
   candidateByClass: Record<string, number[]>;
