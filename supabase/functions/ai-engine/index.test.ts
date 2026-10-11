@@ -241,6 +241,19 @@ t("resultReportsUnperformedVerification: allows a verification task with concret
   assert(reason === null, "A report with concrete findings should pass this narrow guard");
 });
 
+Deno.test("performSystemHealthCheck: reports both successful targets", async () => {
+  const { performSystemHealthCheck } = await import("./index.ts");
+  const result = await performSystemHealthCheck({ consoleUrl: "https://console.example.test", supabaseUrl: "https://project.example.test", serviceRoleKey: "test-secret" }, (async () => new Response("ignored", { status: 200 })) as typeof fetch);
+  assert(result.healthy && result.checks.length === 2, "Both successful HTTP checks should yield healthy=true");
+  assert(result.checks.every((check) => check.http_status === 200), "Each target must include its observed HTTP status");
+  assert(!JSON.stringify(result).includes("test-secret"), "Health evidence must never include credentials");
+});
+Deno.test("performSystemHealthCheck: reports an unhealthy target instead of claiming success", async () => {
+  const { performSystemHealthCheck } = await import("./index.ts");
+  const result = await performSystemHealthCheck({ consoleUrl: "https://console.example.test", supabaseUrl: "https://project.example.test", serviceRoleKey: "test-secret" }, (async (input: RequestInfo | URL) => new Response("ignored", { status: String(input).includes("console.example.test") ? 503 : 200 })) as typeof fetch);
+  assert(!result.healthy, "Any non-2xx target must make the overall check unhealthy");
+  assert(result.checks.some((check) => check.target === "console" && check.http_status === 503), "The failed target and actual status must be preserved");
+});
 // ---------------------------------------------------------------------------
 // NonRetryableJobError — retry behavior classification (item 3).
 // ---------------------------------------------------------------------------
