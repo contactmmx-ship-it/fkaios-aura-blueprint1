@@ -312,7 +312,7 @@ export function infrastructureInventoryCompletionGap(
   const broadInventoryIntent =
     /infrastructure|production|system health|system connectivity/.test(text) &&
     /(audit|verify|verification|inventory|health check|connectivity)/.test(text) &&
-    /(\\b\\d+\\s*\\+?\\s*(supabase\\s+)?tables?\\b|\\b\\d+\\s*\\+?\\s*(edge\\s+)?functions?\\b|\\b\\d+\\s*\\+?\\s*crons?\\b|\\b\\d+\\s*\\+?\\s*(console\\s+)?screens?\\b|\\b\\d+\\s*\\+?\\s*brands?\\b)/.test(text);
+    /(\b\d+\s*\+?\s*(supabase\s+)?tables?\b|\b\d+\s*\+?\s*(edge\s+)?functions?\b|\b\d+\s*\+?\s*crons?\b|\b\d+\s*\+?\s*(console\s+)?screens?\b|\b\d+\s*\+?\s*brands?\b)/.test(text);
   if (!broadInventoryIntent) return null;
 
   const observedCapabilities = new Set<string>();
@@ -338,11 +338,11 @@ export function infrastructureInventoryCompletionGap(
   }
 
   const required: Array<{ pattern: RegExp; capability: string; label: string }> = [
-    { pattern: /\\b\\d+\\s*\\+?\\s*(supabase\\s+)?tables?\\b/, capability: "system.table_inventory", label: "Supabase table inventory" },
-    { pattern: /\\b\\d+\\s*\\+?\\s*(edge\\s+)?functions?\\b/, capability: "system.function_inventory", label: "Edge/SQL function inventory" },
-    { pattern: /\\b\\d+\\s*\\+?\\s*crons?\\b/, capability: "system.cron_inventory", label: "scheduled-job/cron inventory" },
-    { pattern: /\\b\\d+\\s*\\+?\\s*(console\\s+)?screens?\\b/, capability: "system.route_inventory", label: "Console screen/route inventory" },
-    { pattern: /\\b\\d+\\s*\\+?\\s*brands?\\b/, capability: "business.brand_inventory", label: "brand integration inventory" },
+    { pattern: /\b\d+\s*\+?\s*(supabase\s+)?tables?\b/, capability: "system.table_inventory", label: "Supabase table inventory" },
+    { pattern: /\b\d+\s*\+?\s*(edge\s+)?functions?\b/, capability: "system.function_inventory", label: "Edge/SQL function inventory" },
+    { pattern: /\b\d+\s*\+?\s*crons?\b/, capability: "system.cron_inventory", label: "scheduled-job/cron inventory" },
+    { pattern: /\b\d+\s*\+?\s*(console\s+)?screens?\b/, capability: "system.route_inventory", label: "Console screen/route inventory" },
+    { pattern: /\b\d+\s*\+?\s*brands?\b/, capability: "business.brand_inventory", label: "brand integration inventory" },
   ];
   const missing = required.filter((item) => item.pattern.test(text) && !observedCapabilities.has(item.capability));
   if (!missing.length) return null;
