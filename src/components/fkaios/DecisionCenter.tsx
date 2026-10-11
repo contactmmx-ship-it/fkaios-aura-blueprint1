@@ -288,6 +288,8 @@ export default function DecisionCenter({ compact = false, limit }: { compact?: b
             const readOnly = item.source === 'request';
             const evidenceHold = needsEvidenceHold(item);
             const modelEvidence = item.source === 'approvals' ? item.payload?.evidence : undefined;
+            const candidateScore = modelEvidence?.candidate_score ?? modelEvidence?.overall;
+            const candidateScoreDisplay = typeof candidateScore === 'number' ? `${candidateScore <= 1 ? Math.round(candidateScore * 100) : candidateScore}${candidateScore <= 1 ? '%' : ''}` : '—';
             return (
               <div key={key} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -302,7 +304,7 @@ export default function DecisionCenter({ compact = false, limit }: { compact?: b
                   <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-[11px] space-y-1">
                     <p className="text-slate-300">Candidate: <span className="font-mono">{item.payload.candidate}</span></p>
                     {item.payload.incumbent && <p className="text-slate-400">Current model: <span className="font-mono">{item.payload.incumbent}</span></p>}
-                    {modelEvidence?.suite && <p className="text-slate-500">Benchmark: {modelEvidence.suite} · candidate score {modelEvidence.candidate_score ?? modelEvidence.overall ?? '—'} · regressions {modelEvidence.regressions ?? 'not reported'}</p>}
+                    {modelEvidence?.suite && <p className="text-slate-500">Benchmark: {modelEvidence.suite} · candidate score {candidateScoreDisplay} · regressions {modelEvidence.regressions ?? 'not reported'}</p>}
                     {evidenceHold && <p className="text-amber-300">Cost has not been verified. The recorded incumbent score is zero, so this comparison is not enough to justify a switch.</p>}
                   </div>
                 ) : null}
