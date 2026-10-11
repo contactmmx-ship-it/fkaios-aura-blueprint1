@@ -13,6 +13,7 @@ on:
       - "supabase/functions/_shared/resource-selection.ts"
       - "supabase/functions/_shared/resource-selection.test.ts"
       - "supabase/functions/local-inference-bridge/index.ts"
+      - "supabase/config.toml"
       - "supabase/migrations/20261011000000_fkaios_local_inference_queue.sql"
       - "scripts/local-ai/fkaios-local-worker.py"
       - ".github/workflows/objective-verifier-tests.yml"
