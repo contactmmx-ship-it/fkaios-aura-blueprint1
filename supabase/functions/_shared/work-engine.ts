@@ -340,7 +340,6 @@ export async function reassignStuckWork(): Promise<{ reassigned: number }> {
           output_summary: `after failure, moved from ${previousAgent?.name ?? job.agent_id} to ${alternative.name}`,
         });
       } catch { /* non-blocking */ }
-    }
   }
 
   return { reassigned };
