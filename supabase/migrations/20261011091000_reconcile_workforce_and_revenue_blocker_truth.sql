@@ -36,6 +36,12 @@ BEGIN
       AND j.agent_id IS NOT NULL
     GROUP BY j.agent_id
   ),
+  all_time AS (
+    SELECT j.agent_id, count(*) AS jobs_lifetime
+    FROM public.ai_jobs j
+    WHERE j.status = 'completed' AND j.agent_id IS NOT NULL
+    GROUP BY j.agent_id
+  ),
   spend AS (
     -- agent_performance_metrics keys on agent NAME (text), ai_agents on uuid.
     SELECT m.agent_id AS agent_name,
@@ -50,7 +56,7 @@ BEGIN
       a.id,
       a.name,
       COALESCE(a.department, a.dept, 'UNASSIGNED') AS department,
-      COALESCE(a.total_tasks_completed, 0) AS lifetime_tasks,
+      COALESCE(l.jobs_lifetime, 0) AS lifetime_tasks,
       COALESCE(o.jobs_24h, 0) AS output_24h,
       COALESCE(s.usd, 0) AS spend_usd,
       COALESCE(s.llm_calls, 0) AS llm_calls,
@@ -58,12 +64,13 @@ BEGIN
       a.last_active_at,
       CASE
         WHEN COALESCE(o.jobs_24h, 0) > 0 THEN 'PRODUCING'
-        WHEN COALESCE(a.total_tasks_completed, 0) = 0 AND COALESCE(s.usd, 0) > 0 THEN 'BURNING'
-        WHEN COALESCE(a.total_tasks_completed, 0) = 0 THEN 'NAMEPLATE'
+        WHEN COALESCE(l.jobs_lifetime, 0) = 0 AND COALESCE(s.usd, 0) > 0 THEN 'BURNING'
+        WHEN COALESCE(l.jobs_lifetime, 0) = 0 THEN 'NAMEPLATE'
         ELSE 'DORMANT'
       END AS verdict
     FROM public.ai_agents a
     LEFT JOIN out24 o ON o.agent_id = a.id
+    LEFT JOIN all_time l ON l.agent_id = a.id
     LEFT JOIN spend s ON s.agent_name = a.name
   )
   SELECT
