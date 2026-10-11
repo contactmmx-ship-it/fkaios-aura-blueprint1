@@ -614,7 +614,7 @@ export const geminiAdapter: ProviderAdapter = {
 };
 
 
-export const selfHostedAdapter: ProviderAdapter = buildOpenAICompatibleAdapter(
+const directSelfHostedAdapter: ProviderAdapter = buildOpenAICompatibleAdapter(
   "self_hosted",
   getSelfHostedApiKey,
   getSelfHostedModel,
@@ -622,6 +622,89 @@ export const selfHostedAdapter: ProviderAdapter = buildOpenAICompatibleAdapter(
   {},
   true,
 );
+
+/**
+ * In bridge mode the Edge Function enqueues a bounded inference request in
+ * Supabase and waits for the authenticated Windows worker to return a result.
+ * The service-role key remains inside the hosted Edge Function; it is never
+ * sent to the local worker. A timeout is a real failed attempt, never success.
+ */
+async function callLocalWorkerBridge(request: LLMRequest, timeoutMs: number): Promise<RawProviderResponse> {
+  const model = request.model ?? getSelfHostedModel(request.functionClass);
+  const started = Date.now();
+  const url = Deno.env.get("SUPABASE_URL") ?? "";
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (!url || !serviceKey) {
+    return { ok: false, httpStatus: 503, rawBody: { error: "local inference bridge backend is not configured" }, latencyMs: 0, model };
+  }
+
+  const db = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+  const idempotencyKey = crypto.randomUUID();
+  const requestPayload = {
+    model,
+    system_prompt: request.systemPrompt + structuredOutputInstruction(request.toolSchema),
+    user_content: request.userContent,
+    max_tokens: request.maxTokens ?? 4096,
+    temperature: request.temperature ?? 0.2,
+    function_name: request.functionName,
+    function_class: request.functionClass,
+  };
+  const { data: created, error: insertError } = await db
+    .from("fkaios_local_inference_jobs")
+    .insert({ idempotency_key: idempotencyKey, request_payload: requestPayload, max_attempts: 3 })
+    .select("id")
+    .single();
+  if (insertError || !created?.id) {
+    return { ok: false, httpStatus: 503, rawBody: { error: "local inference queue unavailable" }, latencyMs: Date.now() - started, model };
+  }
+
+  const deadline = started + Math.max(1000, timeoutMs);
+  while (Date.now() < deadline) {
+    const { data: job, error: readError } = await db
+      .from("fkaios_local_inference_jobs")
+      .select("status,result_payload,error_code,error_detail")
+      .eq("id", created.id)
+      .maybeSingle();
+    if (readError) {
+      return { ok: false, httpStatus: 503, rawBody: { error: "local inference result lookup failed" }, latencyMs: Date.now() - started, model };
+    }
+    if (job?.status === "completed" && job.result_payload && typeof job.result_payload.content === "string") {
+      const result = job.result_payload;
+      const content = result.content as string;
+      const toolCall = isAnthropicToolSchema(request.toolSchema) ? parseStructuredOutput(content, request.toolSchema) : undefined;
+      return {
+        ok: true,
+        httpStatus: 200,
+        content: isAnthropicToolSchema(request.toolSchema) ? (toolCall ? content : "") : content,
+        toolCall: toolCall ?? undefined,
+        rawBody: result,
+        inputTokens: Number(result.input_tokens ?? 0),
+        outputTokens: Number(result.output_tokens ?? 0),
+        latencyMs: Number(result.latency_ms ?? (Date.now() - started)),
+        model: String(result.model ?? model),
+        truncated: false,
+      };
+    }
+    if (job?.status === "failed") {
+      return { ok: false, httpStatus: 503, rawBody: { error: job.error_code ?? "local_worker_failed", detail: job.error_detail ?? null }, latencyMs: Date.now() - started, model };
+    }
+    await new Promise((resolve) => setTimeout(resolve, Math.min(750, Math.max(50, deadline - Date.now()))));
+  }
+  return { ok: false, httpStatus: 504, rawBody: { error: "local inference worker timeout", job_id: created.id }, latencyMs: Date.now() - started, model };
+}
+
+export const selfHostedAdapter: ProviderAdapter = {
+  name: "self_hosted",
+  getModel: getSelfHostedModel,
+  async call(request, timeoutMs) {
+    if (Deno.env.get("FKAIOS_LOCAL_INFERENCE_BRIDGE_ENABLED") === "true") {
+      return await callLocalWorkerBridge(request, timeoutMs);
+    }
+    return await directSelfHostedAdapter.call(request, timeoutMs);
+  },
+  estimateCost(request, response) { return directSelfHostedAdapter.estimateCost(request, response); },
+  health() { return directSelfHostedAdapter.health(); },
+};
 
 /**
  * Explicit operator kill switch, independent of whether an API key happens
