@@ -73,6 +73,21 @@ Deno.serve(async (req: Request) => {
       supabase.from("founder_notifications").select("type,title,detail,department_code,created_at").eq("type", "silence").eq("is_read", false).order("created_at", { ascending: false }).limit(10),
     ]);
 
+    const cutoff24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const [
+      { count: dispatchEvents24h },
+      { count: executionEvents24h },
+      { count: completedJobs24h },
+      { count: qualificationJobs24h },
+      { count: failedJobs24h },
+    ] = await Promise.all([
+      supabase.from("agent_dispatch_log").select("id", { count: "exact", head: true }).gte("created_at", cutoff24h),
+      supabase.from("execution_log").select("id", { count: "exact", head: true }).gte("created_at", cutoff24h),
+      supabase.from("ai_jobs").select("id", { count: "exact", head: true }).eq("status", "completed").gte("created_at", cutoff24h),
+      supabase.from("ai_jobs").select("id", { count: "exact", head: true }).eq("type", "QUALIFY_LEAD").gte("created_at", cutoff24h),
+      supabase.from("ai_jobs").select("id", { count: "exact", head: true }).in("status", ["failed", "error"]).gte("created_at", cutoff24h),
+    ]);
+
     const cutoff48h = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
     const [
       { count: pendingApprovalCount },
@@ -255,6 +270,14 @@ Deno.serve(async (req: Request) => {
       departments: (departments.data ?? []).map((d: any) => ({ ...d, company: d.company_id ? (companyName[d.company_id] || null) : null, agent_count: (deptRoster[d.code] || []).length })),
       dept_roster: deptRoster,
       activity_stream,
+      activity_totals_24h: {
+        total: (dispatchEvents24h ?? 0) + (executionEvents24h ?? 0),
+        dispatch_events: dispatchEvents24h ?? 0,
+        execution_events: executionEvents24h ?? 0,
+        completed_jobs: completedJobs24h ?? 0,
+        qualified: qualificationJobs24h ?? 0,
+        failures: failedJobs24h ?? 0,
+      },
       collaboration,
       revenue,
       department_status,
