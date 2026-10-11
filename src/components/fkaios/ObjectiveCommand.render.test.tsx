@@ -81,6 +81,28 @@ test('6 + 8: after the backend blocks the objective, the next render is terminal
   assert.doesNotMatch(after, /Running|Verification pending|PROCESSING|aria-current="step">Executing/);
 });
 
+test('10: a random research URL is never presented as the final product', () => {
+  const html = render(row({
+    status: 'completed',
+    action_taken: 'objective_loop',
+    result_summary: 'Infrastructure verification report completed.',
+    progress: {
+      ...progress,
+      tasksVerified: 1,
+      tasksActive: 0,
+      tasks: [{
+        title: 'Infrastructure verification report',
+        status: 'done',
+        verdict: 'verified',
+        output: 'Research source: https://hard2bit.com/security-articles/example. The report is complete.',
+      }],
+    },
+  }));
+  assert.doesNotMatch(html, /Open live product/);
+  assert.doesNotMatch(html, /data-final-preview="true"/);
+  assert.doesNotMatch(html, /src="https:\/\/hard2bit\.com\/security-articles\/example"/);
+});
+
 test('9: fabricated output on the row is never rendered', () => {
   const withOutput = { ...blocked(), output: '{"shortlisted_distributors":[{"company_name":"Shreeji Paints & Hardware Agency"}]}' } as ObjectiveStatusRow;
   assert.doesNotMatch(render(withOutput), /Shreeji|shortlisted_distributors/);
