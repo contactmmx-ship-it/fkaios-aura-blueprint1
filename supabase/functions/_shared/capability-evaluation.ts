@@ -438,8 +438,8 @@ async function proposeAdoption(db: Db, p: { taskClass: string; candidate: Execut
  */
 export async function ensureProposalApprovals(db: Db): Promise<Record<string, unknown>[]> {
   const { data: orphans } = await db.from("capability_adoption_proposals")
-    .select("id,candidate_resource_key,incumbent_resource_key,capability_id,candidate_score,incumbent_score,evidence")
-    .eq("recommendation", "candidate").is("approval_id", null);
+    .select("id,candidate_resource_key,incumbent_resource_key,capability_id,candidate_score,incumbent_score,confidence_pct,evidence")
+    .eq("recommendation", "candidate").is("approval_id", null).gte("confidence_pct", MIN_ADOPTION_CASES_PER_CLASS * 25);
   const out: Record<string, unknown>[] = [];
   for (const p of (orphans ?? []) as Array<Record<string, unknown>>) {
     const evidence = (p.evidence ?? {}) as Record<string, unknown>;
@@ -461,9 +461,13 @@ export async function ensureProposalApprovals(db: Db): Promise<Record<string, un
 /** Founder decisions made in the Decision Center are applied here. */
 export async function applyAdoptionDecisions(db: Db): Promise<Record<string, unknown>[]> {
   await ensureProposalApprovals(db);
-  const { data: open } = await db.from("capability_adoption_proposals").select("id,candidate_resource_key,capability_id,approval_id,evidence").eq("recommendation", "candidate").not("approval_id", "is", null);
+  const { data: open } = await db.from("capability_adoption_proposals").select("id,candidate_resource_key,capability_id,approval_id,confidence_pct,evidence").eq("recommendation", "candidate").not("approval_id", "is", null);
   const out: Record<string, unknown>[] = [];
   for (const p of (open ?? []) as Array<Record<string, unknown>>) {
+    if (Number(p.confidence_pct ?? 0) < MIN_ADOPTION_CASES_PER_CLASS * 25) {
+      out.push({ proposal: p.id, held: true, reason: `confidence ${Number(p.confidence_pct ?? 0)}% is below the minimum-evidence threshold; no routing change applied` });
+      continue;
+    }
     const { data: appr } = await db.from("approvals").select("status,decided_by,decided_at").eq("id", p.approval_id).maybeSingle();
     if (!appr || appr.status === "pending") continue;
     const { data: cap } = await db.from("capability_registry").select("name").eq("id", p.capability_id).maybeSingle();
