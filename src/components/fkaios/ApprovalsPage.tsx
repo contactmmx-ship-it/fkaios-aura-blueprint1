@@ -26,6 +26,7 @@ interface GenericApproval {
   risk_level: string;
   reason: string | null;
   created_at: string;
+  expires_at: string | null;
 }
 interface FounderNotification {
   id: string;
@@ -62,7 +63,7 @@ export default function ApprovalsPage() {
       supabase.from('company_invoices').select('id, client_name, total_inr, status, created_at').eq('status', 'pending_approval').order('created_at', { ascending: true }),
       supabase.from('company_invoices').select('id, client_name, total_inr, status, created_at').eq('status', 'approved').order('approved_at', { ascending: true }),
       supabase.from('company_invoices').select('id, client_name, total_inr, delivery_channel, delivery_status, sent_at').in('status', ['sent', 'paid']).order('sent_at', { ascending: false }).limit(15),
-      supabase.from('approvals').select('id, department_code, action_type, amount_inr, risk_level, reason, created_at').is('decided_at', null).order('created_at', { ascending: true }),
+      supabase.from('approvals').select('id, department_code, action_type, amount_inr, risk_level, reason, created_at, expires_at').eq('status', 'pending').or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`).order('created_at', { ascending: true }),
       supabase.from('founder_notifications').select('id, type, title, detail, amount_inr, is_read, created_at').order('created_at', { ascending: false }).limit(20),
     ]);
     setInvoices((invRes.data as PendingInvoice[]) || []);
