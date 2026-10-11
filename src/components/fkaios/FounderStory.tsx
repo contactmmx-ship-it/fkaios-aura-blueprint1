@@ -572,6 +572,11 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
                 <span className="text-sm text-emerald-200">Nothing needs you right now — the enterprise is running itself.</span>
               </div>
             )}
+            {data.approval_totals && (data.approval_totals.approval_records_aged_48h > 0 || data.approval_totals.gated_delegations_aged_48h > 0) && (
+              <span className="text-[11px] text-amber-300/90">
+                Aged &gt;48h: {data.approval_totals.approval_records_aged_48h} approval records · {data.approval_totals.gated_delegations_aged_48h} founder-gated delegations
+              </span>
+            )}
             <button onClick={onToggle} className="ml-auto flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 border border-slate-700 rounded-lg px-3 py-1.5">
               {expanded ? <>Hide the full command center <ChevronUp className="w-3.5 h-3.5" /></> : <>Open the full command center <ChevronDown className="w-3.5 h-3.5" /></>}
             </button>
