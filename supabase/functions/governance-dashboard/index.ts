@@ -95,9 +95,9 @@ Deno.serve(async (req: Request) => {
       supabase.from("agent_dispatch_log").select("id", { count: "exact", head: true }).gte("created_at", since24h),
       supabase.from("execution_log").select("id", { count: "exact", head: true }).gte("created_at", since24h),
       supabase.from("agent_dispatch_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).or("action.ilike.%hunt%,action.ilike.%discover%"),
-      supabase.from("execution_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).or("action.ilike.%hunt%,action.ilike.%discover%"),
+      supabase.from("execution_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).or("action.ilike.%hunt%,action.ilike.%discover%,function_name.ilike.%hunt%,function_name.ilike.%discover%"),
       supabase.from("agent_dispatch_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).ilike("action", "%qualify%"),
-      supabase.from("execution_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).ilike("action", "%qualify%"),
+      supabase.from("execution_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).or("action.ilike.%qualify%,function_name.ilike.%qualify%"),
       supabase.from("agent_dispatch_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).in("status", ["failed", "error"]),
       supabase.from("execution_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).in("status", ["failed", "error"]),
     ]);
