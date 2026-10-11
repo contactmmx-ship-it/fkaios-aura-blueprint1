@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
 const MAX_REQUEST_BYTES = 1_100_000;
