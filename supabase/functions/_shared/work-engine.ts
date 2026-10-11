@@ -56,7 +56,7 @@ import { founderMemory } from "./founder-brain.ts";
 import { getWorkforce, type EmployeeSummary } from "./executive-planner.ts";
 import { executeCapability } from "./company-os.ts";
 import { compactDispatchForStorage } from "./fact-grounding.ts";
-import { serializeTaskOutput } from "./task-output.ts";
+import { hasSubstantiveTaskOutput, serializeTaskOutput } from "./task-output.ts";
 
 function getClient() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
@@ -364,6 +364,24 @@ export async function returnCompletedWork(): Promise<{ returned: number; dispatc
 
     const { data: task } = await client.from("orchestration_tasks").select("id, status").eq("id", payload.task_id).maybeSingle();
     if (!task || task.status === "done" || task.status === "approved") continue; // already returned, skip
+
+    // Never promote an empty/metadata-only model envelope to completed work.
+    // This failure mode produced { payload: {} } tasks marked done, then forced
+    // repeated verifier rejection without a recoverable task state.
+    if (!hasSubstantiveTaskOutput(job.result)) {
+      const reason = "Rejected empty or metadata-only worker result; no substantive deliverable/evidence was produced.";
+      const { error: failedJobError } = await client.from("ai_jobs")
+        .update({ status: "failed", error: reason, updated_at: new Date().toISOString() })
+        .eq("id", job.id)
+        .eq("status", "completed");
+      if (failedJobError) throw new Error("returnCompletedWork: failed to quarantine empty job " + job.id + ": " + failedJobError.message);
+      const { error: reworkTaskError } = await client.from("orchestration_tasks")
+        .update({ status: "rework", output: JSON.stringify({ status: "rework", reason }) })
+        .eq("id", task.id)
+        .in("status", ["pending", "assigned", "running", "working", "rework"]);
+      if (reworkTaskError) throw new Error("returnCompletedWork: failed to reopen empty-result task " + task.id + ": " + reworkTaskError.message);
+      continue;
+    }
 
     // SPRINT 11 (M1-S11) — Company OS integration: ai-engine's generic
     // executeJob() asks the assigned employee's LLM to "respond with ONLY
