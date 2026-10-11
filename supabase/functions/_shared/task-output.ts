@@ -26,3 +26,23 @@ export function serializeTaskOutput(finalOutput: unknown): string {
   if (typeof serialized !== "string") throw new Error("Task output is not JSON-serializable");
   return serialized;
 }
+
+
+// Empty model envelopes are not task evidence. Ordinary text, populated arrays,
+// and substantive object fields pass; empty objects/arrays and metadata-only
+// envelopes do not.
+export function hasSubstantiveTaskOutput(value: unknown, depth = 0): boolean {
+  if (depth > 12 || value === null || value === undefined) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value === "boolean") return false;
+  if (Array.isArray(value)) return value.some((item) => hasSubstantiveTaskOutput(item, depth + 1));
+  if (typeof value !== "object") return false;
+  const ignoredKeys = new Set([
+    "status", "success", "ok", "id", "task_id", "job_id", "provider", "model",
+    "usage", "created_at", "updated_at", "duration_ms", "metadata", "attempts",
+  ]);
+  return Object.entries(value as Record<string, unknown>)
+    .filter(([key]) => !ignoredKeys.has(key))
+    .some(([, item]) => hasSubstantiveTaskOutput(item, depth + 1));
+}
