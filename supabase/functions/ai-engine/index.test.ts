@@ -26,6 +26,7 @@ const {
   normalizeInvoiceLineItems,
   computeInvoiceTotals,
   resultReportsFailure,
+  resultLacksLiveInfrastructureEvidence,
   NonRetryableJobError,
   getHealthTtlMinutes,
 } = await import("./index.ts");
@@ -37,6 +38,23 @@ function assert(condition: boolean, message: string): void {
 function t(name: string, fn: () => void | Promise<void>) {
   Deno.test({ name, sanitizeOps: false, sanitizeResources: false, fn });
 }
+
+t("infrastructure evidence gate: rejects narrative-only infrastructure reports", () => {
+  const result = { status: "completed", findings: { assumptions: ["All 175 tables and 26 crons are healthy"], verified_facts: ["All functions work"] }, sources: [{ url: "https://example.com/security-checklist" }] };
+  const gap = resultLacksLiveInfrastructureEvidence({ title: "System Connectivity & Infrastructure Verification", description: "Perform an exhaustive audit and connectivity test across production infrastructure." }, result);
+  assert(typeof gap === "string" && gap.includes("system.health_check"), "Narrative claims must not satisfy infrastructure verification");
+});
+
+t("infrastructure evidence gate: accepts observed HTTP evidence", () => {
+  const result = { status: "success", capability: "system.health_check", capability_result: { healthy: true, checks: [{ target: "console", http_status: 200, reachable: true }, { target: "supabase_rest", http_status: 200, reachable: true }] } };
+  const gap = resultLacksLiveInfrastructureEvidence({ title: "System Connectivity & Infrastructure Verification", description: "Check connectivity." }, result);
+  assert(gap === null, "Observed HTTP evidence should satisfy the live-reachability gate");
+});
+
+t("infrastructure evidence gate: leaves unrelated tasks alone", () => {
+  const gap = resultLacksLiveInfrastructureEvidence({ title: "Brand strategy research", description: "Summarize positioning options." }, { findings: [] });
+  assert(gap === null, "Unrelated research tasks must not be blocked");
+});
 
 // ---------------------------------------------------------------------------
 // extractJSONFromText — GENERATE_INVOICE JSON failure fix (item 2).
