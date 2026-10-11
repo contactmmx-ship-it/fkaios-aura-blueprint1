@@ -749,6 +749,12 @@ export function getConfiguredDefaultProviders(): ProviderAdapter[] {
   if (getMistralApiKey() && isProviderEnabled("PROVIDER_MISTRAL_ENABLED")) providers.push(mistralAdapter);
   if (getHuggingFaceApiKey() && isProviderEnabled("PROVIDER_HUGGINGFACE_ENABLED")) providers.push(huggingFaceAdapter);
   if ((getSelfHostedBaseUrl() || Deno.env.get("FKAIOS_LOCAL_INFERENCE_BRIDGE_ENABLED") === "true") && isProviderEnabled("PROVIDER_SELF_HOSTED_ENABLED")) providers.push(selfHostedAdapter);
+  // Zero-key bridge mode must not silently spend on a cloud API when the local
+  // worker is offline. Cloud fallback is opt-in and must be explicitly enabled.
+  if (Deno.env.get("FKAIOS_LOCAL_INFERENCE_BRIDGE_ENABLED") === "true" &&
+      Deno.env.get("FKAIOS_ALLOW_CLOUD_FALLBACK") !== "true") {
+    return providers.filter((provider) => provider.name === "self_hosted");
+  }
   return prioritizeFreeProviders(providers, explicitlyFreeTierProviders());
 }
 
