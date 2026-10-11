@@ -825,3 +825,45 @@ Deno.test("self-hosted provider is prioritized when configured", () => {
   const ordered = prioritizeFreeProviders([anthropicAdapter, selfHostedAdapter, geminiAdapter], ["gemini"]);
   assert(ordered.map((p) => p.name).join(",") === "self_hosted,gemini,anthropic", "local inference first, explicitly free cloud second");
 });
+
+Deno.test("zero-key local-first mode configures and calls self-hosted inference without cloud keys", async () => {
+  await withEnv({
+    ANTHROPIC_API_KEY: undefined,
+    GEMINI_API_KEY: undefined,
+    OPENAI_API_KEY: undefined,
+    OPENROUTER_API_KEY: undefined,
+    GROQ_API_KEY: undefined,
+    MISTRAL_API_KEY: undefined,
+    HUGGINGFACE_API_KEY: undefined,
+    SELF_HOSTED_LLM_BASE_URL: "http://127.0.0.1:11434/v1",
+    SELF_HOSTED_LLM_API_KEY: undefined,
+    PROVIDER_ANTHROPIC_ENABLED: "false",
+    PROVIDER_GEMINI_ENABLED: "false",
+    PROVIDER_OPENAI_ENABLED: "false",
+    PROVIDER_OPENROUTER_ENABLED: "false",
+    PROVIDER_GROQ_ENABLED: "false",
+    PROVIDER_MISTRAL_ENABLED: "false",
+    PROVIDER_HUGGINGFACE_ENABLED: "false",
+  }, async () => {
+    const providers = getConfiguredDefaultProviders();
+    assert(providers.map((p) => p.name).join(",") === "self_hosted", `Expected only local inference, got ${providers.map((p) => p.name).join(",")}`);
+
+    const originalFetch = globalThis.fetch;
+    let requestedUrl = "";
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      requestedUrl = String(input);
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: "local-only-response" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 4, completion_tokens: 2 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }) as typeof fetch;
+    try {
+      const result = await selfHostedAdapter.call(baseRequest(), 1000);
+      assert(result.ok, "self-hosted adapter should succeed without a provider API key");
+      assert(result.content === "local-only-response", "adapter should return local model content");
+      assert(requestedUrl === "http://127.0.0.1:11434/v1/chat/completions", `unexpected local endpoint: ${requestedUrl}`);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
