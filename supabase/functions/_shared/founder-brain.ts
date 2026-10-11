@@ -1120,6 +1120,7 @@ export async function createTask(userId: string, task: TaskCandidate, correlatio
     // orchestrator-brain already uses for the identical pattern) rather
     // than building a new approval mechanism.
     if (needsApproval && data?.id) {
+      let createdApprovalId: string | null = null;
       try {
         const { data: approval, error: approvalInsertError } = await client.from("approvals").insert({
           department_code: task.department_code ?? null,
@@ -1133,6 +1134,7 @@ export async function createTask(userId: string, task: TaskCandidate, correlatio
 
         if (approvalInsertError) throw approvalInsertError;
         if (!approval?.id) throw new Error("Approval insert returned no approval id");
+        createdApprovalId = approval.id;
         if (approval?.id) {
           const { error: linkError } = await client
             .from("orchestrator_requests")
@@ -1142,6 +1144,16 @@ export async function createTask(userId: string, task: TaskCandidate, correlatio
         }
       } catch (approvalErr) {
         const approvalError = approvalErr instanceof Error ? approvalErr.message : String(approvalErr);
+        // If insertion succeeded but linking failed, retire only that newly
+        // created orphan approval; preserve it as audit history.
+        if (createdApprovalId) {
+          await client.from("approvals").update({
+            status: "expired",
+            decided_by: "system_approval_link_failure",
+            decided_at: new Date().toISOString(),
+            reason: `Expired because its Founder Brain request could not be linked: ${approvalError}`,
+          }).eq("id", createdApprovalId).eq("status", "pending");
+        }
         // Preserve the request for audit, but never report success when the
         // required approval is missing or cannot be linked.
         await client.from("orchestrator_requests")
