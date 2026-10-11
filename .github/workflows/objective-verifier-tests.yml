@@ -12,6 +12,9 @@ on:
       - "supabase/functions/_shared/llm-router.test.ts"
       - "supabase/functions/_shared/resource-selection.ts"
       - "supabase/functions/_shared/resource-selection.test.ts"
+      - "supabase/functions/local-inference-bridge/index.ts"
+      - "supabase/migrations/20261011000000_fkaios_local_inference_queue.sql"
+      - "scripts/local-ai/fkaios-local-worker.py"
       - ".github/workflows/objective-verifier-tests.yml"
   push:
     branches:
@@ -52,3 +55,7 @@ jobs:
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/llm-router.test.ts
       - name: Run resource selection regression tests
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/resource-selection.test.ts
+      - name: Type-check local inference gateway
+        run: deno check --node-modules-dir=auto supabase/functions/local-inference-bridge/index.ts
+      - name: Validate Windows worker Python syntax
+        run: python -m py_compile scripts/local-ai/fkaios-local-worker.py
