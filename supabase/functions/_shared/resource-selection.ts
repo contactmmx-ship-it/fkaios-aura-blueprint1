@@ -73,13 +73,15 @@ function verifiedRate(p: PerformanceEntry | undefined): number | null {
 
 /** Build a non-persisted catalog candidate for the configured local model.
  * This makes active cloud-only routing policies local-first without mutating
- * production routing rows. The endpoint must be reachable from this runtime.
+ * production routing rows. Either a direct endpoint or the durable outbound
+ * local-worker bridge must be explicitly configured.
  */
 export function configuredLocalModelEntry(
   env: (key: string) => string | undefined = (key) => Deno.env.get(key),
 ): CatalogEntry | null {
   const baseUrl = (env("SELF_HOSTED_LLM_BASE_URL") ?? "").trim();
-  if (!baseUrl || ["false", "0"].includes((env("PROVIDER_SELF_HOSTED_ENABLED") ?? "").toLowerCase())) return null;
+  const bridgeEnabled = (env("FKAIOS_LOCAL_INFERENCE_BRIDGE_ENABLED") ?? "").toLowerCase() === "true";
+  if ((!baseUrl && !bridgeEnabled) || ["false", "0"].includes((env("PROVIDER_SELF_HOSTED_ENABLED") ?? "").toLowerCase())) return null;
   const model = (env("SELF_HOSTED_LLM_MODEL") ?? "qwen2.5:14b").trim();
   if (!model) return null;
   return {
@@ -186,7 +188,19 @@ export function configuredProviderNames(env: (k: string) => string | undefined =
     ["openrouter", "OPENROUTER_API_KEY"], ["groq", "GROQ_API_KEY"], ["mistral", "MISTRAL_API_KEY"],
     ["huggingface", "HUGGINGFACE_API_KEY"], ["self_hosted", "SELF_HOSTED_LLM_BASE_URL"],
   ];
-  return keys.filter(([p, k]) => !!env(k) && !["false", "0"].includes(env(`PROVIDER_${p.toUpperCase()}_ENABLED`) ?? "")).map(([p]) => p);
+  const configured = keys.filter(([p, k]) => !!env(k) && !["false", "0"].includes(env(`PROVIDER_${p.toUpperCase()}_ENABLED`) ?? "")).map(([p]) => p);
+  const bridgeEnabled = (env("FKAIOS_LOCAL_INFERENCE_BRIDGE_ENABLED") ?? "").toLowerCase() === "true";
+  if (bridgeEnabled && !configured.includes("self_hosted") &&
+      !["false", "0"].includes((env("PROVIDER_SELF_HOSTED_ENABLED") ?? "").toLowerCase())) {
+    configured.push("self_hosted");
+  }
+  // Bridge mode is intended for zero-key execution. Do not silently spend on
+  // cloud providers when the local worker is offline unless the operator has
+  // explicitly enabled cloud fallback.
+  if (bridgeEnabled && (env("FKAIOS_ALLOW_CLOUD_FALLBACK") ?? "").toLowerCase() !== "true") {
+    return configured.includes("self_hosted") ? ["self_hosted"] : [];
+  }
+  return configured;
 }
 
 export async function selectResources(db: Db, taskClass: string, options: SelectionOptions = {}): Promise<SelectionDecision> {
