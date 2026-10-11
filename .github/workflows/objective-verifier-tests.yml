@@ -12,8 +12,6 @@ on:
       - "supabase/functions/_shared/llm-router.test.ts"
       - "supabase/functions/_shared/resource-selection.ts"
       - "supabase/functions/_shared/resource-selection.test.ts"
-      - "supabase/functions/_shared/resource-selection.ts"
-      - "supabase/functions/_shared/resource-selection.test.ts"
       - ".github/workflows/objective-verifier-tests.yml"
   push:
     branches:
@@ -26,6 +24,8 @@ on:
       - "supabase/functions/_shared/objective-deadline.test.ts"
       - "supabase/functions/_shared/llm-router.ts"
       - "supabase/functions/_shared/llm-router.test.ts"
+      - "supabase/functions/_shared/resource-selection.ts"
+      - "supabase/functions/_shared/resource-selection.test.ts"
       - ".github/workflows/objective-verifier-tests.yml"
 
 permissions:
