@@ -70,11 +70,31 @@ function getClient() {
 // inside it, even if their score is higher — availability and fit come
 // before raw performance). Among department matches: fewer active jobs
 // wins (workload), then higher success_rate wins (performance).
+const DEPARTMENT_ALIASES: Record<string, string[]> = {
+  SALES: ["SALES", "AT_SALES_MKT"],
+  OPERATIONS: ["OPERATIONS", "AT_DELIVERY"],
+  EXECUTIVE: ["AT_EXEC", "STRATEGY"],
+  SOFTWARE_FACTORY: ["AT_DELIVERY", "OPERATIONS"],
+  RND: ["STRATEGY", "AT_DELIVERY"],
+  BIZMODEL: ["STRATEGY", "AT_EXEC"],
+  INNOVATION: ["STRATEGY", "AT_DELIVERY"],
+  MARKETING: ["MARKETING", "AT_SALES_MKT"],
+  ACCOUNTS: ["ACCOUNTS", "FINANCE", "AT_ACCOUNTS"],
+};
+
 export function selectBestEmployee(workforce: EmployeeSummary[], departmentCode: string | null): EmployeeSummary | null {
-  const pool = departmentCode
-    ? workforce.filter((e) => (e.department ?? "").toUpperCase() === departmentCode.toUpperCase())
+  // Objective department codes (EXECUTIVE, SOFTWARE_FACTORY, etc.) are not
+  // the same vocabulary as the employee roster (AT_EXEC, AT_DELIVERY, etc.).
+  // Resolve known aliases explicitly. Never silently fall back to an unrelated
+  // employee when a requested department has no suitable worker.
+  const normalizedCode = departmentCode?.trim().toUpperCase() ?? "";
+  const acceptedDepartments = normalizedCode
+    ? new Set(DEPARTMENT_ALIASES[normalizedCode] ?? [normalizedCode])
+    : null;
+  const pool = acceptedDepartments
+    ? workforce.filter((e) => acceptedDepartments.has((e.department ?? "").trim().toUpperCase()))
     : workforce;
-  const candidates = (pool.length > 0 ? pool : workforce).filter((e) => e.isActive && e.status !== "error" && e.status !== "offline");
+  const candidates = pool.filter((e) => e.isActive && e.status !== "error" && e.status !== "offline");
   if (candidates.length === 0) return null;
 
   return candidates.reduce((best, e) => {
