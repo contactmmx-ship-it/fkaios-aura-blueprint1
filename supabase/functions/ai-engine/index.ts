@@ -252,16 +252,16 @@ export function resultReportsUnperformedVerification(
     .join(" ")
     .toLowerCase();
   const verificationTask =
-    /\\b(verify|verification|validate|validation|audit|health check|test|testing|confirm|check)\\b/.test(taskText) &&
-    /\\b(deployment|production|runtime|console|cron|connectivity|uptime|integration|end.to.end|acceptance criteria|health check|functionality|feature|evidence|system|repository|repo|test|checks?)\\b/.test(taskText);
+    /\b(verify|verification|validate|validation|audit|health check|test|testing|confirm|check)\b/.test(taskText) &&
+    /\b(deployment|production|runtime|console|cron|connectivity|uptime|integration|end.to.end|acceptance criteria|health check|functionality|feature|evidence|system|repository|repo|test|checks?)\b/.test(taskText);
   if (!verificationTask) return null;
 
   const output = typeof result === "string" ? result : JSON.stringify(result ?? "");
   const admissions = [
-    /(?:could not|couldn't|cannot|can't|unable to|not able to)\\s+(?:actually\\s+)?(?:verify|validate|test|check|confirm|access|inspect|run)/i,
-    /(?:verification|validation|test|check)s?\\s+(?:were|was|have been|has been)\\s+not\\s+(?:run|performed|executed|completed)/i,
-    /(?:missing|lack of|no|without)\\s+(?:the\\s+)?(?:required\\s+)?(?:verification\\s+)?evidence/i,
-    /(?:no|missing|unavailable)\\s+(?:runtime\\s+)?(?:logs|build logs|deployment logs|cron logs)/i,
+    /(?:could not|couldn't|cannot|can't|unable to|not able to)\s+(?:actually\s+)?(?:verify|validate|test|check|confirm|access|inspect|run)/i,
+    /(?:verification|validation|test|check)s?\s+(?:were|was|have been|has been)\s+not\s+(?:run|performed|executed|completed)/i,
+    /(?:missing|lack of|no|without)\s+(?:the\s+)?(?:required\s+)?(?:verification\s+)?evidence/i,
+    /(?:no|missing|unavailable)\s+(?:runtime\s+)?(?:logs|build logs|deployment logs|cron logs)/i,
     /does not prove (?:that )?(?:the )?(?:system|feature|deployment|cron|console|checks?)/i,
     /checks? (?:were|was) not performed/i,
   ];
