@@ -30,6 +30,8 @@ interface GovData {
   audit_timeline: { action: string; resource_type: string | null; actor_type: string | null; decision_reasoning: string | null; requires_human_review: boolean; created_at: string }[];
   violations: { created_at: string; actor: string; attempted_action: string; violation_message: string; kind: string }[];
   approval_queue: { action_type: string; risk_level: string; amount_inr: number | null; reason: string; created_at: string }[];
+  approval_totals?: { approval_records_pending: number; approval_records_aged_48h: number; gated_delegations_pending: number; gated_delegations_aged_48h: number };
+  lead_totals?: { active: number; new: number; new_aged_48h: number; qualified_40_plus: number; scored: number; advanced: number; contactable: number };
   board: { seat: string; holder_type: string; holder_name: string; authority: string; accountability: string }[];
   executive_committee: { role: string; holder_agent: string; scope: string; measurable_objective: string; reports_to: string }[];
   org_units: { unit_name: string; unit_type: string; company: string }[];
