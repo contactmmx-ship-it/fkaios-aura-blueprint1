@@ -9,7 +9,7 @@ Configure these as Supabase Edge Function secrets (never in frontend environment
 - `FKAIOS_LOCAL_INFERENCE_BRIDGE_ENABLED=true` — opts the shared router into the durable queue adapter.
 - `FKAIOS_LOCAL_WORKER_TOKEN=<high-entropy random secret, at least 32 characters>` — authenticates only the worker gateway. Generate a fresh value locally and keep it private.
 - `SELF_HOSTED_LLM_MODEL=qwen2.5:14b` — exact Ollama model tag; use a smaller installed model if needed.
-- Keep `PROVIDER_SELF_HOSTED_ENABLED` unset or set to `true`; setting it to `false` is a hard kill switch.
+- Keep `PROVIDER_SELF_HOSTED_ENABLED` unset or set to `true`; setting it to `false` is a hard kill switch.\n- Leave `FKAIOS_ALLOW_CLOUD_FALLBACK` unset for zero-key operation. Setting it to `true` explicitly allows the router to continue to cloud providers after local failure; do not enable it without the required approval/budget policy.
 
 The worker token must be configured in the Edge Function runtime and in the Windows worker environment. It is not a Supabase service-role key. Never put the service-role key on Windows.
 
