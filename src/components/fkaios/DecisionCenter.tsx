@@ -43,7 +43,7 @@ interface ApprovalItem {
     rejected_alternatives?: RejectedAlternative[];
     candidate?: string;
     incumbent?: string;
-    evidence?: { suite?: string; overall?: number; regressions?: number; governance?: { mode?: string; reason?: string } };
+    evidence?: { suite?: string; overall?: number; candidate_score?: number; regressions?: number; governance?: { mode?: string; reason?: string } };
   } | null;
   created_at: string;
   expires_at: string | null;
