@@ -190,7 +190,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
       topWorker, pendingApprovals: approvalRows.length,
       last24, producingList: producing, discoveredEvents, qualifiedEvents, failureEvents, approvalRows,
     };
-  }, [wf, stream, collab, approvals]);
+  }, [wf, stream, collab, approvals, data.activity_totals_24h, data.workforce_truth]);
 
   // ── P2 LINEAGE (Palantir principle): every number clicks through to its
   // source rows, built from the SAME live payload — zero extra queries, zero
