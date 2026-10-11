@@ -243,6 +243,23 @@ export function resultReportsFailure(parsed: unknown): string | null {
 // were marked completed while their own outputs admitted that the checks had
 // not run. Keep the guard narrow: only verification-oriented tasks, and only
 // explicit admissions that the verification itself was not performed.
+export function resultLacksLiveInfrastructureEvidence(task: { title?: unknown; description?: unknown }, result: unknown): string | null {
+  const taskText = [task.title, task.description].filter((v) => typeof v === "string").join(" ").toLowerCase();
+  if (!/system connectivity|infrastructure verification|connectivity test|infrastructure audit|production health check/.test(taskText)) return null;
+  const seen = new Set<unknown>();
+  const hasProbe = (value: unknown): boolean => {
+    if (!value || typeof value !== "object" || seen.has(value)) return false;
+    seen.add(value);
+    if (Array.isArray(value)) return value.some(hasProbe);
+    const obj = value as Record<string, unknown>;
+    const nested = obj.capability_result && typeof obj.capability_result === "object" ? obj.capability_result as Record<string, unknown> : null;
+    if (obj.capability === "system.health_check" && nested && Array.isArray(nested.checks) && nested.checks.length >= 2 && nested.checks.every((item) => item && typeof item === "object" && typeof (item as Record<string, unknown>).http_status === "number")) return true;
+    return Object.values(obj).some(hasProbe);
+  };
+  if (!hasProbe(result)) return "Infrastructure verification cannot be completed from narrative findings alone. Execute system.health_check and attach observed console/Supabase HTTP evidence. This probe checks reachability only, not every table, function, cron, or screen.";
+  return null;
+}
+
 export function resultReportsUnperformedVerification(
   task: { title?: unknown; description?: unknown },
   result: unknown,
