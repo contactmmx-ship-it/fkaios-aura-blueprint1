@@ -74,6 +74,11 @@ Deno.serve(async (req: Request) => {
     ]);
 
     const cutoff24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const { data: completedJobsForDepartments } = await supabase.from("ai_jobs")
+      .select("agent_id,status,created_at")
+      .eq("status", "completed")
+      .gte("created_at", cutoff24h)
+      .not("agent_id", "is", null);
     const [
       { count: dispatchEvents24h },
       { count: executionEvents24h },
@@ -210,11 +215,9 @@ Deno.serve(async (req: Request) => {
     // ---- GO / NO-GO CONSOLES (Mission Control: silence is never consent) ----
     const dayAgo = Date.now() - 24 * 3600 * 1000;
     const outputByAgentId: Record<string, number> = {};
-    for (const d of dispatches.data ?? []) {
-      if (!d.agent_id) continue;
-      if (new Date(d.created_at).getTime() > dayAgo && (d.status === "completed" || d.status === "success")) {
-        outputByAgentId[d.agent_id] = (outputByAgentId[d.agent_id] || 0) + 1;
-      }
+    for (const job of completedJobsForDepartments ?? []) {
+      if (!job.agent_id) continue;
+      outputByAgentId[job.agent_id] = (outputByAgentId[job.agent_id] || 0) + 1;
     }
     const deptOfAgent: Record<string, string> = {};
     for (const a of agentsFull.data ?? []) deptOfAgent[a.id] = a.department || a.dept || "UNASSIGNED";
