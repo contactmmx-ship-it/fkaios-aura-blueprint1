@@ -1049,7 +1049,7 @@ export async function createTask(userId: string, task: TaskCandidate, correlatio
     // never swallowed by an unrelated pending proposal, and objectives the
     // objective loop BLOCKED (action_taken set) are not proposals.
     if (needsApproval && task.autonomous === true) {
-      const { data: existingRequests } = await client
+      const { data: existingRequests, error: existingRequestsError } = await client
         .from("orchestrator_requests")
         .select("id, status, raw_request, department_code, risk_level, approval_id")
         .eq("requested_by", "founder-brain")
@@ -1058,11 +1058,39 @@ export async function createTask(userId: string, task: TaskCandidate, correlatio
         .is("action_taken", null)
         .order("created_at", { ascending: false })
         .limit(1);
+      if (existingRequestsError) {
+        return { source: "orchestrator_requests", status: "error", data: null, error: `Could not check active Founder Brain approval: ${existingRequestsError.message}` };
+      }
       if (existingRequests && existingRequests.length > 0) {
         return {
           source: "orchestrator_requests",
           status: "success",
           data: existingRequests[0],
+        };
+      }
+    }
+
+    // The database intentionally allows only one pending Founder Brain
+    // approval. Check that invariant BEFORE inserting a new request: otherwise
+    // a second high-risk founder objective can be left stranded in
+    // awaiting_approval when its approval INSERT hits the unique index.
+    if (needsApproval) {
+      const { data: pendingApprovals, error: pendingApprovalError } = await client
+        .from("approvals")
+        .select("id, payload")
+        .eq("action_type", "founder_brain_task")
+        .eq("status", "pending")
+        .limit(1);
+      if (pendingApprovalError) {
+        return { source: "orchestrator_requests", status: "error", data: null, error: `Could not check pending Founder Brain approvals: ${pendingApprovalError.message}` };
+      }
+      if (pendingApprovals && pendingApprovals.length > 0) {
+        const existingRequestId = pendingApprovals[0].payload?.orchestrator_request_id;
+        return {
+          source: "orchestrator_requests",
+          status: "error",
+          data: null,
+          error: `A Founder Brain approval is already pending (${pendingApprovals[0].id}; request ${typeof existingRequestId === "string" ? existingRequestId : "unknown"}). Resolve that founder decision before submitting another high-risk objective.`,
         };
       }
     }
