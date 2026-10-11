@@ -108,6 +108,16 @@ export function scoreCase(output: string, checks: EvalCheck[]): { score: number;
 export const VERIFY_THRESHOLD = 0.6;
 export const ADOPT_MARGIN = 0.15;
 export const AUTONOMOUS_MIN_SCORE = 0.75;
+// Minimum paired successful examples before proposing a production routing change.
+export const MIN_ADOPTION_CASES_PER_CLASS = 3;
+
+/** Pure minimum-evidence gate shared by the evaluator and regression tests. */
+export function adoptionEvidenceGate(taskClasses: string[], pairedCounts: Record<string, number>): Record<string, { paired_successful_cases: number; minimum_required: number; eligible: boolean }> {
+  return Object.fromEntries([...new Set(taskClasses)].map((taskClass) => {
+    const paired = pairedCounts[taskClass] ?? 0;
+    return [taskClass, { paired_successful_cases: paired, minimum_required: MIN_ADOPTION_CASES_PER_CLASS, eligible: paired >= MIN_ADOPTION_CASES_PER_CLASS }];
+  }));
+}
 
 export interface ComparisonInput {
   candidateByClass: Record<string, number[]>;
@@ -329,24 +339,35 @@ export async function runCapabilityTestStep(db: Db): Promise<Record<string, unkn
 async function finalizeTest(db: Db, a: { testId: string; candidateId: string; candidate: ExecutionResource; registry: Record<string, unknown>; cases: EvalCase[]; prog: Progress; suite: string; candidateUnavailable: boolean }): Promise<Record<string, unknown>> {
   const { prog, candidate, cases } = a;
   const suiteKey = `${a.suite}@${prog.suite_version}`;
+  const candidateScoresByClass: Record<string, number[]> = {};
   const candidateByClass: Record<string, number[]> = {};
   const incumbentByClass: Record<string, { ref: string; scores: number[] }> = {};
   for (const c of cases) {
     const cr = prog.results[candidate.ref]?.[c.case_key];
-    if (cr) (candidateByClass[c.task_class] ??= []).push(cr.score);
+    // Provider/model failures are availability failures, not quality scores.
+    if (cr && !cr.error) (candidateScoresByClass[c.task_class] ??= []).push(cr.score);
     const incRef = prog.incumbents[c.task_class];
     const ir = incRef ? prog.results[incRef]?.[c.case_key] : undefined;
-    if (incRef && ir) (incumbentByClass[c.task_class] ??= { ref: incRef, scores: [] }).scores.push(ir.score);
+    // Compare only paired successful executions for the same golden case.
+    if (incRef && ir && cr && !ir.error && !cr.error) {
+      (candidateByClass[c.task_class] ??= []).push(cr.score);
+      (incumbentByClass[c.task_class] ??= { ref: incRef, scores: [] }).scores.push(ir.score);
+    }
   }
   const cmp = compareToIncumbents({ candidateByClass, incumbentByClass });
+  // Fallback verification uses all successful candidate runs; adoption compares paired runs only.
+  cmp.candidateOverall = mean(Object.values(candidateScoresByClass).flat());
+  const adoptionSampleGate = adoptionEvidenceGate(cases.map((c) => c.task_class), Object.fromEntries(Object.entries(candidateByClass).map(([taskClass, scores]) => [taskClass, scores.length])));
+  const eligibleClasses = new Set(Object.entries(adoptionSampleGate).filter(([, gate]) => gate.eligible).map(([taskClass]) => taskClass));
+  const heldClasses = Object.entries(adoptionSampleGate).filter(([, gate]) => !gate.eligible).map(([taskClass, gate]) => ({ task_class: taskClass, paired_successful_cases: gate.paired_successful_cases, minimum_required: gate.minimum_required, reason: "insufficient paired successful cases" }));
   const verified = !a.candidateUnavailable && cmp.candidateOverall >= VERIFY_THRESHOLD;
 
   // One deterministic evidence row backs every benchmark row of this test.
   const { data: ev } = await db.from("fkaios_verification_evidence").insert({
     requirement_key: `eval:${suiteKey}`, evidence_type: "golden_eval", verifier: `deterministic:${suiteKey}`,
     status: verified ? "passed" : "failed",
-    observed_result: { candidate: candidate.ref, candidate_overall: cmp.candidateOverall, candidate_by_class: candidateByClass, incumbents: incumbentByClass, improved: cmp.improved, regressions: cmp.regressions, test_id: a.testId },
-    verification_notes: `Golden suite ${suiteKey}: ${candidate.ref} scored ${cmp.candidateOverall.toFixed(2)} (threshold ${VERIFY_THRESHOLD}).`,
+    observed_result: { candidate: candidate.ref, candidate_overall: cmp.candidateOverall, candidate_by_class: candidateScoresByClass, paired_candidate_by_class: candidateByClass, incumbents: incumbentByClass, adoption_sample_gate: adoptionSampleGate, held_classes: heldClasses, improved: cmp.improved, regressions: cmp.regressions, test_id: a.testId },
+    verification_notes: `Golden suite ${suiteKey}: ${candidate.ref} scored ${cmp.candidateOverall.toFixed(2)} (threshold ${VERIFY_THRESHOLD}); adoption requires at least ${MIN_ADOPTION_CASES_PER_CLASS} paired successful cases per task class.`,
     verified_at: new Date().toISOString(),
   }).select("id").single();
   const evidenceId = ev?.id ?? null;
@@ -377,16 +398,17 @@ async function finalizeTest(db: Db, a: { testId: string; candidateId: string; ca
   const proposals: unknown[] = [];
   if (verified) {
     for (const imp of cmp.improved) {
-      if (imp.incumbentRef === candidate.ref) continue;
+      if (imp.incumbentRef === candidate.ref || !eligibleClasses.has(imp.taskClass)) continue;
       proposals.push(await proposeAdoption(db, { taskClass: imp.taskClass, candidate, incumbentRef: imp.incumbentRef, candidateScore: imp.candidate, incumbentScore: imp.incumbent, overall: cmp.candidateOverall, regressions: cmp.regressions.length, registry: a.registry, suiteKey, evidenceId, capabilityId: capId.get(imp.taskClass) ?? null, cases: (candidateByClass[imp.taskClass] ?? []).length }));
     }
   }
-  await finish(db, a.testId, verified ? "passed" : "failed", { progress: prog, result: { overall: cmp.candidateOverall, verified, improved: cmp.improved, regressions: cmp.regressions, evidence_id: evidenceId } }, verified ? undefined : (a.candidateUnavailable ? "candidate model unavailable" : `score ${cmp.candidateOverall.toFixed(2)} below ${VERIFY_THRESHOLD}`));
-  return { test: a.testId, candidate: candidate.ref, verified, overall: cmp.candidateOverall, improved: cmp.improved.map((i) => i.taskClass), regressions: cmp.regressions.map((r) => r.taskClass), proposals };
+  await finish(db, a.testId, verified ? "passed" : "failed", { progress: prog, result: { overall: cmp.candidateOverall, verified, improved: cmp.improved, regressions: cmp.regressions, adoption_sample_gate: adoptionSampleGate, held_classes: heldClasses, evidence_id: evidenceId } }, verified ? undefined : (a.candidateUnavailable ? "candidate model unavailable" : `score ${cmp.candidateOverall.toFixed(2)} below ${VERIFY_THRESHOLD}`));
+  return { test: a.testId, candidate: candidate.ref, verified, overall: cmp.candidateOverall, improved: cmp.improved.map((i) => i.taskClass), regressions: cmp.regressions.map((r) => r.taskClass), adoption_sample_gate: adoptionSampleGate, held_classes: heldClasses, proposals };
 }
 
 async function proposeAdoption(db: Db, p: { taskClass: string; candidate: ExecutionResource; incumbentRef: string; candidateScore: number; incumbentScore: number; overall: number; regressions: number; registry: Record<string, unknown>; suiteKey: string; evidenceId: string | null; capabilityId: string | null; cases: number }): Promise<Record<string, unknown>> {
   if (!p.capabilityId) return { skipped: "no capability row" };
+  if (p.cases < MIN_ADOPTION_CASES_PER_CLASS) return { held: true, reason: `only ${p.cases} paired successful cases; ${MIN_ADOPTION_CASES_PER_CLASS} required`, task_class: p.taskClass };
   const { data: inc } = await db.from("model_registry").select("cost_in_per_mtok").eq("resource_ref", p.incumbentRef).maybeSingle();
   const gov = adoptionGovernance({ candidateOverall: p.overall, regressions: p.regressions, candidateFreeTier: (p.registry.free_tier as boolean | null) ?? null,
     candidateCostIn: (p.registry.cost_in_per_mtok as number | null) ?? null, incumbentCostIn: (inc?.cost_in_per_mtok as number | null) ?? null, accessConfigured: p.registry.access_state === "configured" });
@@ -421,8 +443,8 @@ async function proposeAdoption(db: Db, p: { taskClass: string; candidate: Execut
  */
 export async function ensureProposalApprovals(db: Db): Promise<Record<string, unknown>[]> {
   const { data: orphans } = await db.from("capability_adoption_proposals")
-    .select("id,candidate_resource_key,incumbent_resource_key,capability_id,candidate_score,incumbent_score,evidence")
-    .eq("recommendation", "candidate").is("approval_id", null);
+    .select("id,candidate_resource_key,incumbent_resource_key,capability_id,candidate_score,incumbent_score,confidence_pct,evidence")
+    .eq("recommendation", "candidate").is("approval_id", null).gte("confidence_pct", MIN_ADOPTION_CASES_PER_CLASS * 25);
   const out: Record<string, unknown>[] = [];
   for (const p of (orphans ?? []) as Array<Record<string, unknown>>) {
     const evidence = (p.evidence ?? {}) as Record<string, unknown>;
@@ -444,9 +466,13 @@ export async function ensureProposalApprovals(db: Db): Promise<Record<string, un
 /** Founder decisions made in the Decision Center are applied here. */
 export async function applyAdoptionDecisions(db: Db): Promise<Record<string, unknown>[]> {
   await ensureProposalApprovals(db);
-  const { data: open } = await db.from("capability_adoption_proposals").select("id,candidate_resource_key,capability_id,approval_id,evidence").eq("recommendation", "candidate").not("approval_id", "is", null);
+  const { data: open } = await db.from("capability_adoption_proposals").select("id,candidate_resource_key,capability_id,approval_id,confidence_pct,evidence").eq("recommendation", "candidate").not("approval_id", "is", null);
   const out: Record<string, unknown>[] = [];
   for (const p of (open ?? []) as Array<Record<string, unknown>>) {
+    if (Number(p.confidence_pct ?? 0) < MIN_ADOPTION_CASES_PER_CLASS * 25) {
+      out.push({ proposal: p.id, held: true, reason: `confidence ${Number(p.confidence_pct ?? 0)}% is below the minimum-evidence threshold; no routing change applied` });
+      continue;
+    }
     const { data: appr } = await db.from("approvals").select("status,decided_by,decided_at").eq("id", p.approval_id).maybeSingle();
     if (!appr || appr.status === "pending") continue;
     const { data: cap } = await db.from("capability_registry").select("name").eq("id", p.capability_id).maybeSingle();
