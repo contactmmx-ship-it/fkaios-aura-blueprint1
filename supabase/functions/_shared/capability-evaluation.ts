@@ -111,6 +111,14 @@ export const AUTONOMOUS_MIN_SCORE = 0.75;
 // Minimum paired successful examples before proposing a production routing change.
 export const MIN_ADOPTION_CASES_PER_CLASS = 3;
 
+/** Pure minimum-evidence gate shared by the evaluator and regression tests. */
+export function adoptionEvidenceGate(taskClasses: string[], pairedCounts: Record<string, number>): Record<string, { paired_successful_cases: number; minimum_required: number; eligible: boolean }> {
+  return Object.fromEntries([...new Set(taskClasses)].map((taskClass) => {
+    const paired = pairedCounts[taskClass] ?? 0;
+    return [taskClass, { paired_successful_cases: paired, minimum_required: MIN_ADOPTION_CASES_PER_CLASS, eligible: paired >= MIN_ADOPTION_CASES_PER_CLASS }];
+  }));
+}
+
 export interface ComparisonInput {
   candidateByClass: Record<string, number[]>;
   incumbentByClass: Record<string, { ref: string; scores: number[] }>;
@@ -349,10 +357,7 @@ async function finalizeTest(db: Db, a: { testId: string; candidateId: string; ca
   const cmp = compareToIncumbents({ candidateByClass, incumbentByClass });
   // Fallback verification uses all successful candidate runs; adoption compares paired runs only.
   cmp.candidateOverall = mean(Object.values(candidateScoresByClass).flat());
-  const adoptionSampleGate = Object.fromEntries([...new Set(cases.map((c) => c.task_class))].map((taskClass) => {
-    const paired = candidateByClass[taskClass]?.length ?? 0;
-    return [taskClass, { paired_successful_cases: paired, minimum_required: MIN_ADOPTION_CASES_PER_CLASS, eligible: paired >= MIN_ADOPTION_CASES_PER_CLASS }];
-  }));
+  const adoptionSampleGate = adoptionEvidenceGate(cases.map((c) => c.task_class), Object.fromEntries(Object.entries(candidateByClass).map(([taskClass, scores]) => [taskClass, scores.length])));
   const eligibleClasses = new Set(Object.entries(adoptionSampleGate).filter(([, gate]) => gate.eligible).map(([taskClass]) => taskClass));
   const heldClasses = Object.entries(adoptionSampleGate).filter(([, gate]) => !gate.eligible).map(([taskClass, gate]) => ({ task_class: taskClass, paired_successful_cases: gate.paired_successful_cases, minimum_required: gate.minimum_required, reason: "insufficient paired successful cases" }));
   const verified = !a.candidateUnavailable && cmp.candidateOverall >= VERIFY_THRESHOLD;
