@@ -107,7 +107,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
   const workforceLineage = (w: WorkforceTruth): LineageSpec => ({
     title: 'The AI workforce, graded',
     value: `${w.producing_24h} of ${w.total_employees} producing`,
-    source: 'public.compute_workforce_truth() over ai_agents × agent_dispatch_log × agent_performance_metrics',
+    source: 'public.compute_workforce_truth() over ai_agents × ai_jobs × agent_performance_metrics',
     derivation:
       `PRODUCING = completed a dispatch in the last 24h. DORMANT = has produced before, but nothing in 24h. ` +
       `NAMEPLATE = has NEVER completed a single task in its existence. BURNING = has spent money and produced nothing, ever (the worst class). ` +
@@ -267,7 +267,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
       title: `${d.name} — reporting ${d.status.replace('_', '-')}`,
       value: `${d.output_24h} outcomes / 24h`,
       source: 'departments × ai_agents × agent_dispatch_log (via governance-dashboard → department_status)',
-      derivation: `Staffed = agents whose department = '${d.code}'. Output = agent_dispatch_log rows from those agents in the last 24h with status 'completed' or 'success'. A staffed department with 0 outcomes reports NO-GO — silence is never consent (Mission Control rule). ${d.reason}.`,
+      derivation: `Staffed = agents whose department = '${d.code}'. Output = completed ai_jobs for those agents in the last 24h. A staffed department with 0 verified completed jobs reports NO-GO — silence is never consent (Mission Control rule). ${d.reason}.`,
       reconciles: false,
       rows: roster.length === 0
         ? []
@@ -302,14 +302,14 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
 
           <div className="space-y-2 text-sm text-slate-300 leading-relaxed max-w-3xl">
             <p>
-              In the last 24 hours your AI workforce ran{' '}
+              In the last 24 hours your systems recorded{' '}
               <NumBtn value={s.ops24} onOpen={() => setLineage({
                 title: 'Operations in the last 24 hours', value: String(s.ops24),
                 source: 'agent_dispatch_log + execution_log (via governance-dashboard → activity_stream)',
                 derivation: streamCaveat,
                 rows: s.last24.map(evRow),
                 emptyTruth: 'No agent dispatches or engine executions were recorded in the last 24h. The workforce did nothing measurable.',
-              })} /> operations.{' '}
+              })} /> activity events.{' '}
               <NumBtn value={s.producing} tone={s.producing > 0 ? 'text-emerald-300' : 'text-amber-300'} onOpen={() => setLineage({
                 title: 'Employees that produced real work', value: String(s.producing),
                 source: 'public.compute_workforce_truth() over ai_agents × ai_jobs',
@@ -323,7 +323,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
                 derivation: 'Every row in ai_agents returned by the governance payload — active and idle alike. Being on the roster is not evidence of output; see the producing count.',
                 rows: [...wf].sort((a, b) => (b.total_tasks_completed ?? 0) - (a.total_tasks_completed ?? 0)).map(a => ({ primary: a.name, secondary: a.department ? `dept: ${a.department}` : undefined, status: a.status, meta: `${a.total_tasks_completed ?? 0} lifetime tasks` } as LineageRow)),
               })} /> employees produced real work
-              {s.producing < s.total && <span className="text-slate-400"> — the other {s.total - s.producing} were scheduled but idle</span>}.
+              {s.producing < s.total && <span className="text-slate-400"> — the other {s.total - s.producing} have no verified completed job in the last 24 hours</span>}.
               {s.topWorker && (s.topWorker.total_tasks_completed ?? 0) > 0 && <> Your highest lifetime task counter belongs to <b className="text-white">{s.topWorker.name}</b> ({s.topWorker.total_tasks_completed} historical tasks{s.topWorker.success_rate != null ? `, ${Math.round(Number(s.topWorker.success_rate))}% historical success` : ''}); this is not a measure of work completed today.</>}
             </p>
             <p>
