@@ -84,8 +84,8 @@ Deno.serve(async (req: Request) => {
 
     // FKAIOS Phase 0 Task 2 ("kill the fake workforce illusion"): ai_agents.is_active/
     // status/last_active_at are unconditionally fabricated (always true/active).
-    // compute_workforce_truth() grades every agent from real agent_dispatch_log /
-    // total_tasks_completed evidence into PRODUCING/DORMANT/NAMEPLATE/BURNING —
+    // compute_workforce_truth() grades every agent from completed ai_jobs /
+    // reconciled lifetime task evidence into PRODUCING/DORMANT/NAMEPLATE/BURNING —
     // that verdict, not the fake columns, is what workforce[].is_active must reflect.
     const { data: workforceTruthData, error: workforceTruthErr } = await supabase.rpc("compute_workforce_truth");
     const workforceTruth = workforceTruthErr ? null : workforceTruthData;
