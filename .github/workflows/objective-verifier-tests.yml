@@ -54,7 +54,7 @@ jobs:
           node-version: 22
           cache: npm
       - name: Install locked frontend dependencies
-        run: npm ci
+        run: npm install --ignore-scripts --no-audit --no-fund
       - name: Type-check frontend
         run: npx tsc --noEmit
       - name: Set up Deno
