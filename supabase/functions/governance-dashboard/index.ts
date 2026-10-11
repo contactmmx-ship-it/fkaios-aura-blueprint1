@@ -86,6 +86,35 @@ Deno.serve(async (req: Request) => {
     // that verdict, not the fake columns, is what workforce[].is_active must reflect.
     const { data: workforceTruthData, error: workforceTruthErr } = await supabase.rpc("compute_workforce_truth");
     const workforceTruth = workforceTruthErr ? null : workforceTruthData;
+
+    // Exact counts are separate from the bounded activity feed below. The feed
+    // is deliberately capped for payload size and must never be used as a total.
+    const since24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const [dispatchTotalQ, execTotalQ, dispatchDiscoverQ, execDiscoverQ,
+      dispatchQualifyQ, execQualifyQ, dispatchFailQ, execFailQ] = await Promise.all([
+      supabase.from("agent_dispatch_log").select("id", { count: "exact", head: true }).gte("created_at", since24h),
+      supabase.from("execution_log").select("id", { count: "exact", head: true }).gte("created_at", since24h),
+      supabase.from("agent_dispatch_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).or("action.ilike.%hunt%,action.ilike.%discover%"),
+      supabase.from("execution_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).or("action.ilike.%hunt%,action.ilike.%discover%"),
+      supabase.from("agent_dispatch_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).ilike("action", "%qualify%"),
+      supabase.from("execution_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).ilike("action", "%qualify%"),
+      supabase.from("agent_dispatch_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).in("status", ["failed", "error"]),
+      supabase.from("execution_log").select("id", { count: "exact", head: true }).gte("created_at", since24h).in("status", ["failed", "error"]),
+    ]);
+    const activityCountErrors = [dispatchTotalQ, execTotalQ, dispatchDiscoverQ, execDiscoverQ,
+      dispatchQualifyQ, execQualifyQ, dispatchFailQ, execFailQ].filter((q) => q.error);
+    if (activityCountErrors.length) {
+      throw new Error("Exact Command Center activity counts unavailable: " +
+        activityCountErrors.map((q) => q.error?.message).join("; "));
+    }
+    const activityTotals24h = {
+      total: (dispatchTotalQ.count ?? 0) + (execTotalQ.count ?? 0),
+      discovered: (dispatchDiscoverQ.count ?? 0) + (execDiscoverQ.count ?? 0),
+      qualified: (dispatchQualifyQ.count ?? 0) + (execQualifyQ.count ?? 0),
+      failures: (dispatchFailQ.count ?? 0) + (execFailQ.count ?? 0),
+      dispatch_events: dispatchTotalQ.count ?? 0,
+      execution_events: execTotalQ.count ?? 0,
+    };
     const verdictByName: Record<string, string> = {};
     for (const e of (workforceTruth?.employees ?? [])) verdictByName[e.name] = e.verdict;
 
@@ -173,13 +202,12 @@ Deno.serve(async (req: Request) => {
     };
 
     // ---- GO / NO-GO CONSOLES (Mission Control: silence is never consent) ----
-    const dayAgo = Date.now() - 24 * 3600 * 1000;
-    const outputByAgentId: Record<string, number> = {};
-    for (const d of dispatches.data ?? []) {
-      if (!d.agent_id) continue;
-      if (new Date(d.created_at).getTime() > dayAgo && (d.status === "completed" || d.status === "success")) {
-        outputByAgentId[d.agent_id] = (outputByAgentId[d.agent_id] || 0) + 1;
-      }
+    // Department production uses the same verified ai_jobs evidence as
+    // compute_workforce_truth(), not agent_dispatch_log, which records dispatch
+    // rather than completed execution in this pipeline.
+    const outputByAgentName: Record<string, number> = {};
+    for (const e of (workforceTruth?.employees ?? [])) {
+      outputByAgentName[e.name] = Number(e.output_24h || 0);
     }
     const deptOfAgent: Record<string, string> = {};
     for (const a of agentsFull.data ?? []) deptOfAgent[a.id] = a.department || a.dept || "UNASSIGNED";
@@ -189,7 +217,7 @@ Deno.serve(async (req: Request) => {
       const code = deptOfAgent[a.id];
       deptAgents[code] = deptAgents[code] || { staffed: 0, output: 0 };
       deptAgents[code].staffed++;
-      deptAgents[code].output += outputByAgentId[a.id] || 0;
+      deptAgents[code].output += outputByAgentName[a.name] || 0;
     }
     const department_status = (departments.data ?? []).map((d: any) => {
       const s2 = deptAgents[d.code] || { staffed: 0, output: 0 };
@@ -229,6 +257,7 @@ Deno.serve(async (req: Request) => {
       departments: (departments.data ?? []).map((d: any) => ({ ...d, company: d.company_id ? (companyName[d.company_id] || null) : null, agent_count: (deptRoster[d.code] || []).length })),
       dept_roster: deptRoster,
       activity_stream,
+      activity_totals_24h: activityTotals24h,
       collaboration,
       revenue,
       department_status,
