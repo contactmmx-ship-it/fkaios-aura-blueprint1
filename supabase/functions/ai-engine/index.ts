@@ -255,22 +255,33 @@ export function resultReportsFailure(parsed: unknown): string | null {
 // honestly "completed" — same principle as Phase 0.1, applied by building the
 // hand instead of refusing the job.
 const ALLOWED_LEAD_STAGES = new Set(["new", "contacted", "qualified", "unqualified", "won", "lost"]);
+const ALLOWED_QUALIFICATION_DISPOSITIONS = new Set(["research_required", "qualified", "unqualified", "contacted", "new", "won", "lost"]);
+
+/** Keep CRM lifecycle stage and AI qualification disposition separate.
+ * research_required is a real outcome, but not a CRM stage; persist it explicitly
+ * instead of silently dropping it and making the qualifier appear to have done nothing.
+ */
+export function normalizeLeadQualification(result: Record<string, unknown>): Record<string, unknown> {
+  const update: Record<string, unknown> = {};
+  if (typeof result.score === "number" && Number.isFinite(result.score)) {
+    update.lead_score = Math.max(0, Math.min(100, Math.round(result.score)));
+  }
+  if (typeof result.stage === "string" && ALLOWED_QUALIFICATION_DISPOSITIONS.has(result.stage)) {
+    update.qualification_disposition = result.stage;
+    if (ALLOWED_LEAD_STAGES.has(result.stage)) update.stage = result.stage;
+  }
+  if (typeof result.notes === "string" && result.notes.trim().length > 0) {
+    update.notes = result.notes.slice(0, 2000);
+  }
+  return update;
+}
 
 async function writeLeadQualificationBack(job: AIJob, result: Record<string, unknown>, cid: string): Promise<void> {
   const leadId = job.payload?.lead_id;
   if (typeof leadId !== "string" || !leadId) {
     throw new NonRetryableJobError("QUALIFY_LEAD job has no payload.lead_id — nothing to write the qualification back to.", "INVALID_PAYLOAD");
   }
-  const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  if (typeof result.score === "number" && Number.isFinite(result.score)) {
-    update.lead_score = Math.max(0, Math.min(100, Math.round(result.score as number)));
-  }
-  if (typeof result.stage === "string" && ALLOWED_LEAD_STAGES.has(result.stage)) {
-    update.stage = result.stage;
-  }
-  if (typeof result.notes === "string" && result.notes.trim().length > 0) {
-    update.notes = result.notes.slice(0, 2000);
-  }
+  const update: Record<string, unknown> = { ...normalizeLeadQualification(result), updated_at: new Date().toISOString() };
   const { data, error } = await supabase
     .from("leads")
     .update(update)

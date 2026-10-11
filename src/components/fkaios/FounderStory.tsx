@@ -14,7 +14,9 @@ interface StreamEvent { ts: string; actor: string; actor_type: string; action: s
 interface Collab { from_agent: string; to_agent: string; task: string; status: string; requires_founder_approval: boolean; created_at: string; }
 interface DeptStatus { code: string; name: string; staffed: number; output_24h: number; status: string; reason: string; }
 interface SilenceAlert { title: string; detail: string; department: string; created_at: string; }
-interface Revenue { invoices_total: number; invoiced_inr: number; received_inr: number; paid_invoices: number; }
+interface ActivityTotals { total: number; dispatch_events: number; execution_events: number; completed_jobs: number; qualified: number; failures: number; }
+interface ApprovalTotals { approval_records_pending: number; approval_records_aged_48h: number; gated_delegations_pending: number; gated_delegations_aged_48h: number; }
+interface Revenue { invoices_total: number; invoiced_inr: number; received_inr: number; paid_invoices: number; pending_approval_invoices?: number; approved_invoices?: number; sent_invoices?: number; delivered_invoices?: number; invoices_with_approval_evidence?: number; invoice_state_note?: string; }
 interface Mission {
   target_inr: number; target_crore: number; received_inr: number; gap_inr: number; gap_crore: number;
   pct_achieved: number; deadline: string; days_remaining: number; months_remaining: number;
@@ -59,6 +61,8 @@ interface StoryData {
   alerts?: SilenceAlert[];
   workforce?: { is_active: boolean; status: string; verdict?: string | null; total_tasks_completed: number | null; tasks_completed: number; name: string; success_rate: number | null; department?: string | null }[];
   activity_stream?: StreamEvent[];
+  activity_totals_24h?: ActivityTotals;
+  approval_totals?: ApprovalTotals;
   collaboration?: Collab[];
   approval_queue?: { action_type: string; risk_level: string; amount_inr: number | null; reason: string }[];
   executive_cycles?: { founder_briefing: string; opportunities: any[]; risks: any[]; created_at: string }[];
@@ -95,7 +99,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
   const collab = data.collaboration ?? [];
   const approvals = data.approval_queue ?? [];
   const cycle = (data.executive_cycles ?? [])[0];
-  const rev = data.revenue ?? { invoices_total: 0, invoiced_inr: 0, received_inr: 0, paid_invoices: 0 };
+  const rev = data.revenue ?? { invoices_total: 0, invoiced_inr: 0, received_inr: 0, paid_invoices: 0, pending_approval_invoices: 0, approved_invoices: 0, sent_invoices: 0, delivered_invoices: 0, invoices_with_approval_evidence: 0 };
   const mission = data.mission;
   const econ = data.economics;
   const blk = data.blockers;
@@ -106,9 +110,9 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
   const workforceLineage = (w: WorkforceTruth): LineageSpec => ({
     title: 'The AI workforce, graded',
     value: `${w.producing_24h} of ${w.total_employees} producing`,
-    source: 'public.compute_workforce_truth() over ai_agents × agent_dispatch_log × agent_performance_metrics',
+    source: 'public.compute_workforce_truth() over ai_agents × ai_jobs × agent_performance_metrics',
     derivation:
-      `PRODUCING = completed a dispatch in the last 24h. DORMANT = has produced before, but nothing in 24h. ` +
+      `PRODUCING = has at least one ai_jobs row with status=completed in the rolling 24h. This is job-completion evidence, not independent QA verification. DORMANT = has completed a job before, but none in 24h. ` +
       `NAMEPLATE = has NEVER completed a single task in its existence. BURNING = has spent money and produced nothing, ever (the worst class). ` +
       `${w.headline}` + (w.burning_warning ? ` ⚠ ${w.burning_warning}` : ''),
     reconciles: false,
@@ -166,8 +170,8 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
   const s = useMemo(() => {
     const dayAgo = Date.now() - 24 * 3600 * 1000;
     const last24 = stream.filter(e => new Date(e.ts).getTime() > dayAgo);
-    const producing = wf.filter(a => (a.total_tasks_completed ?? 0) > 0 || a.tasks_completed > 0);
-    const active = wf.filter(a => a.verdict === 'PRODUCING');
+    const producing = wf.filter(a => a.verdict === 'PRODUCING');
+    const active = producing;
     const matchAction = (needle: string) => last24.filter(e => (e.action || '').toLowerCase().includes(needle));
     const discoveredEvents = [...matchAction('hunt'), ...matchAction('discover')];
     const qualifiedEvents = matchAction('qualify');
@@ -177,20 +181,26 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
       ...approvals.map(a => ({ primary: a.action_type, secondary: a.reason, status: a.risk_level, meta: a.amount_inr != null ? `₹${Number(a.amount_inr).toLocaleString('en-IN')}` : undefined } as LineageRow)),
       ...collab.filter(c => c.requires_founder_approval && c.status !== 'completed').map(c => ({ primary: `${c.from_agent} → ${c.to_agent}`, secondary: c.task, status: c.status, ts: c.created_at } as LineageRow)),
     ];
+    const exact = data.activity_totals_24h;
+    const approvalTotals = data.approval_totals;
     return {
-      ops24: last24.length, producing: producing.length, total: wf.length, active: active.length,
-      discovered: discoveredEvents.length, qualified: qualifiedEvents.length,
-      failures: failureEvents.length, topWorker, pendingApprovals: approvalRows.length,
+      ops24: exact?.total ?? last24.length,
+      producing: data.workforce_truth?.producing_24h ?? producing.length,
+      total: data.workforce_truth?.total_employees ?? wf.length, active: active.length,
+      discovered: discoveredEvents.length,
+      qualified: exact?.qualified ?? qualifiedEvents.length,
+      failures: exact?.failures ?? failureEvents.length, topWorker,
+      pendingApprovals: approvalTotals ? approvalTotals.approval_records_pending + approvalTotals.gated_delegations_pending : approvalRows.length,
       last24, producingList: producing, discoveredEvents, qualifiedEvents, failureEvents, approvalRows,
     };
-  }, [wf, stream, collab, approvals]);
+  }, [wf, stream, collab, approvals, data.activity_totals_24h, data.approval_totals, data.workforce_truth]);
 
   // ── P2 LINEAGE (Palantir principle): every number clicks through to its
   // source rows, built from the SAME live payload — zero extra queries, zero
   // fabrication. A generic panel shows source, derivation, rows, reconciliation.
   const [lineage, setLineage] = useState<LineageSpec | null>(null);
   const evRow = (e: StreamEvent): LineageRow => ({ primary: e.actor, secondary: `${e.action}${e.outcome ? ` — ${e.outcome}` : ''}`, status: e.status, ts: e.ts });
-  const streamCaveat = 'Computed over the live activity_stream payload (agent_dispatch_log joined to agent names + execution_log), capped at the 60 most recent events by the server, filtered to the last 24 hours client-side.';
+  const streamCaveat = 'Headline activity count is exact from COUNT(*) over agent_dispatch_log + execution_log in the rolling 24h. Drill-down rows are a capped recent sample (up to 60), not the full counted set.';
 
   // Revenue is THE number. Its lineage is the most important one in the system:
   // it must be impossible to believe ₹0 is a rendering bug rather than reality.
@@ -202,6 +212,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
     reconciles: false,
     rows: rev.invoices_total === 0 ? [] : [
       { primary: 'Invoices on record', secondary: `${rev.invoices_total} total · ${rev.paid_invoices} with money received`, meta: `Invoiced ${inr(rev.invoiced_inr)} · Received ${inr(rev.received_inr)}` },
+      { primary: 'Invoice lifecycle evidence', secondary: `${rev.pending_approval_invoices ?? 'unknown'} pending approval · ${rev.approved_invoices ?? 'unknown'} approved · ${rev.sent_invoices ?? 'unknown'} sent · ${rev.delivered_invoices ?? 'unknown'} delivered`, meta: `${rev.invoices_with_approval_evidence ?? 'unknown'} of ${rev.invoices_total} have approval evidence. Sent/delivered is not inferred from a draft or invoice row.` },
     ],
     emptyTruth: 'company_invoices is EMPTY. Zero invoices have ever been created, so zero rupees have ever been received. This is not a display error and not a loading state — the enterprise has never billed a customer. ₹0 is the true and current state.',
   });
@@ -259,8 +270,8 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
     return {
       title: `${d.name} — reporting ${d.status.replace('_', '-')}`,
       value: `${d.output_24h} outcomes / 24h`,
-      source: 'departments × ai_agents × agent_dispatch_log (via governance-dashboard → department_status)',
-      derivation: `Staffed = agents whose department = '${d.code}'. Output = agent_dispatch_log rows from those agents in the last 24h with status 'completed' or 'success'. A staffed department with 0 outcomes reports NO-GO — silence is never consent (Mission Control rule). ${d.reason}.`,
+      source: 'departments × ai_agents × completed ai_jobs in rolling 24h (via governance-dashboard → department_status)',
+      derivation: `Staffed = agents whose department = '${d.code}'. Output = ai_jobs rows assigned to those agents with status 'completed' in the rolling 24h. This is completed-job evidence, not independent QA verification. A staffed department with 0 completed jobs reports NO-GO — silence is never consent. ${d.reason}.`,
       reconciles: false,
       rows: roster.length === 0
         ? []
@@ -298,13 +309,13 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
               In the last 24 hours your AI workforce ran{' '}
               <NumBtn value={s.ops24} onOpen={() => setLineage({
                 title: 'Operations in the last 24 hours', value: String(s.ops24),
-                source: 'agent_dispatch_log + execution_log (via governance-dashboard → activity_stream)',
+                source: 'Exact COUNT(*) queries over agent_dispatch_log + execution_log, UTC rolling 24h; recent feed is a bounded sample',
                 derivation: streamCaveat,
                 rows: s.last24.map(evRow),
                 emptyTruth: 'No agent dispatches or engine executions were recorded in the last 24h. The workforce did nothing measurable.',
               })} /> operations.{' '}
               <NumBtn value={s.producing} tone={s.producing > 0 ? 'text-emerald-300' : 'text-amber-300'} onOpen={() => setLineage({
-                title: 'Employees that produced real work', value: String(s.producing),
+                title: 'Employees with completed jobs in the last 24 hours', value: String(s.producing),
                 source: 'ai_agents.total_tasks_completed + agent_workday.tasks_completed (via governance-dashboard → workforce)',
                 derivation: 'An agent counts as producing when total_tasks_completed > 0 OR today\'s agent_workday.tasks_completed > 0. Lifetime output, not a 24h window.',
                 rows: s.producingList.map(a => ({ primary: a.name, secondary: a.department ? `dept: ${a.department}` : undefined, status: a.status, meta: `${a.total_tasks_completed ?? 0} lifetime tasks${a.success_rate != null ? ` · ${Math.round(Number(a.success_rate))}% success` : ''}` } as LineageRow)),
@@ -315,7 +326,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
                 source: 'ai_agents (via governance-dashboard → workforce)',
                 derivation: 'Every row in ai_agents returned by the governance payload — active and idle alike. Being on the roster is not evidence of output; see the producing count.',
                 rows: [...wf].sort((a, b) => (b.total_tasks_completed ?? 0) - (a.total_tasks_completed ?? 0)).map(a => ({ primary: a.name, secondary: a.department ? `dept: ${a.department}` : undefined, status: a.status, meta: `${a.total_tasks_completed ?? 0} lifetime tasks` } as LineageRow)),
-              })} /> employees produced real work
+              })} /> employees completed a job
               {s.producing < s.total && <span className="text-slate-400"> — the other {s.total - s.producing} were scheduled but idle</span>}.
               {s.topWorker && (s.topWorker.total_tasks_completed ?? 0) > 0 && <> Your hardest worker is <b className="text-white">{s.topWorker.name}</b> ({s.topWorker.total_tasks_completed} tasks{s.topWorker.success_rate != null ? `, ${Math.round(Number(s.topWorker.success_rate))}% success` : ''}).</>}
             </p>
@@ -331,7 +342,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
                 <NumBtn value={s.qualified} onOpen={() => setLineage({
                   title: 'Lead qualification passes (24h)', value: String(s.qualified),
                   source: 'agent_dispatch_log + execution_log (activity_stream)',
-                  derivation: `Events in the last 24h whose action contains "qualify". ${streamCaveat} NOTE: a qualification pass is not a qualified lead — 0 leads have ever scored ≥40 and advanced past stage='new'.`,
+                  derivation: `Events in the last 24h whose action contains "qualify". ${streamCaveat} NOTE: a qualification job is not proof that the lead advanced. The revenue-blocker RPC reports current score-threshold and lifecycle-stage counts separately.`,
                   rows: s.qualifiedEvents.map(evRow),
                 })} /> scoring passes</> : <>was idle</>}.
               {' '}Revenue recorded so far:{' '}
@@ -560,6 +571,11 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                 <span className="text-sm text-emerald-200">Nothing needs you right now — the enterprise is running itself.</span>
               </div>
+            )}
+            {data.approval_totals && (data.approval_totals.approval_records_aged_48h > 0 || data.approval_totals.gated_delegations_aged_48h > 0) && (
+              <span className="text-[11px] text-amber-300/90">
+                Aged &gt;48h: {data.approval_totals.approval_records_aged_48h} approval records · {data.approval_totals.gated_delegations_aged_48h} founder-gated delegations
+              </span>
             )}
             <button onClick={onToggle} className="ml-auto flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 border border-slate-700 rounded-lg px-3 py-1.5">
               {expanded ? <>Hide the full command center <ChevronUp className="w-3.5 h-3.5" /></> : <>Open the full command center <ChevronDown className="w-3.5 h-3.5" /></>}

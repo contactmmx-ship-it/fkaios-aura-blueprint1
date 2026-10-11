@@ -221,6 +221,10 @@ function healthDb() {
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
+export function isProviderInCooldown(state: { status: string; unavailable_until: string | null }, nowMs = Date.now()): boolean {
+  return state.status !== "available" && !!state.unavailable_until && new Date(state.unavailable_until).getTime() > nowMs;
+}
+
 async function loadRuntimeProviderHealth(providers: ProviderName[]): Promise<Partial<Record<ProviderName, { status: string; unavailable_until: string | null }>>> {
   const db = healthDb();
   if (!db || providers.length === 0) return {};
@@ -1029,7 +1033,11 @@ export async function callLLM(request: LLMRequest, config: RouterConfig): Promis
   const runtimeHealth = await loadRuntimeProviderHealth(candidates);
   const excluded: ProviderName[] = [];
   for (const [provider, state] of Object.entries(runtimeHealth) as [ProviderName, {status:string; unavailable_until:string|null}][]) {
-    if (state.status === "unavailable" && state.unavailable_until && new Date(state.unavailable_until).getTime() > Date.now()) excluded.push(provider);
+    // Rate limits and invalid responses are marked "degraded", but they still
+    // carry an explicit cooldown. Respect unavailable_until for every non-
+    // available state; checking only status === "unavailable" caused rate-limited
+    // providers to be selected again immediately on the next request.
+    if (isProviderInCooldown(state)) excluded.push(provider);
   }
   const attempts: CallAttempt[] = [];
   let tokenUsage: { input: number; output: number } | null = null;
