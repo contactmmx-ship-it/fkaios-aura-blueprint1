@@ -39,8 +39,14 @@ interface ApprovalItem {
   reason: string | null;
   risk_level: RiskLevel;
   amount_inr: number | null;
-  payload: { rejected_alternatives?: RejectedAlternative[] } | null;
+  payload: {
+    rejected_alternatives?: RejectedAlternative[];
+    candidate?: string;
+    incumbent?: string;
+    evidence?: { suite?: string; overall?: number; candidate_score?: number; regressions?: number; governance?: { mode?: string; reason?: string } };
+  } | null;
   created_at: string;
+  expires_at: string | null;
 }
 interface DelegationItem {
   source: 'delegation';
@@ -67,6 +73,27 @@ function riskTone(risk: string) {
   if (risk === 'medium') return 'bg-amber-500/20 text-amber-400 border-amber-900';
   return 'bg-slate-800 text-slate-400 border-slate-700';
 }
+function approvalTitle(actionType: string) {
+  const known: Record<string, string> = {
+    executive_capital_allocation: 'Capital allocation request',
+    lead_qualification_research_required: 'Research a prospective lead',
+    price_and_send_proposal: 'Price and send customer proposal',
+    approve_software_build: 'Approve a software build',
+    capability_adoption: 'Change AI model routing',
+    founder_brain_task: 'Founder Brain decision',
+    orchestrator_prepared_action: 'Prepared action awaiting decision',
+  };
+  if (known[actionType]) return known[actionType];
+  if (actionType.startsWith('send_franchise_campaign__')) return `Send franchise campaign — ${actionType.replace('send_franchise_campaign__', '').replaceAll('_', ' ')}`;
+  return actionType.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function needsEvidenceHold(item: DecisionItem) {
+  if (item.source !== 'approvals') return false;
+  const governanceReason = item.payload?.evidence?.governance?.reason || '';
+  return item.action_type === 'capability_adoption' && /cost is unknown|cost unknown|higher than the incumbent/i.test(governanceReason || item.reason || '');
+}
+
 function formatCurrency(val: number | null) {
   if (val === null || val === undefined) return null;
   if (val >= 10000000) return `₹${(val / 10000000).toFixed(2)}Cr`;
@@ -89,13 +116,15 @@ export function useDecisionItems() {
     // true even if client-side filtering is bypassed, stale, or mis-rendered.
     const [otherApprRes, activeFounderRes, delRes, reqRes] = await Promise.all([
       supabase.from('approvals')
-        .select('id, action_type, reason, risk_level, amount_inr, payload, created_at')
+        .select('id, action_type, reason, risk_level, amount_inr, payload, created_at, expires_at')
         .eq('status', 'pending')
+        .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
         .neq('action_type', 'founder_brain_task')
         .order('created_at', { ascending: true }),
       supabase.from('approvals')
-        .select('id, action_type, reason, risk_level, amount_inr, payload, created_at')
+        .select('id, action_type, reason, risk_level, amount_inr, payload, created_at, expires_at')
         .eq('status', 'pending')
+        .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
         .eq('action_type', 'founder_brain_task')
         .in('id', (
           (await supabase
@@ -123,7 +152,7 @@ export function useDecisionItems() {
     const approvals: ApprovalItem[] = [
       ...(otherApprRes.data || []),
       ...(activeFounderRes.data || []),
-    ].map((a: any) => ({ source: 'approvals', id: a.id, action_type: a.action_type, reason: a.reason, risk_level: a.risk_level, amount_inr: a.amount_inr, payload: a.payload, created_at: a.created_at }));
+    ].map((a: any) => ({ source: 'approvals', id: a.id, action_type: a.action_type, reason: a.reason, risk_level: a.risk_level, amount_inr: a.amount_inr, payload: a.payload, created_at: a.created_at, expires_at: a.expires_at }));
     const delegations: DelegationItem[] = (delRes.data || []).map((d: any) => ({ source: 'delegation', id: d.id, from_agent: d.from_agent, to_agent: d.to_agent, task_description: d.task_description, risk_level: d.context?.risk_level || 'medium', created_at: d.created_at }));
     const requests: RequestItem[] = (reqRes.data || []).map((r: any) => ({ source: 'request', id: r.id, raw_request: r.raw_request, department_code: r.department_code, risk_level: r.risk_level, created_at: r.created_at }));
     const all: DecisionItem[] = [...approvals, ...delegations, ...requests].sort((a, b) => (riskWeight[b.risk_level] || 0) - (riskWeight[a.risk_level] || 0));
@@ -145,6 +174,8 @@ export async function decideItem(item: DecisionItem, decision: 'approved' | 'rej
       .from('approvals')
       .update({ status: decision, decided_by: 'founder', decided_at: decidedAt })
       .eq('id', item.id)
+      .eq('status', 'pending')
+      .or(`expires_at.is.null,expires_at.gt.${decidedAt}`)
       .select('id, payload')
       .single();
     if (approvalError) throw approvalError;
@@ -252,9 +283,13 @@ export default function DecisionCenter({ compact = false, limit }: { compact?: b
           {visible.map((item) => {
             const key = `${item.source}-${item.id}`;
             const amount = item.source === 'approvals' ? formatCurrency(item.amount_inr) : null;
-            const title = item.source === 'approvals' ? item.action_type : item.source === 'delegation' ? `${item.from_agent} → ${item.to_agent}` : item.raw_request;
+            const title = item.source === 'approvals' ? approvalTitle(item.action_type) : item.source === 'delegation' ? `${item.from_agent} → ${item.to_agent}` : item.raw_request;
             const detail = item.source === 'approvals' ? item.reason : item.source === 'delegation' ? item.task_description : `Department: ${item.department_code || '—'}`;
             const readOnly = item.source === 'request';
+            const evidenceHold = needsEvidenceHold(item);
+            const modelEvidence = item.source === 'approvals' ? item.payload?.evidence : undefined;
+            const candidateScore = modelEvidence?.candidate_score ?? modelEvidence?.overall;
+            const candidateScoreDisplay = typeof candidateScore === 'number' ? `${candidateScore <= 1 ? Math.round(candidateScore * 100) : candidateScore}${candidateScore <= 1 ? '%' : ''}` : '—';
             return (
               <div key={key} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -265,8 +300,18 @@ export default function DecisionCenter({ compact = false, limit }: { compact?: b
                   </div>
                   <span className={`shrink-0 text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full border ${riskTone(item.risk_level)}`}>{item.risk_level}</span>
                 </div>
+                {item.source === 'approvals' && item.action_type === 'capability_adoption' && item.payload?.candidate && (
+                  <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-[11px] space-y-1">
+                    <p className="text-slate-300">Candidate: <span className="font-mono">{item.payload.candidate}</span></p>
+                    {item.payload.incumbent && <p className="text-slate-400">Current model: <span className="font-mono">{item.payload.incumbent}</span></p>}
+                    {modelEvidence?.suite && <p className="text-slate-500">Benchmark: {modelEvidence.suite} · candidate score {candidateScoreDisplay} · regressions {modelEvidence.regressions ?? 'not reported'}</p>}
+                    {evidenceHold && <p className="text-amber-300">Cost has not been verified. The recorded incumbent score is zero, so this comparison is not enough to justify a switch.</p>}
+                  </div>
+                )}
                 {readOnly ? (
                   <p className="mt-2 flex items-center gap-1.5 text-[10px] text-slate-500"><Info className="w-3 h-3" /> Informational only — this request type has no wired approve/reject path yet. Manage via AI Company.</p>
+                ) : evidenceHold ? (
+                  <p className="mt-3 flex items-center gap-1.5 text-xs text-amber-300"><Info className="w-3.5 h-3.5" /> Held for evidence — no approval or rejection action is available until cost and benchmark validity are verified.</p>
                 ) : (
                   <div className="flex gap-2 mt-3">
                     <button onClick={() => handleClick(item, 'approved')} disabled={decidingId === item.id} className="flex items-center gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg disabled:opacity-50">
