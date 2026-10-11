@@ -44,7 +44,7 @@ SECURITY DEFINER
 SET search_path TO 'public', 'extensions', 'pg_temp'
 AS $$
 BEGIN
-  IF NEW.stage IS NOT DISTINCT FROM OLD.stage OR NEW.stage <> 'qualified' THEN
+  IF NEW.stage IS NOT DISTINCT FROM OLD.stage OR NEW.stage IS DISTINCT FROM 'qualified' THEN
     RETURN NEW;
   END IF;
   IF EXISTS (
@@ -72,7 +72,7 @@ SECURITY DEFINER
 SET search_path TO 'public', 'extensions', 'pg_temp'
 AS $$
 BEGIN
-  IF NEW.stage IS NOT DISTINCT FROM OLD.stage OR NEW.stage <> 'won' THEN
+  IF NEW.stage IS NOT DISTINCT FROM OLD.stage OR NEW.stage IS DISTINCT FROM 'won' THEN
     RETURN NEW;
   END IF;
   IF EXISTS (
@@ -100,7 +100,7 @@ SECURITY DEFINER
 SET search_path TO 'public', 'extensions', 'pg_temp'
 AS $$
 BEGIN
-  IF NEW.stage IS NOT DISTINCT FROM OLD.stage OR NEW.stage NOT IN ('contacted','qualified') THEN
+  IF NEW.stage IS NOT DISTINCT FROM OLD.stage OR (NEW.stage IS DISTINCT FROM 'contacted' AND NEW.stage IS DISTINCT FROM 'qualified') THEN
     RETURN NEW;
   END IF;
   IF EXISTS (
