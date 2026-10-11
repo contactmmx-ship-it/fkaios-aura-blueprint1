@@ -71,6 +71,31 @@ function verifiedRate(p: PerformanceEntry | undefined): number | null {
   return p.verified_count / p.sample_size;
 }
 
+/** Build a non-persisted catalog candidate for the configured local model.
+ * This makes active cloud-only routing policies local-first without mutating
+ * production routing rows. The endpoint must be reachable from this runtime.
+ */
+export function configuredLocalModelEntry(
+  env: (key: string) => string | undefined = (key) => Deno.env.get(key),
+): CatalogEntry | null {
+  const baseUrl = (env("SELF_HOSTED_LLM_BASE_URL") ?? "").trim();
+  if (!baseUrl || ["false", "0"].includes((env("PROVIDER_SELF_HOSTED_ENABLED") ?? "").toLowerCase())) return null;
+  const model = (env("SELF_HOSTED_LLM_MODEL") ?? "qwen2.5:14b").trim();
+  if (!model) return null;
+  return {
+    resource_ref: `model:self_hosted:${model}`,
+    provider: "self_hosted",
+    model,
+    lifecycle_state: "candidate",
+    access_state: "configured",
+    health_status: "unknown",
+    unavailable_until: null,
+    free_tier: true,
+    cost_in_per_mtok: 0,
+    context_window: null,
+  };
+}
+
 export function rankResources(input: {
   taskClass: string;
   catalog: CatalogEntry[];
@@ -105,7 +130,10 @@ export function rankResources(input: {
   const scored: Scored[] = [];
   for (const entry of byRef.values()) {
     const ref = entry.resource_ref;
-    const policyRank = input.policy?.resource_refs.indexOf(ref) ?? -1;
+    const isConfiguredLocal = entry.provider === "self_hosted" && input.configuredProviders.includes("self_hosted");
+    // A reachable configured local model leads active cloud policies by default.
+    // Explicit hard excludes and real provider-health failures still apply.
+    const policyRank = isConfiguredLocal ? -1 : (input.policy?.resource_refs.indexOf(ref) ?? -1);
     if (exclude.has(ref)) { skipped.push({ ref, reason: "excluded by caller" }); continue; }
     if (entry.lifecycle_state === "retired") { skipped.push({ ref, reason: "retired" }); continue; }
     if (policyRank < 0 && !allowed.has(entry.lifecycle_state)) { skipped.push({ ref, reason: `lifecycle ${entry.lifecycle_state} not allowed for ${purpose}` }); continue; }
@@ -118,7 +146,7 @@ export function rankResources(input: {
     if (entry.unavailable_until && new Date(entry.unavailable_until).getTime() > now.getTime()) penalty += 2;
     if (entry.access_state === "no_credit") penalty += 2;
     if (avoid.has(ref)) penalty += 1;
-    scored.push({ entry, policyRank: policyRank < 0 ? Number.MAX_SAFE_INTEGER : policyRank, tier: LIFECYCLE_TIER[entry.lifecycle_state] ?? 5, penalty, learned: verifiedRate(perf.get(ref)) });
+    scored.push({ entry, policyRank: isConfiguredLocal ? -1 : (policyRank < 0 ? Number.MAX_SAFE_INTEGER : policyRank), tier: LIFECYCLE_TIER[entry.lifecycle_state] ?? 5, penalty, learned: verifiedRate(perf.get(ref)) });
   }
 
   // Learning: a policy resource with enough verified evidence that is clearly
@@ -172,9 +200,12 @@ export async function selectResources(db: Db, taskClass: string, options: Select
   const unavailableProviders = ((healthRes.data ?? []) as Array<{ provider: string; status: string; unavailable_until: string | null }>)
     .filter((h) => h.status === "unavailable" && h.unavailable_until && new Date(h.unavailable_until) > now)
     .map((h) => h.provider);
+  const catalog = ((catalogRes.data ?? []) as CatalogEntry[]).slice();
+  const localModel = configuredLocalModelEntry();
+  if (localModel && !catalog.some((entry) => entry.resource_ref === localModel.resource_ref)) catalog.push(localModel);
   return rankResources({
     taskClass,
-    catalog: (catalogRes.data ?? []) as CatalogEntry[],
+    catalog,
     policy: (policyRes.data ?? null) as RoutingPolicy | null,
     performance: (perfRes.data ?? []) as PerformanceEntry[],
     configuredProviders: configuredProviderNames(),
