@@ -85,7 +85,7 @@ function approvalTitle(actionType: string) {
   };
   if (known[actionType]) return known[actionType];
   if (actionType.startsWith('send_franchise_campaign__')) return `Send franchise campaign — ${actionType.replace('send_franchise_campaign__', '').replaceAll('_', ' ')}`;
-  return actionType.replaceAll('_', ' ').replace(/\\b\\w/g, (letter) => letter.toUpperCase());
+  return actionType.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function needsEvidenceHold(item: DecisionItem) {
