@@ -1,5 +1,5 @@
 import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { configuredLocalModelEntry, rankResources } from "./resource-selection.ts";
+import { configuredLocalModelEntry, configuredProviderNames, rankResources } from "./resource-selection.ts";
 
 Deno.test("configured local model is synthesized without a database catalog row", () => {
   const local = configuredLocalModelEntry((key) => ({
@@ -32,6 +32,20 @@ Deno.test("bridge flag enables a local candidate without a direct hosted URL", (
     FKAIOS_LOCAL_INFERENCE_BRIDGE_ENABLED: "true",
     PROVIDER_SELF_HOSTED_ENABLED: "false",
   } as Record<string, string>)[key]), null);
+});
+
+Deno.test("bridge mode blocks cloud providers unless fallback is explicitly enabled", () => {
+  const env = (values: Record<string, string>) => (key: string) => values[key];
+  assertEquals(configuredProviderNames(env({
+    FKAIOS_LOCAL_INFERENCE_BRIDGE_ENABLED: "true",
+    GEMINI_API_KEY: "present",
+    OPENAI_API_KEY: "present",
+  })), ["self_hosted"]);
+  assertEquals(configuredProviderNames(env({
+    FKAIOS_LOCAL_INFERENCE_BRIDGE_ENABLED: "true",
+    FKAIOS_ALLOW_CLOUD_FALLBACK: "true",
+    GEMINI_API_KEY: "present",
+  })).sort(), ["gemini", "self_hosted"]);
 });
 
 Deno.test("configured local model precedes active cloud-only policy resources", () => {
