@@ -16,6 +16,7 @@ on:
       - "supabase/config.toml"
       - "supabase/migrations/20261011000000_fkaios_local_inference_queue.sql"
       - "scripts/local-ai/fkaios-local-worker.py"
+      - "scripts/local-ai/test_fkaios_local_worker.py"
       - ".github/workflows/objective-verifier-tests.yml"
   push:
     branches:
@@ -60,3 +61,5 @@ jobs:
         run: deno check --node-modules-dir=auto supabase/functions/local-inference-bridge/index.ts
       - name: Validate Windows worker Python syntax
         run: python -m py_compile scripts/local-ai/fkaios-local-worker.py
+      - name: Run offline local worker tests
+        run: python scripts/local-ai/test_fkaios_local_worker.py
