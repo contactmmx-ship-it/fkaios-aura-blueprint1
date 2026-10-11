@@ -1114,7 +1114,24 @@ export async function createTask(userId: string, task: TaskCandidate, correlatio
           if (linkError) throw linkError;
         }
       } catch (approvalErr) {
-        log("ERROR", "createTask: failed to file approvals row (task itself was still created, but may be invisible to the Founder)", { error: approvalErr instanceof Error ? approvalErr.message : String(approvalErr) }, correlationId);
+        const approvalError = approvalErr instanceof Error ? approvalErr.message : String(approvalErr);
+        // FAIL CLOSED: an approval-gated request without a durable, linked
+        // approval must never look successfully submitted or remain queued
+        // forever in awaiting_approval. Preserve the request for audit, but
+        // move it to a truthful terminal failure and return an error.
+        await client.from("orchestrator_requests")
+          .update({
+            status: "failed",
+            result_summary: `Approval record creation/linking failed: ${approvalError}`,
+          })
+          .eq("id", data.id);
+        log("ERROR", "createTask: approval record creation/linking failed; request marked failed", { error: approvalError, requestId: data.id }, correlationId);
+        return {
+          source: "orchestrator_requests",
+          status: "error",
+          data,
+          error: `Approval record creation/linking failed: ${approvalError}`,
+        };
       }
     }
     try { await founderMemory.episodic.append({ function_name: "founder-brain", action: "createTask", status: "success", output_summary: task.description.slice(0, 300) }); } catch { /* non-blocking */ }
