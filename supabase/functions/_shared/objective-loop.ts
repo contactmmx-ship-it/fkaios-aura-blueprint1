@@ -1034,23 +1034,20 @@ export async function runObjectiveLoop(
       const deadlineStart = objectiveRunStartedAt(objective);
       const budgetMinutes = objectiveDeadlineMinutes(Deno.env.get("OBJECTIVE_DEADLINE_MINUTES"));
       const deadline = objectiveDeadline(deadlineStart, new Date(), budgetMinutes);
-      if (deadline.expired) {
-        const summary = deadline.reason + " Automatic replanning stopped; inspect persisted task outputs and failure evidence before an explicit rerun.";
-        await markObjective(supabase, String(objective.id), "failed", summary);
-        await syncObjectiveState(
-          supabase,
-          { id: String(objective.id), status: "failed", raw_request: String(objective.raw_request ?? "") },
-          { phase: "failed", reason: summary, patch: { deadline_minutes: budgetMinutes, elapsed_minutes: deadline.elapsedMinutes, next_action: "Review the terminal failure and evidence; rerun only after correcting the blocker." } },
-        );
-        results.push({ objectiveId: String(objective.id), action: "failed", summary });
-        continue;
-      }
+      // The deadline bounds automatic planning/replanning, not the lifetime of
+      // an already-running worker. Let persisted work settle and be verified;
+      // if it cannot satisfy the objective, the deadline guard below prevents
+      // another planning pass. Failing here used to leave active projects/tasks
+      // behind a terminal FAILED objective and could discard a just-finished result.
+      const deadlineExpired = deadline.expired;
+      const deadlineSummary = deadline.reason +
+        " Automatic replanning is disabled for this run; existing work will be reconciled and verified before a terminal decision.";
       /*
        * Founder-requested re-run (founder-objective `rerun`): start a new
        * planning pass now. Earlier projects/tasks stay as history; the
        * objective is judged on the new pass from here on.
        */
-      if (isRerunRequested(objective)) {
+      if (!deadlineExpired && isRerunRequested(objective)) {
         // The founder asked for a fresh pass: close the current one first, or
         // the duplicate-active-project guard rejects the new plan on every run
         // (Kids DPS 20cbf892, 9 Oct 12:58–13:11 UTC: "DUPLICATE_ACTIVE_
@@ -1106,7 +1103,7 @@ export async function runObjectiveLoop(
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (planContractMismatch(livePass, String(objective.raw_request ?? ""))) {
+      if (!deadlineExpired && planContractMismatch(livePass, String(objective.raw_request ?? ""))) {
         const expected = projectOutputType(classifyObjective(String(objective.raw_request ?? "")));
         const reasonText = `Plan ${livePass!.id} was created for output '${livePass!.output_type}', but the objective contract now requires '${expected}'. Retired and replanned.`;
         const retire = await retireLivePasses(supabase, String(objective.id), reasonText);
@@ -1351,6 +1348,23 @@ export async function runObjectiveLoop(
        * blocker in this codebase is surfaced — a stuck objective is a
        * real one, not silently dropped.
        */
+      // A deadline may stop further planning, but it must not override a
+      // verified success or a genuine approval blocker. At this point no task
+      // is active/pending and the evaluator could not establish either outcome;
+      // fail truthfully without creating another project.
+      if (deadlineExpired) {
+        const summary = deadlineSummary + " Current work was reconciled, but the original objective remains unverified. " +
+          (evaluation.reason || evaluation.next_action || "No independently verified completion evidence was available.");
+        await markObjective(supabase, String(objective.id), "failed", summary);
+        await syncObjectiveState(
+          supabase,
+          { id: String(objective.id), status: "failed", raw_request: String(objective.raw_request ?? "") },
+          { phase: "failed", reason: summary, patch: { deadline_minutes: budgetMinutes, elapsed_minutes: deadline.elapsedMinutes, next_action: "Review persisted task outputs and evidence; explicitly rerun only after correcting the concrete blocker." } },
+        );
+        results.push({ objectiveId: String(objective.id), action: "failed", projectId: latestProjectId, summary });
+        continue;
+      }
+
       if (evaluation.verifierUnavailable) {
         await syncObjectiveState(supabase, { id: String(objective.id), status: "processing", raw_request: String(objective.raw_request ?? "") }, { phase: "verifying", reason: evaluation.reason, patch: { next_action: evaluation.next_action } });
         results.push({ objectiveId: String(objective.id), action: "no_action", projectId: latestProjectId, summary: `Verification pending: ${evaluation.reason}` });
