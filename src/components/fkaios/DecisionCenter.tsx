@@ -41,6 +41,7 @@ interface ApprovalItem {
   amount_inr: number | null;
   payload: { rejected_alternatives?: RejectedAlternative[] } | null;
   created_at: string;
+  expires_at: string | null;
 }
 interface DelegationItem {
   source: 'delegation';
@@ -89,13 +90,15 @@ export function useDecisionItems() {
     // true even if client-side filtering is bypassed, stale, or mis-rendered.
     const [otherApprRes, activeFounderRes, delRes, reqRes] = await Promise.all([
       supabase.from('approvals')
-        .select('id, action_type, reason, risk_level, amount_inr, payload, created_at')
+        .select('id, action_type, reason, risk_level, amount_inr, payload, created_at, expires_at')
         .eq('status', 'pending')
+        .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
         .neq('action_type', 'founder_brain_task')
         .order('created_at', { ascending: true }),
       supabase.from('approvals')
-        .select('id, action_type, reason, risk_level, amount_inr, payload, created_at')
+        .select('id, action_type, reason, risk_level, amount_inr, payload, created_at, expires_at')
         .eq('status', 'pending')
+        .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
         .eq('action_type', 'founder_brain_task')
         .in('id', (
           (await supabase
@@ -123,7 +126,7 @@ export function useDecisionItems() {
     const approvals: ApprovalItem[] = [
       ...(otherApprRes.data || []),
       ...(activeFounderRes.data || []),
-    ].map((a: any) => ({ source: 'approvals', id: a.id, action_type: a.action_type, reason: a.reason, risk_level: a.risk_level, amount_inr: a.amount_inr, payload: a.payload, created_at: a.created_at }));
+    ].map((a: any) => ({ source: 'approvals', id: a.id, action_type: a.action_type, reason: a.reason, risk_level: a.risk_level, amount_inr: a.amount_inr, payload: a.payload, created_at: a.created_at, expires_at: a.expires_at }));
     const delegations: DelegationItem[] = (delRes.data || []).map((d: any) => ({ source: 'delegation', id: d.id, from_agent: d.from_agent, to_agent: d.to_agent, task_description: d.task_description, risk_level: d.context?.risk_level || 'medium', created_at: d.created_at }));
     const requests: RequestItem[] = (reqRes.data || []).map((r: any) => ({ source: 'request', id: r.id, raw_request: r.raw_request, department_code: r.department_code, risk_level: r.risk_level, created_at: r.created_at }));
     const all: DecisionItem[] = [...approvals, ...delegations, ...requests].sort((a, b) => (riskWeight[b.risk_level] || 0) - (riskWeight[a.risk_level] || 0));
@@ -145,6 +148,8 @@ export async function decideItem(item: DecisionItem, decision: 'approved' | 'rej
       .from('approvals')
       .update({ status: decision, decided_by: 'founder', decided_at: decidedAt })
       .eq('id', item.id)
+      .eq('status', 'pending')
+      .or(`expires_at.is.null,expires_at.gt.${decidedAt}`)
       .select('id, payload')
       .single();
     if (approvalError) throw approvalError;
