@@ -62,6 +62,7 @@ interface StoryData {
   activity_stream?: StreamEvent[];
   collaboration?: Collab[];
   approval_queue?: { action_type: string; risk_level: string; amount_inr: number | null; reason: string }[];
+  approval_totals?: { approval_records_pending: number; approval_records_aged_48h: number; gated_delegations_pending: number; gated_delegations_aged_48h: number };
   executive_cycles?: { founder_briefing: string; opportunities: any[]; risks: any[]; created_at: string }[];
   kpi_latest?: Record<string, { value: number }>;
   summary?: { violations: number } | null;
@@ -187,7 +188,10 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
       discovered: data.activity_totals_24h?.discovered ?? discoveredEvents.length,
       qualified: data.activity_totals_24h?.qualified ?? qualifiedEvents.length,
       failures: data.activity_totals_24h?.failures ?? failureEvents.length,
-      topWorker, pendingApprovals: approvalRows.length,
+      topWorker,
+      approvalRecordsPending: data.approval_totals?.approval_records_pending ?? approvals.length,
+      gatedDelegationsPending: data.approval_totals?.gated_delegations_pending ?? collab.filter(c => c.requires_founder_approval && c.status !== 'completed').length,
+      pendingApprovals: (data.approval_totals?.approval_records_pending ?? approvals.length) + (data.approval_totals?.gated_delegations_pending ?? collab.filter(c => c.requires_founder_approval && c.status !== 'completed').length),
       last24, producingList: producing, discoveredEvents, qualifiedEvents, failureEvents, approvalRows,
     };
   }, [wf, stream, collab, approvals, data.activity_totals_24h, data.workforce_truth]);
@@ -543,6 +547,7 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-amber-200">{a.title}</p>
                     <p className="text-[11px] text-amber-200/70 leading-snug">{a.detail}</p>
+                    <p className="text-[9px] text-amber-400/50 mt-1">Notification generated {rel(a.created_at)} · {hhmm(a.created_at)}</p>
                   </div>
                 </div>
               ))}
@@ -554,18 +559,18 @@ export default function FounderStory({ data, expanded, onToggle }: { data: Story
             {s.pendingApprovals > 0 ? (
               <button onClick={() => setLineage({
                 title: 'Decisions waiting on the Chairman',
-                value: String(s.pendingApprovals),
-                source: 'approvals (status=pending) + agent_task_delegations (requires_founder_approval)',
-                derivation: 'Every open item in the approval queue, plus every agent-to-agent delegation flagged requires_founder_approval that has not completed. These are the items the enterprise cannot proceed past without you.',
+                value: `${s.approvalRecordsPending} approval records + ${s.gatedDelegationsPending} founder-gated delegations`,
+                source: 'Exact counts from approvals (status=pending) and agent_task_delegations (requires_founder_approval; open statuses)',
+                derivation: 'The two queues are shown separately and their counts are not guaranteed to be distinct business decisions. Inspect the source rows before treating the combined count as unique decisions.',
                 rows: s.approvalRows,
               })} className="flex items-center gap-2 rounded-lg bg-amber-950/40 border border-amber-800 px-3 py-1.5 hover:border-amber-600 cursor-pointer">
                 <AlertTriangle className="w-4 h-4 text-amber-400" />
-                <span className="text-sm text-amber-200 font-medium">{s.pendingApprovals} {s.pendingApprovals === 1 ? 'decision needs' : 'decisions need'} your approval</span>
+                <span className="text-sm text-amber-200 font-medium">{s.approvalRecordsPending} approval records · {s.gatedDelegationsPending} founder-gated delegations</span>
               </button>
             ) : (
               <div className="flex items-center gap-2 rounded-lg bg-emerald-950/30 border border-emerald-900 px-3 py-1.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span className="text-sm text-emerald-200">Nothing needs you right now — the enterprise is running itself.</span>
+                <span className="text-sm text-emerald-200">No approval records or founder-gated delegations are currently waiting on you.</span>
               </div>
             )}
             <button onClick={onToggle} className="ml-auto flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 border border-slate-700 rounded-lg px-3 py-1.5">
