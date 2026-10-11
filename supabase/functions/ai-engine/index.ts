@@ -980,7 +980,7 @@ export type SystemHealthCheckConfig = { consoleUrl: string; supabaseUrl: string;
 export type SystemHealthCheckResult = { checked_at: string; healthy: boolean; checks: Array<{ target: "console" | "supabase_rest"; url: string; reachable: boolean; http_status: number | null; error?: string }> };
 export async function performSystemHealthCheck(config: SystemHealthCheckConfig, fetcher: typeof fetch = fetch): Promise<SystemHealthCheckResult> {
   const consoleUrl = config.consoleUrl || "https://fkaios-aura-blueprint1.vercel.app/console";
-  const base = config.supabaseUrl.replace(/\\/$/, "");
+  const base = config.supabaseUrl.replace(/\/$/, "");
   const checks: SystemHealthCheckResult["checks"] = [];
   const targets: Array<{ target: "console" | "supabase_rest"; url: string; headers?: HeadersInit }> = [
     { target: "console", url: consoleUrl },
