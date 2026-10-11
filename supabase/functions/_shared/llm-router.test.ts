@@ -16,6 +16,7 @@ import {
   buildLogEntry,
   getConfiguredDefaultProviders,
   prioritizeFreeProviders,
+  isProviderInCooldown,
   anthropicAdapter,
   geminiAdapter,
   openaiAdapter,
@@ -809,6 +810,14 @@ Deno.test("callLLMOnResources retries a transient capacity failure once after ba
   const r = await callLLMOnResources({ systemPrompt: "s", userContent: "u", functionName: "t", functionClass: "background_agent" }, config, [{ ref: "model:gemini:m", provider: "gemini", model: "m" }], { backoffMs: 1 });
   if (r.status !== "success" || calls !== 2) throw new Error(`status ${r.status}, calls ${calls}`);
   if (r.log.attempts[0].failureCategory !== "rate_limit") throw new Error(`first attempt ${r.log.attempts[0].failureCategory}`);
+});
+
+Deno.test("provider cooldown excludes rate-limited providers even when status is degraded", () => {
+  const now = Date.parse("2026-10-11T12:00:00.000Z");
+  assert(isProviderInCooldown({ status: "degraded", unavailable_until: "2026-10-11T12:02:00.000Z" }, now), "active degraded cooldown must be honored");
+  assert(!isProviderInCooldown({ status: "degraded", unavailable_until: "2026-10-11T11:59:00.000Z" }, now), "expired cooldown must not exclude a provider");
+  assert(!isProviderInCooldown({ status: "available", unavailable_until: "2026-10-11T12:02:00.000Z" }, now), "available status must remain eligible");
+  assert(!isProviderInCooldown({ status: "unavailable", unavailable_until: null }, now), "missing cooldown deadline must not permanently exclude a provider");
 });
 
 Deno.test("free-first provider policy prioritizes explicitly free cloud providers", () => {
