@@ -1174,6 +1174,24 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
   if (productBuildTask && objectiveIsProduct) return await executeProductBuild(job, cid);
   if (productLifecycleTask && objectiveIsProduct) return await executeProductLifecycle(job, cid);
 
+  // Infrastructure connectivity is a deterministic read-only check. Do not rely on the LLM to remember to invoke it: the verifier rejects narrative-only results, so dispatch the registered probe directly for founder-authorized audit tasks.
+  const infrastructureHealthCheckTask = job.type === "work_engine_task" &&
+    (job.payload?.founder_submitted === true || typeof job.payload?.objective_id === "string") &&
+    /system connectivity|infrastructure verification|connectivity test|infrastructure audit|production health check/i.test(productTaskText);
+  if (infrastructureHealthCheckTask) {
+    const capabilityResult = await performSystemHealthCheck({
+      consoleUrl: Deno.env.get("FKAIOS_CONSOLE_URL") ?? "https://fkaios-aura-blueprint1.vercel.app/console",
+      supabaseUrl: Deno.env.get("SUPABASE_URL") ?? "",
+      serviceRoleKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+    });
+    structuredLog("INFO", "Automatically executed read-only infrastructure health probe for founder audit task", {
+      jobId: job.id,
+      objectiveId: job.payload?.objective_id ?? null,
+      checks: capabilityResult.checks.map(({ target, reachable, http_status }) => ({ target, reachable, http_status })),
+    }, cid);
+    return { status: "success", capability: "system.health_check", capability_result: capabilityResult, automatic_capability_dispatch: true };
+  }
+
   structuredLog("INFO", `Executing job ${job.id} (type: ${job.type})`, { jobId: job.id, agentId: job.agent_id }, cid);
   const capabilityBlock = job.type === "work_engine_task" ? WORK_ENGINE_CAPABILITIES_BLOCK : "";
 
