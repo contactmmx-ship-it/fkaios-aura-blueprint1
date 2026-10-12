@@ -1012,6 +1012,61 @@ export async function runObjectiveLoop(
     console.error("objective-loop: gate re-check failed (non-blocking)", err instanceof Error ? err.message : String(err));
   }
 
+  // Reconcile Founder Brain requests whose linked approval was explicitly
+  // approved. The approval table is the decision record; the request status
+  // can remain stale at awaiting_approval after a partial failure. Never
+  // infer approval from prose or summaries, and never resume requests without
+  // an approval_id or whose approval has expired.
+  try {
+    const { data: gatedRequests, error: gatedError } = await supabase
+      .from("orchestrator_requests")
+      .select("id, approval_id")
+      .eq("requested_by", "founder-brain")
+      .eq("status", "awaiting_approval")
+      .not("approval_id", "is", null)
+      .limit(50);
+    if (gatedError) throw new Error(gatedError.message);
+    const candidates = (gatedRequests ?? []).filter((row: Record<string, unknown>) => typeof row.approval_id === "string");
+    if (candidates.length) {
+      const approvalIds = candidates.map((row: Record<string, unknown>) => String(row.approval_id));
+      const { data: approvals, error: approvalError } = await supabase
+        .from("approvals")
+        .select("id, status, expires_at")
+        .in("id", approvalIds)
+        .eq("status", "approved");
+      if (approvalError) throw new Error(approvalError.message);
+      const now = Date.now();
+      const approvedIds = new Set((approvals ?? [])
+        .filter((row: Record<string, unknown>) => {
+          if (!row.expires_at) return true;
+          const expiry = Date.parse(String(row.expires_at));
+          return Number.isFinite(expiry) && expiry > now;
+        })
+        .map((row: Record<string, unknown>) => String(row.id)));
+      for (const request of candidates) {
+        if (!approvedIds.has(String(request.approval_id))) continue;
+        const { data: resumed, error: resumeError } = await supabase
+          .from("orchestrator_requests")
+          .update({ status: "processing" })
+          .eq("id", String(request.id))
+          .eq("status", "awaiting_approval")
+          .select("id, raw_request")
+          .maybeSingle();
+        if (resumeError) throw new Error(resumeError.message);
+        if (resumed) {
+          const stateSync = await syncObjectiveState(
+            supabase,
+            { id: String(resumed.id), status: "processing", raw_request: String(resumed.raw_request ?? "") },
+            { phase: "executing", reason: "Reconciled stale request status from its linked, unexpired approved Founder Brain decision." },
+          );
+          if (!stateSync.ok) console.error("objective-loop: approved request state reconciliation failed", resumed.id, stateSync.error);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("objective-loop: approved Founder Brain request reconciliation failed", err instanceof Error ? err.message : String(err));
+  }
+
   const { data: objectives, error } = await supabase
     .from("orchestrator_requests")
     .select("*")
