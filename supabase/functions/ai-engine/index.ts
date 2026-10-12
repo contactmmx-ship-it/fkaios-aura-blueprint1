@@ -245,7 +245,7 @@ export function resultReportsFailure(parsed: unknown): string | null {
 // explicit admissions that the verification itself was not performed.
 export function resultLacksLiveInfrastructureEvidence(task: { title?: unknown; description?: unknown }, result: unknown): string | null {
   const taskText = [task.title, task.description].filter((v) => typeof v === "string").join(" ").toLowerCase();
-  if (!/system connectivity|infrastructure verification|connectivity test|infrastructure audit|production health check/.test(taskText)) return null;
+  if (!/\\b(system connectivity|infrastructure|connectivity test|production health check|database schema|cron execution|security audit|row.level security|rls)\\b/.test(taskText) || !/\\b(verify|audit|validate|health|security|connectivity)\\b/.test(taskText)) return null;
   const seen = new Set<unknown>();
   const hasProbe = (value: unknown): boolean => {
     if (!value || typeof value !== "object" || seen.has(value)) return false;
@@ -1037,6 +1037,11 @@ async function executeRequestedCapability(job: AIJob, parsed: Record<string, unk
   const capability = typeof parsed.capability === "string" ? parsed.capability : "";
   if (!capability) return parsed;
   const founderSubmitted = job.payload?.founder_submitted === true || (typeof job.payload?.objective_id === "string" && job.payload.objective_id.length > 0);
+  const taskText = [job.payload?.title, job.payload?.description].filter((v) => typeof v === "string").join(" ").toLowerCase();
+  const isInfrastructureAuditTask = /\\b(infrastructure|rls|row.level security|cron execution|database schema|security audit|production health check|system connectivity)\\b/.test(taskText) && /\\b(verify|audit|validate|health|security|connectivity)\\b/.test(taskText);
+  if (isInfrastructureAuditTask && capability === "research.run") {
+    throw new NonRetryableJobError("Infrastructure verification requires live system evidence; external web research is not an acceptable substitute.", "VERIFICATION_NOT_PERFORMED");
+  }
   const allowed = capability === "research.run" || capability === "research.status" || capability === "knowledge.search" || capability === "system.health_check";
   if (!founderSubmitted || !allowed) {
     throw new NonRetryableJobError(
@@ -1263,7 +1268,9 @@ const hasPriorCompletedEvidence = priorCompletedTasks.length > 0;
 const isDownstreamSynthesisTask = hasPriorCompletedEvidence && /\b(compile|final report|synthesis|verify|verification)\b/i.test(taskText);
 if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true || (typeof job.payload?.objective_id === "string" && job.payload.objective_id.length > 0))) {
   const taskNeedsExternalFacts = requiresExternalFacts({ title: job.payload?.title, description: job.payload?.description });
-  const researchNeeded = !isRectification && !isDownstreamSynthesisTask && (needsResearchBeforeAnswer({ title: job.payload?.title, description: job.payload?.description }) || taskNeedsExternalFacts);
+  const isInfrastructureAuditTask = /\\b(infrastructure|rls|row.level security|cron execution|database schema|security audit|production health check|system connectivity)\\b/i.test(taskText) && /\\b(verify|audit|validate|health|security|connectivity)\\b/i.test(taskText);
+  // Infrastructure audits must use live system evidence, not spend research credits on web articles.
+  const researchNeeded = !isInfrastructureAuditTask && !isRectification && !isDownstreamSynthesisTask && (needsResearchBeforeAnswer({ title: job.payload?.title, description: job.payload?.description }) || taskNeedsExternalFacts);
   if (researchNeeded && taskText) {
     const researchTitle = typeof job.payload?.title === "string" ? job.payload.title : taskText;
     const researchDescription = typeof job.payload?.description === "string" ? job.payload.description : "";
