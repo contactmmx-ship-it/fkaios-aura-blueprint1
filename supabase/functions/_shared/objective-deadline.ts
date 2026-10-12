@@ -53,3 +53,20 @@ export function objectiveDeadline(
       : `${remainingMinutes} minutes remain in the ${budgetMinutes}-minute objective budget.`,
   };
 }
+
+/**
+ * Count planning passes created during the current deliberate run. Historical
+ * projects remain in the database for auditability but must not consume the
+ * new run's bounded planning budget.
+ */
+export function projectsCreatedSince(
+  projects: Array<{ created_at?: unknown }>,
+  startedAt: string | null | undefined,
+): number {
+  const start = Date.parse(String(startedAt ?? ""));
+  if (!Number.isFinite(start)) return projects.length;
+  return projects.filter((project) => {
+    const created = Date.parse(String(project.created_at ?? ""));
+    return Number.isFinite(created) && created >= start;
+  }).length;
+}

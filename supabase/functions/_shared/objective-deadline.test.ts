@@ -1,5 +1,5 @@
 /// <reference lib="deno.ns" />
-import { objectiveDeadline, objectiveDeadlineMinutes, objectiveRunStartedAt, DEFAULT_OBJECTIVE_DEADLINE_MINUTES } from "./objective-deadline.ts";
+import { objectiveDeadline, objectiveDeadlineMinutes, objectiveRunStartedAt, projectsCreatedSince, DEFAULT_OBJECTIVE_DEADLINE_MINUTES } from "./objective-deadline.ts";
 
 function assert(condition: boolean, message: string): void { if (!condition) throw new Error(message); }
 
@@ -58,4 +58,17 @@ Deno.test("ordinary scheduler passes remain anchored to the original objective c
     result_summary: "old status summary",
   });
   assert(started === "2026-10-10T08:00:00.000Z", "scheduler ticks must not reset the budget");
+});
+
+Deno.test("a founder rerun gets a fresh planning budget while old projects remain history", () => {
+  const projects = [
+    { id: "old-1", created_at: "2026-10-11T10:00:00.000Z" },
+    { id: "old-2", created_at: "2026-10-11T11:00:00.000Z" },
+    { id: "new-1", created_at: "2026-10-12T08:56:27.000Z" },
+    { id: "new-2", created_at: "2026-10-12T08:57:00.000Z" },
+  ];
+  assert(projectsCreatedSince(projects, "2026-10-12T08:56:26.636Z") === 2,
+    "only projects created after this rerun started should consume its budget");
+  assert(projectsCreatedSince(projects, "bad-date") === 4,
+    "an unreadable start timestamp must conservatively count all projects");
 });

@@ -7,7 +7,7 @@ import { readObjectiveState, syncObjectiveState } from "./objective-state.ts";
 import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, type TaskEvidenceRecord } from "./fact-grounding.ts";
 import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP, projectUpdateForObjective } from "./objective-rerun.ts";
 import { classifyObjective, completionContract, planContractMismatch, projectOutputType } from "./objective-contract.ts";
-import { objectiveDeadline, objectiveDeadlineMinutes, objectiveRunStartedAt } from "./objective-deadline.ts";
+import { objectiveDeadline, objectiveDeadlineMinutes, objectiveRunStartedAt, projectsCreatedSince } from "./objective-deadline.ts";
 import { hasSubstantiveTaskOutput } from "./task-output.ts";
 
 type ObjectiveLoopResult = {
@@ -1487,7 +1487,12 @@ export async function runObjectiveLoop(
         }
       }
 
-      if (state.projects.length >= MAX_REPLAN_ATTEMPTS) {
+      const projectsThisRun = projectsCreatedSince(state.projects, deadlineStart);
+      if (projectsThisRun >= MAX_REPLAN_ATTEMPTS) {
+        // A deliberate founder rerun starts a new bounded budget. Older projects
+        // remain immutable history but must not exhaust the new run immediately.
+        // Ordinary scheduler ticks keep the same timestamp and therefore cannot
+        // reset the budget without a deliberate rerun request.
         // Exhausting the automatic planning budget is not a founder decision.
         // Keep the objective terminal and truthful instead of putting routine
         // recovery into awaiting_approval, which makes the Founder manage the
@@ -1497,13 +1502,13 @@ export async function runObjectiveLoop(
           supabase,
           String(objective.id),
           "failed",
-          `Automatic planning budget exhausted after ${state.projects.length} projects without reaching achieved/blocked/failed. No further automatic replanning will occur. Last evaluator reason: ${evaluation.reason || evaluation.next_action || "none given"}.`,
+          `Automatic planning budget exhausted after ${projectsThisRun} projects in this run (${state.projects.length} total historical projects) without reaching achieved/blocked/failed. No further automatic replanning will occur. Last evaluator reason: ${evaluation.reason || evaluation.next_action || "none given"}.`,
         );
         results.push({
           objectiveId: String(objective.id),
           action: "blocked",
           projectId: state.projects[0]?.id ? String(state.projects[0].id) : null,
-          summary: `Escalated after ${state.projects.length} replan attempts without convergence — needs human review.`,
+          summary: `Escalated after ${projectsThisRun} replan attempts in this run (${state.projects.length} total historical projects) without convergence — needs human review.`,
         });
         continue;
       }
