@@ -261,11 +261,11 @@ export function resultLacksLiveInfrastructureEvidence(task: { title?: unknown; d
   // Do not let two reachable endpoints satisfy a task that explicitly requires database,
   // cron, function, policy, or UI-level verification.
   const requiresFullAudit =
-    /\\brls\\b|row.level security/.test(taskText) ||
-    /(?:all|every)\\s+\\d+\\s+(?:supabase\\s+)?tables/.test(taskText) ||
-    /(?:all|every)\\s+\\d+\\s+(?:edge\\s+)?functions/.test(taskText) ||
-    /(?:all|every)\\s+\\d+\\s+crons/.test(taskText) ||
-    /(?:all|every)\\s+\\d+\\+?\\s+(?:console\\s+)?screens/.test(taskText);
+    /\brls\b|row.level security/.test(taskText) ||
+    /(?:all|every)\s+\d+\s+(?:supabase\s+)?tables/.test(taskText) ||
+    /(?:all|every)\s+\d+\s+(?:edge\s+)?functions/.test(taskText) ||
+    /(?:all|every)\s+\d+\s+crons/.test(taskText) ||
+    /(?:all|every)\s+\d+\+?\s+(?:console\s+)?screens/.test(taskText);
   if (requiresFullAudit) {
     const hasCompleteAudit = (value: unknown, seenAudit = new Set<unknown>()): boolean => {
       if (!value || typeof value !== "object" || seenAudit.has(value)) return false;
