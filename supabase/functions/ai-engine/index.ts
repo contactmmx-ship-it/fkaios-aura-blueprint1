@@ -1219,22 +1219,27 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
   if (productBuildTask && objectiveIsProduct) return await executeProductBuild(job, cid);
   if (productLifecycleTask && objectiveIsProduct) return await executeProductLifecycle(job, cid);
 
-  // Infrastructure connectivity is a deterministic read-only check. Do not rely on the LLM to remember to invoke it: the verifier rejects narrative-only results, so dispatch the registered probe directly for founder-authorized audit tasks.
-  const infrastructureHealthCheckTask = job.type === "work_engine_task" &&
+  // Infrastructure/RLS/cron audit tasks require live PostgreSQL catalog evidence.
+  // The former HTTP-only shortcut returned success with two 200s, then failed
+  // the evidence gate because it never inspected tables, functions, policies or crons.
+  const infrastructureAuditTask = job.type === "work_engine_task" &&
     (job.payload?.founder_submitted === true || typeof job.payload?.objective_id === "string") &&
-    /system connectivity|infrastructure verification|connectivity test|infrastructure audit|production health check/i.test(productTaskText);
-  if (infrastructureHealthCheckTask) {
-    const capabilityResult = await performSystemHealthCheck({
-      consoleUrl: Deno.env.get("FKAIOS_CONSOLE_URL") ?? "https://fkaios-aura-blueprint1.vercel.app/console",
-      supabaseUrl: Deno.env.get("SUPABASE_URL") ?? "",
-      serviceRoleKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-    });
-    structuredLog("INFO", "Automatically executed read-only infrastructure health probe for founder audit task", {
+    /system connectivity|infrastructure verification|connectivity test|infrastructure audit|production health check|database schema|row.level security|\\brls\\b|cron execution/i.test(productTaskText);
+  if (infrastructureAuditTask) {
+    const { data: capabilityResult, error: auditError } = await supabase.rpc("fkaios_infrastructure_audit");
+    if (auditError || !capabilityResult || typeof capabilityResult !== "object") {
+      throw new NonRetryableJobError(
+        "Live PostgreSQL infrastructure audit failed: " + (auditError?.message ?? "empty audit result"),
+        "INFRASTRUCTURE_AUDIT_FAILED",
+      );
+    }
+    structuredLog("INFO", "Automatically executed read-only PostgreSQL infrastructure audit for founder audit task", {
       jobId: job.id,
       objectiveId: job.payload?.objective_id ?? null,
-      checks: capabilityResult.checks.map(({ target, reachable, http_status }) => ({ target, reachable, http_status })),
+      counts: (capabilityResult as Record<string, unknown>).counts ?? null,
+      audit_scope_complete: (capabilityResult as Record<string, unknown>).audit_scope_complete === true,
     }, cid);
-    return { status: "success", capability: "system.health_check", capability_result: capabilityResult, automatic_capability_dispatch: true };
+    return { status: "success", capability: "system.infrastructure_audit", capability_result: capabilityResult, automatic_capability_dispatch: true };
   }
 
   structuredLog("INFO", `Executing job ${job.id} (type: ${job.type})`, { jobId: job.id, agentId: job.agent_id }, cid);
