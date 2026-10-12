@@ -86,6 +86,7 @@ export interface CapabilityDefinition {
 }
 
 export const CAPABILITY_REGISTRY: Record<string, CapabilityDefinition> = {
+  "system.health_check": { edgeFunction: "direct-read-only-health-probe", description: "Read-only HTTP reachability check for the production console and Supabase Auth/PostgREST endpoints; not a full infrastructure audit", verified: true },
   "whatsapp.send_message": { edgeFunction: "whatsapp-engine", action: "send_message", description: "Send a WhatsApp message", verified: true },
   "whatsapp.mark_replied": { edgeFunction: "whatsapp-engine", action: "mark_replied", description: "Mark a WhatsApp thread as replied", verified: true },
   "research.run": { edgeFunction: "research-engine", action: "run", description: "Run a research task", verified: true },
@@ -166,6 +167,69 @@ export async function executeProductCapability(
   }
 }
 
+// Fixed-target, read-only health probe. This deliberately does NOT accept URLs
+// from the task payload, preventing arbitrary outbound requests/SSRF. A green
+// result means only these HTTP endpoints responded successfully; it is not a
+// table, cron, RLS, Edge Function, or UI-wide health certification.
+async function executeSystemHealthCheck(correlationId?: string): Promise<ExecutionResult> {
+  const checkedAt = new Date().toISOString();
+  const supabaseUrl = (Deno.env.get("SUPABASE_URL") ?? "").replace(/\/+$/, "");
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const targets: Array<{ name: string; url: string; headers?: Record<string, string> }> = [
+    { name: "production_console", url: "https://fkaios-aura-blueprint1.vercel.app/console" },
+  ];
+  if (supabaseUrl && serviceKey) {
+    const headers = { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` };
+    targets.push(
+      { name: "supabase_auth_health", url: `${supabaseUrl}/auth/v1/health`, headers },
+      { name: "supabase_postgrest_root", url: `${supabaseUrl}/rest/v1/`, headers },
+    );
+  }
+  const probes = await Promise.all(targets.map(async (target) => {
+    const startedAt = Date.now();
+    try {
+      const response = await fetch(target.url, {
+        method: "GET",
+        headers: target.headers,
+        redirect: "follow",
+        signal: AbortSignal.timeout(8000),
+      });
+      return {
+        name: target.name,
+        url: target.url,
+        reachable: response.status >= 200 && response.status < 500,
+        http_status: response.status,
+        duration_ms: Date.now() - startedAt,
+        observed_at: new Date().toISOString(),
+      };
+    } catch (err) {
+      return {
+        name: target.name,
+        url: target.url,
+        reachable: false,
+        http_status: null,
+        duration_ms: Date.now() - startedAt,
+        observed_at: new Date().toISOString(),
+        error: (err instanceof Error ? err.message : String(err)).slice(0, 240),
+      };
+    }
+  }));
+  const missingSupabaseCredentials = !supabaseUrl || !serviceKey;
+  const allReachable = probes.every((probe) => probe.reachable) && !missingSupabaseCredentials;
+  const data = {
+    checked_at: checkedAt,
+    scope: "HTTP reachability only; does not verify database tables, SQL functions, cron jobs, RLS policies, all Edge Functions, or every UI screen",
+    missing_supabase_credentials: missingSupabaseCredentials,
+    probes,
+    all_probes_reachable: allReachable,
+  };
+  const error = allReachable ? undefined : "One or more fixed health probes failed, or Supabase URL/service-role credentials are unavailable";
+  await logExecution("system.health_check", "direct-read-only-health-probe", allReachable ? "success" : "error", { scope: data.scope }, data, correlationId, error);
+  return allReachable
+    ? { capability: "system.health_check", status: "success", data, attempts: 1 }
+    : { capability: "system.health_check", status: "error", error: error!, data, attempts: 1 };
+}
+
 export async function executeCapability(
   capability: string,
   payload: Record<string, unknown>,
@@ -173,6 +237,7 @@ export async function executeCapability(
   maxRetries = 2,
 ): Promise<ExecutionResult> {
   if (capability === "product.deploy" || capability === "product.verify") return executeProductCapability(capability, payload, correlationId);
+  if (capability === "system.health_check") return executeSystemHealthCheck(correlationId);
 
   const def = CAPABILITY_REGISTRY[capability];
   if (!def) {
