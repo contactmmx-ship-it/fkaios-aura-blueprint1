@@ -257,6 +257,29 @@ export function resultLacksLiveInfrastructureEvidence(task: { title?: unknown; d
     return Object.values(obj).some(hasProbe);
   };
   if (!hasProbe(result)) return "Infrastructure verification cannot be completed from narrative findings alone. Execute system.health_check and attach observed console/Supabase HTTP evidence. This probe checks reachability only, not every table, function, cron, or screen.";
+  // An HTTP probe is necessary but insufficient for an exhaustive infrastructure/RLS audit.
+  // Do not let two reachable endpoints satisfy a task that explicitly requires database,
+  // cron, function, policy, or UI-level verification.
+  const requiresFullAudit =
+    /\brls\b|row.level security/.test(taskText) ||
+    /(?:all|every)\s+\d+\s+(?:supabase\s+)?tables/.test(taskText) ||
+    /(?:all|every)\s+\d+\s+(?:edge\s+)?functions/.test(taskText) ||
+    /(?:all|every)\s+\d+\s+crons/.test(taskText) ||
+    /(?:all|every)\s+\d+\+?\s+(?:console\s+)?screens/.test(taskText);
+  if (requiresFullAudit) {
+    const hasCompleteAudit = (value: unknown, seenAudit = new Set<unknown>()): boolean => {
+      if (!value || typeof value !== "object" || seenAudit.has(value)) return false;
+      seenAudit.add(value);
+      if (Array.isArray(value)) return value.some((item) => hasCompleteAudit(item, seenAudit));
+      const obj = value as Record<string, unknown>;
+      const arrays = ["table_checks", "function_checks", "cron_checks", "rls_checks", "ui_checks"];
+      if (obj.audit_scope_complete === true && arrays.every((key) => Array.isArray(obj[key]) && (obj[key] as unknown[]).length > 0)) return true;
+      return Object.values(obj).some((item) => hasCompleteAudit(item, seenAudit));
+    };
+    if (!hasCompleteAudit(result)) {
+      return "Partial HTTP reachability evidence is recorded, but this task requires full table/function/cron/RLS/UI evidence. Do not mark complete until structured audit_scope_complete=true evidence includes non-empty table_checks, function_checks, cron_checks, rls_checks, and ui_checks.";
+    }
+  }
   return null;
 }
 
