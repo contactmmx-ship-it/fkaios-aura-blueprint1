@@ -197,7 +197,8 @@ async function executeSystemHealthCheck(correlationId?: string): Promise<Executi
       return {
         name: target.name,
         url: target.url,
-        reachable: response.status >= 200 && response.status < 500,
+        reachable: true, // An HTTP response arrived, regardless of whether it represents health.
+        healthy: response.ok, // Only 2xx responses count as healthy.
         http_status: response.status,
         duration_ms: Date.now() - startedAt,
         observed_at: new Date().toISOString(),
@@ -207,6 +208,7 @@ async function executeSystemHealthCheck(correlationId?: string): Promise<Executi
         name: target.name,
         url: target.url,
         reachable: false,
+        healthy: false,
         http_status: null,
         duration_ms: Date.now() - startedAt,
         observed_at: new Date().toISOString(),
@@ -215,17 +217,19 @@ async function executeSystemHealthCheck(correlationId?: string): Promise<Executi
     }
   }));
   const missingSupabaseCredentials = !supabaseUrl || !serviceKey;
-  const allReachable = probes.every((probe) => probe.reachable) && !missingSupabaseCredentials;
+  const allReachable = probes.every((probe) => probe.reachable);
+  const allHealthy = probes.length === 3 && probes.every((probe) => probe.healthy) && !missingSupabaseCredentials;
   const data = {
     checked_at: checkedAt,
     scope: "HTTP reachability only; does not verify database tables, SQL functions, cron jobs, RLS policies, all Edge Functions, or every UI screen",
     missing_supabase_credentials: missingSupabaseCredentials,
     probes,
     all_probes_reachable: allReachable,
+    all_probes_healthy: allHealthy,
   };
-  const error = allReachable ? undefined : "One or more fixed health probes failed, or Supabase URL/service-role credentials are unavailable";
-  await logExecution("system.health_check", "direct-read-only-health-probe", allReachable ? "success" : "error", { scope: data.scope }, data, correlationId, error);
-  return allReachable
+  const error = allHealthy ? undefined : "One or more fixed health probes returned non-2xx responses, or Supabase URL/service-role credentials are unavailable";
+  await logExecution("system.health_check", "direct-read-only-health-probe", allHealthy ? "success" : "error", { scope: data.scope }, data, correlationId, error);
+  return allHealthy
     ? { capability: "system.health_check", status: "success", data, attempts: 1 }
     : { capability: "system.health_check", status: "error", error: error!, data, attempts: 1 };
 }
