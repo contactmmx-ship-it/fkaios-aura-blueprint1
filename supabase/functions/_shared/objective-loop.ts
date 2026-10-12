@@ -1057,7 +1057,7 @@ export async function runObjectiveLoop(
           const stateSync = await syncObjectiveState(
             supabase,
             { id: String(resumed.id), status: "processing", raw_request: String(resumed.raw_request ?? "") },
-            { phase: "executing", reason: "Reconciled stale request status from its linked, unexpired approved Founder Brain decision." },
+            { phase: "verifying", reason: "Reconciled stale request status from its linked, unexpired approved Founder Brain decision; re-enter verification before further execution." },
           );
           if (!stateSync.ok) console.error("objective-loop: approved request state reconciliation failed", resumed.id, stateSync.error);
         }
