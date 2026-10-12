@@ -1242,6 +1242,28 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
     return { status: "success", capability: "system.infrastructure_audit", capability_result: capabilityResult, automatic_capability_dispatch: true };
   }
 
+  // Brand/CRM verification must use actual database bindings and lead records,
+  // never public web research as a substitute for pipeline evidence.
+  const brandPipelineAuditTask = job.type === "work_engine_task" &&
+    (job.payload?.founder_submitted === true || typeof job.payload?.objective_id === "string") &&
+    /brand.*crm|crm.*brand|brand pipeline|crm pipeline|lead ingestion|pipeline synchronization|unified brand/i.test(productTaskText);
+  if (brandPipelineAuditTask) {
+    const { data: capabilityResult, error: auditError } = await supabase.rpc("fkaios_brand_pipeline_audit");
+    if (auditError || !capabilityResult || typeof capabilityResult !== "object") {
+      throw new NonRetryableJobError(
+        "Live brand pipeline audit failed: " + (auditError?.message ?? "empty audit result"),
+        "BRAND_PIPELINE_AUDIT_FAILED",
+      );
+    }
+    structuredLog("INFO", "Automatically executed read-only brand pipeline audit for founder task", {
+      jobId: job.id,
+      objectiveId: job.payload?.objective_id ?? null,
+      counts: (capabilityResult as Record<string, unknown>).counts ?? null,
+      brand_pipeline_complete: (capabilityResult as Record<string, unknown>).brand_pipeline_complete === true,
+    }, cid);
+    return { status: "success", capability: "system.brand_pipeline_audit", capability_result: capabilityResult, automatic_capability_dispatch: true };
+  }
+
   structuredLog("INFO", `Executing job ${job.id} (type: ${job.type})`, { jobId: job.id, agentId: job.agent_id }, cid);
   const capabilityBlock = job.type === "work_engine_task" ? WORK_ENGINE_CAPABILITIES_BLOCK : "";
 
