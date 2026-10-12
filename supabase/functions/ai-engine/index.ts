@@ -254,6 +254,7 @@ export function resultLacksLiveInfrastructureEvidence(task: { title?: unknown; d
     const obj = value as Record<string, unknown>;
     const nested = obj.capability_result && typeof obj.capability_result === "object" ? obj.capability_result as Record<string, unknown> : null;
     if (obj.capability === "system.health_check" && nested && Array.isArray(nested.checks) && nested.checks.length >= 2 && nested.checks.every((item) => item && typeof item === "object" && typeof (item as Record<string, unknown>).http_status === "number")) return true;
+    if (obj.capability === "system.infrastructure_audit" && nested && nested.audit_scope_complete === true && ["table_checks", "function_checks", "cron_checks", "rls_checks"].every((key) => Array.isArray(nested[key]) && (nested[key] as unknown[]).length > 0)) return true;
     return Object.values(obj).some(hasProbe);
   };
   if (!hasProbe(result)) return "Infrastructure verification cannot be completed from narrative findings alone. Execute system.health_check and attach observed console/Supabase HTTP evidence. This probe checks reachability only, not every table, function, cron, or screen.";
@@ -272,8 +273,13 @@ export function resultLacksLiveInfrastructureEvidence(task: { title?: unknown; d
       seenAudit.add(value);
       if (Array.isArray(value)) return value.some((item) => hasCompleteAudit(item, seenAudit));
       const obj = value as Record<string, unknown>;
-      const arrays = ["table_checks", "function_checks", "cron_checks", "rls_checks", "ui_checks"];
-      if (obj.audit_scope_complete === true && arrays.every((key) => Array.isArray(obj[key]) && (obj[key] as unknown[]).length > 0)) return true;
+      const requiredArrays: string[] = [];
+      if (/\btable(s)?\b/.test(taskText)) requiredArrays.push("table_checks");
+      if (/\bfunction(s)?\b/.test(taskText)) requiredArrays.push("function_checks");
+      if (/\bcron(s)?\b/.test(taskText)) requiredArrays.push("cron_checks");
+      if (/\brls\b|row.level security/.test(taskText)) requiredArrays.push("rls_checks");
+      if (/\bscreen(s)?\b|\bui\b|route verification|console route/.test(taskText)) requiredArrays.push("ui_checks");
+      if (obj.audit_scope_complete === true && requiredArrays.length > 0 && requiredArrays.every((key) => Array.isArray(obj[key]) && (obj[key] as unknown[]).length > 0)) return true;
       return Object.values(obj).some((item) => hasCompleteAudit(item, seenAudit));
     };
     if (!hasCompleteAudit(result)) {
@@ -1000,6 +1006,9 @@ APPROVED CAPABILITIES:
 - "system.health_check" — run read-only live HTTP checks against the FKAIOS production console and this project's Supabase REST API. Returns per-target HTTP evidence; a reachable service is not proof that every feature is healthy.
   Payload: {} (no fields required)
 
+- "system.infrastructure_audit" — run read-only PostgreSQL catalog checks across all public tables/RLS flags, public SQL functions/security-definer search_path, RLS policy coverage, and all configured cron jobs with latest recorded run details. This does NOT audit UI routes or external CRM integration.
+  Payload: {} (no fields required)
+
 - "research.run" — run the project's configured external research engine for a founder-requested research task.
   This is an orchestrator-approved, read-only research action. It may consume the configured Apify account's credits.
   Payload: { "query": "string (required)", "requested_by": "fkaios-orchestrator" }
@@ -1010,6 +1019,7 @@ Rules:
 - Do not invent a capability name.
 - Do not claim the capability already ran or succeeded. You are requesting the dispatch; the dispatcher records the actual result.
 - If the task needs real-world facts and research.run is appropriate, prefer research.run over returning no_data_source.
+- Infrastructure/RLS/cron audit tasks MUST request "system.infrastructure_audit"; never substitute research.run or web citations for live database evidence. If UI routes or external CRM systems are also requested, report those as separate unverified scope unless direct evidence is attached.
 - If the task does not require external research, do not force research.run.
 - Respond with ONLY this JSON shape when requesting a capability:
 { "capability": "<exact name>", "payload": { ... } }
@@ -1042,7 +1052,7 @@ async function executeRequestedCapability(job: AIJob, parsed: Record<string, unk
   if (isInfrastructureAuditTask && capability === "research.run") {
     throw new NonRetryableJobError("Infrastructure verification requires live system evidence; external web research is not an acceptable substitute.", "VERIFICATION_NOT_PERFORMED");
   }
-  const allowed = capability === "research.run" || capability === "research.status" || capability === "knowledge.search" || capability === "system.health_check";
+  const allowed = capability === "research.run" || capability === "research.status" || capability === "knowledge.search" || capability === "system.health_check" || capability === "system.infrastructure_audit";
   if (!founderSubmitted || !allowed) {
     throw new NonRetryableJobError(
       `Capability request '${capability}' was not authorized for this work_engine_task; refusing autonomous external dispatch.`,
@@ -1056,6 +1066,12 @@ async function executeRequestedCapability(job: AIJob, parsed: Record<string, unk
     const result = await performSystemHealthCheck({ consoleUrl: Deno.env.get("FKAIOS_CONSOLE_URL") ?? "https://fkaios-aura-blueprint1.vercel.app/console", supabaseUrl: Deno.env.get("SUPABASE_URL") ?? "", serviceRoleKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "" });
     structuredLog("INFO", "Read-only system health check executed", { capability, healthy: result.healthy, checks: result.checks.map(({ target, reachable, http_status }) => ({ target, reachable, http_status })), objectiveId: job.payload?.objective_id ?? null }, cid);
     return { status: "success", capability, capability_result: result };
+  }
+  if (capability === "system.infrastructure_audit") {
+    const { data, error } = await supabase.rpc("fkaios_infrastructure_audit");
+    if (error || !data || typeof data !== "object") throw new NonRetryableJobError("Live infrastructure audit failed: " + (error?.message ?? "empty audit result"), "INFRASTRUCTURE_AUDIT_FAILED");
+    structuredLog("INFO", "Live PostgreSQL infrastructure audit executed", { capability, counts: (data as Record<string, unknown>).counts ?? null, objectiveId: job.payload?.objective_id ?? null }, cid);
+    return { status: "success", capability, capability_result: data };
   }
   if (capability === "research.run") payload.requested_by = "fkaios-orchestrator";
   const dispatch = await executeCapability(capability, payload, cid);
