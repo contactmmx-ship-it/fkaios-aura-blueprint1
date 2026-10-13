@@ -1240,7 +1240,7 @@ export async function runObjectiveLoop(
       if (taskIds.length > 0) {
         const { data: objectiveJobs } = await supabase
           .from("ai_jobs")
-          .select("id, status, retry_count, payload, created_at")
+          .select("id, status, retry_count, payload, created_at, error")
           .eq("type", "work_engine_task")
           .in("payload->>task_id", taskIds)
           .order("created_at", { ascending: false });
@@ -1269,6 +1269,35 @@ export async function runObjectiveLoop(
           // doing so races the completion-return step below and can erase a
           // genuinely completed execution before it is persisted to the task.
           if (!hasLiveJob && !hasCompletedJob) {
+            const failedJob = jobs.find((job) =>
+              String(job.status ?? "") === "failed" &&
+              /CAPABILITY_UNAVAILABLE|no approved repository-write capability is available/i.test(String(job.error ?? ""))
+            );
+            if (failedJob) {
+              // A missing execution capability is not a transient worker failure.
+              // Re-queueing the same task creates an infinite retry/replan loop.
+              // Persist the real blocker and park the objective for a deliberate
+              // capability/tool decision; never imply that the requested mutation ran.
+              const reason = String(failedJob.error ?? "Required execution capability is unavailable.").slice(0, 1200);
+              const { error: taskBlockError } = await supabase.from("orchestration_tasks")
+                .update({
+                  status: "failed",
+                  output: JSON.stringify({ status: "blocked_capability", reason, verified: false }),
+                })
+                .eq("id", task.id)
+                .in("status", ["pending", "assigned", "running", "working", "rework"]);
+              if (taskBlockError) throw new Error(`Failed parking capability-blocked task ${String(task.id)}: ${taskBlockError.message}`);
+              task.status = "failed";
+              const summary = `Capability unavailable — FKAIOS stopped this objective instead of repeatedly retrying a task that requires repository/configuration write access. No code/configuration change was performed. Required capability: ${reason}`;
+              await markObjective(supabase, String(objective.id), "awaiting_approval", summary);
+              results.push({
+                objectiveId: String(objective.id),
+                action: "blocked",
+                projectId: latestProjectId,
+                summary,
+              });
+              continue;
+            }
             const hadFailedJob = jobs.some((job) => String(job.status ?? "") === "failed");
             await supabase.from("orchestration_tasks")
               .update({ status: "rework", output: JSON.stringify({
