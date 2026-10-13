@@ -78,6 +78,14 @@ t("infrastructure evidence gate: leaves unrelated tasks alone", () => {
   assert(gap === null, "Unrelated research tasks must not be blocked");
 });
 
+t("infrastructure evidence gate: does not hijack CRM implementation tasks", () => {
+  const gap = resultLacksLiveInfrastructureEvidence({
+    title: "Consolidate and Validate Operational CRM Infrastructure",
+    description: "Integrate the chosen canonical CRM implementation and bind brand pipelines to existing RLS policies verified in previous audits.",
+  }, { findings: ["Implementation analysis"] });
+  assert(gap === null, "CRM implementation tasks must not be forced into the infrastructure-audit evidence gate");
+});
+
 // ---------------------------------------------------------------------------
 // extractJSONFromText — GENERATE_INVOICE JSON failure fix (item 2).
 // Regression coverage for the documented live failure: "Unexpected
