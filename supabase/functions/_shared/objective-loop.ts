@@ -1278,12 +1278,18 @@ export async function runObjectiveLoop(
         }
         for (const task of state.tasks) {
           const taskStatus = String(task.status ?? "");
+          // Only reconcile active/rework tasks. A historical failed job must
+          // never overwrite a newer completed task result.
+          if (!["assigned", "running", "working", "rework"].includes(taskStatus)) continue;
           const jobs = jobsByTask.get(String(task.id)) ?? [];
-          // A structural/non-retryable failure is terminal for this task. Do
-          // not checkpoint-resume it or convert it back to rework on every
-          // tick; persist the exact disposition so the objective evaluator can
-          // block/replan based on the real missing capability.
-          const permanentJob = jobs.find((job) => terminalJobFailure(job as { status?: unknown; result?: unknown; error?: unknown }));
+          const hasLiveJob = jobs.some((job) => ["pending", "running", "retry"].includes(String(job.status ?? "")));
+          const hasCompletedJob = jobs.some((job) => String(job.status ?? "") === "completed");
+          // A structural/non-retryable failure is terminal only when no newer
+          // live/completed job supersedes it. Do not checkpoint-resume it or
+          // convert it back to rework on every tick; preserve the disposition.
+          const permanentJob = !hasLiveJob && !hasCompletedJob
+            ? jobs.find((job) => terminalJobFailure(job as { status?: unknown; result?: unknown; error?: unknown }))
+            : undefined;
           if (permanentJob) {
             const failure = terminalJobFailure(permanentJob as { status?: unknown; result?: unknown; error?: unknown })!;
             const failureOutput = JSON.stringify({
@@ -1306,8 +1312,6 @@ export async function runObjectiveLoop(
           // returns, and are allocated further below. Only tasks that claim to
           // be executing without a job are orphaned.
           if (!["assigned", "running", "working"].includes(taskStatus)) continue;
-          const hasLiveJob = jobs.some((job) => ["pending", "running", "retry"].includes(String(job.status ?? "")));
-          const hasCompletedJob = jobs.some((job) => String(job.status ?? "") === "completed");
           // A completed job is executable evidence even if returnCompletedWork()
           // has not closed the task yet. Never convert such a task to rework:
           // doing so races the completion-return step below and can erase a
