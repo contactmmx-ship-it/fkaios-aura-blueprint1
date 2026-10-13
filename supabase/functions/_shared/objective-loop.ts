@@ -1513,6 +1513,28 @@ export async function runObjectiveLoop(
         continue;
       }
 
+      // Close the evaluated pass before inserting its continuation. The
+      // project-level uniqueness guard correctly rejects a second active
+      // project for the same objective, but without retiring this exhausted
+      // pass every tick returned DUPLICATE_ACTIVE_ORCHESTRATION_PROJECT and
+      // never reached a terminal decision. This path is reached only after
+      // there is no active/pending work, no achieved/blocked/failed verdict,
+      // no rectification left, and the bounded replan budget has room.
+      const retire = await retireLivePasses(
+        supabase,
+        String(objective.id),
+        `Objective evaluation did not establish completion; starting a bounded continuation pass. ${evaluation.reason || evaluation.next_action || ""}`.slice(0, 900),
+      );
+      if (retire.waiting) {
+        results.push({
+          objectiveId: String(objective.id),
+          action: "no_action",
+          projectId: latestProjectId,
+          summary: "Continuation is waiting for a live execution to finish before retiring the prior pass.",
+        });
+        continue;
+      }
+
       const continuation = await createContinuationProject(
         objective,
         correlationId,
