@@ -954,6 +954,25 @@ async function createContinuationProject(
   };
 }
 
+/** Read a terminal, non-retryable job failure without trusting its prose alone. */
+export function terminalJobFailure(job: { status?: unknown; result?: unknown; error?: unknown }): { reason: string; disposition: string } | null {
+  if (String(job.status ?? "") !== "failed") return null;
+  let result: Record<string, unknown> | null = null;
+  if (job.result && typeof job.result === "object" && !Array.isArray(job.result)) {
+    result = job.result as Record<string, unknown>;
+  } else if (typeof job.result === "string") {
+    try {
+      const parsed = JSON.parse(job.result);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) result = parsed as Record<string, unknown>;
+    } catch { /* use the persisted error column below */ }
+  }
+  if (result?.retryable !== false) return null;
+  return {
+    reason: String(result.error ?? job.error ?? "Non-retryable execution failure."),
+    disposition: String(result.kernel_disposition ?? "NON_RETRYABLE_FAILURE"),
+  };
+}
+
 export async function runObjectiveLoop(
   correlationId?: string,
 ): Promise<ObjectiveLoopResult[]> {
@@ -1240,7 +1259,7 @@ export async function runObjectiveLoop(
       if (taskIds.length > 0) {
         const { data: objectiveJobs } = await supabase
           .from("ai_jobs")
-          .select("id, status, retry_count, payload, created_at, error")
+          .select("id, status, retry_count, payload, created_at, error, result")
           .eq("type", "work_engine_task")
           .in("payload->>task_id", taskIds)
           .order("created_at", { ascending: false });
@@ -1254,63 +1273,86 @@ export async function runObjectiveLoop(
           list.push(job as Record<string, unknown>);
           jobsByTask.set(taskId, list);
         }
+        let capabilityBlockedForObjective = false;
         for (const task of state.tasks) {
           const taskStatus = String(task.status ?? "");
-          // "pending" is excluded: pending tasks are deliberately held back
-          // (no ai_jobs row yet) until the previous task in the evidence chain
-          // returns, and are allocated further below. Only tasks that claim to
-          // be executing without a job are orphaned.
-          if (!["assigned", "running", "working"].includes(taskStatus)) continue;
+          // Rework tasks are inspected too: otherwise a persisted terminal
+          // failure can be checkpoint-resumed forever. Pending tasks remain
+          // held back until their evidence-chain predecessor returns.
+          if (!["assigned", "running", "working", "rework"].includes(taskStatus)) continue;
           const jobs = jobsByTask.get(String(task.id)) ?? [];
           const hasLiveJob = jobs.some((job) => ["pending", "running", "retry"].includes(String(job.status ?? "")));
           const hasCompletedJob = jobs.some((job) => String(job.status ?? "") === "completed");
           // A completed job is executable evidence even if returnCompletedWork()
-          // has not closed the task yet. Never convert such a task to rework:
-          // doing so races the completion-return step below and can erase a
-          // genuinely completed execution before it is persisted to the task.
-          if (!hasLiveJob && !hasCompletedJob) {
-            const failedJob = jobs.find((job) =>
-              String(job.status ?? "") === "failed" &&
-              /CAPABILITY_UNAVAILABLE|no approved repository-write capability is available/i.test(String(job.error ?? ""))
-            );
-            if (failedJob) {
-              // A missing execution capability is not a transient worker failure.
-              // Re-queueing the same task creates an infinite retry/replan loop.
-              // Persist the real blocker and park the objective for a deliberate
-              // capability/tool decision; never imply that the requested mutation ran.
-              const reason = String(failedJob.error ?? "Required execution capability is unavailable.").slice(0, 1200);
-              const { error: taskBlockError } = await supabase.from("orchestration_tasks")
-                .update({
-                  status: "failed",
-                  output: JSON.stringify({ status: "blocked_capability", reason, verified: false }),
-                })
-                .eq("id", task.id)
-                .in("status", ["pending", "assigned", "running", "working", "rework"]);
-              if (taskBlockError) throw new Error(`Failed parking capability-blocked task ${String(task.id)}: ${taskBlockError.message}`);
-              task.status = "failed";
-              const summary = `Capability unavailable — FKAIOS stopped this objective instead of repeatedly retrying a task that requires repository/configuration write access. No code/configuration change was performed. Required capability: ${reason}`;
-              await markObjective(supabase, String(objective.id), "awaiting_approval", summary);
-              results.push({
-                objectiveId: String(objective.id),
-                action: "blocked",
-                projectId: state.projects[0]?.id ? String(state.projects[0].id) : null,
-                summary,
-              });
-              continue;
-            }
-            const hadFailedJob = jobs.some((job) => String(job.status ?? "") === "failed");
-            await supabase.from("orchestration_tasks")
-              .update({ status: "rework", output: JSON.stringify({
-                status: "rework",
-                reason: hadFailedJob
-                  ? "The execution job failed and no replacement job is active; objective loop is reopening the task for recovery."
-                  : "The task is active but has no executable ai_jobs row; objective loop is reopening it for recovery."
-              }) })
+          // has not closed the task yet. Never overwrite a newer completion with
+          // an older failure. Active jobs also keep ownership of the task.
+          if (hasLiveJob || hasCompletedJob) continue;
+
+          const failedJob = jobs.find((job) =>
+            String(job.status ?? "") === "failed" &&
+            /CAPABILITY_UNAVAILABLE|UNAUTHORIZED_CAPABILITY|OBJECTIVE_ORIGIN_UNVERIFIED|no approved repository-write capability is available|paid research requires a Console-originated founder objective/i.test(String(job.error ?? ""))
+          );
+          if (failedJob) {
+            const reason = String(failedJob.error ?? "Required execution capability is unavailable.").slice(0, 1200);
+            const { error: taskBlockError } = await supabase.from("orchestration_tasks")
+              .update({
+                status: "failed",
+                output: JSON.stringify({ status: "blocked_capability", reason, verified: false }),
+              })
               .eq("id", task.id)
-              .in("status", ["pending", "assigned", "running", "working"]);
-            task.status = "rework";
+              .in("status", ["pending", "assigned", "running", "working", "rework"]);
+            if (taskBlockError) throw new Error(`Failed parking capability-blocked task ${String(task.id)}: ${taskBlockError.message}`);
+            task.status = "failed";
+            const summary = `Capability unavailable — FKAIOS stopped this objective instead of repeatedly retrying a task that requires an unavailable or unauthorized capability. No unsupported action was performed. Required capability: ${reason}`;
+            await markObjective(supabase, String(objective.id), "awaiting_approval", summary);
+            results.push({
+              objectiveId: String(objective.id),
+              action: "blocked",
+              projectId: state.projects[0]?.id ? String(state.projects[0].id) : null,
+              summary,
+            });
+            capabilityBlockedForObjective = true;
+            break;
           }
+
+          const permanentFailure = terminalJobFailure(
+            jobs.find((job) => String(job.status ?? "") === "failed") as { status?: unknown; result?: unknown; error?: unknown } | undefined ?? {},
+          );
+          if (permanentFailure) {
+            const failureOutput = JSON.stringify({
+              status: "failed",
+              reason: permanentFailure.reason,
+              kernel_disposition: permanentFailure.disposition,
+              verified: false,
+            });
+            const { error: taskFailureError } = await supabase.from("orchestration_tasks")
+              .update({ status: "failed", output: failureOutput })
+              .eq("id", task.id)
+              .in("status", ["pending", "assigned", "running", "working", "rework"]);
+            if (taskFailureError) throw new Error(`Failed persisting terminal task failure ${String(task.id)}: ${taskFailureError.message}`);
+            task.status = "failed";
+            task.output = failureOutput;
+            continue;
+          }
+
+          // Retryable/unknown failures remain on the checkpoint recovery path.
+          if (!["assigned", "running", "working"].includes(taskStatus)) continue;
+          const hadFailedJob = jobs.some((job) => String(job.status ?? "") === "failed");
+          const recoveryOutput = JSON.stringify({
+            status: "rework",
+            reason: hadFailedJob
+              ? "The execution job failed and no replacement job is active; objective loop is reopening the task for recovery."
+              : "The task is active but has no executable ai_jobs row; objective loop is reopening it for recovery."
+          });
+          const { error: reopenError } = await supabase.from("orchestration_tasks")
+            .update({ status: "rework", output: recoveryOutput })
+            .eq("id", task.id)
+            .in("status", ["pending", "assigned", "running", "working"]);
+          if (reopenError) throw new Error(`Failed reopening orphaned task ${String(task.id)}: ${reopenError.message}`);
+          task.status = "rework";
+          task.output = recoveryOutput;
         }
+        if (capabilityBlockedForObjective) continue;
       }
 
       // CHECKPOINT RESUME: a task whose execution failed is resumed from a
