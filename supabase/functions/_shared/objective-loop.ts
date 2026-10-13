@@ -1334,6 +1334,63 @@ export async function runObjectiveLoop(
       const activeTasks = state.tasks.filter((task) =>
         ["assigned", "running", "working"].includes(String(task.status ?? ""))
       );
+
+      // A retry job is not evidence of forward progress when every configured
+      // provider is currently unusable due to exhausted credits/quota. Detect
+      // that specific persistent condition, preserve the error evidence, and
+      // park the objective instead of leaving it "processing" forever. Ordinary
+      // timeouts and temporary provider outages keep the existing retry path.
+      if (activeTasks.length > 0) {
+        const activeTaskIds = activeTasks.map((task) => String(task.id)).filter(Boolean);
+        const { data: activeJobs, error: activeJobsError } = await supabase
+          .from("ai_jobs")
+          .select("id,status,error,payload,created_at")
+          .eq("type", "work_engine_task")
+          .in("payload->>task_id", activeTaskIds)
+          .order("created_at", { ascending: false });
+        if (activeJobsError) throw new Error(`Objective provider-state check failed: ${activeJobsError.message}`);
+        for (const task of activeTasks) {
+          const jobs = (activeJobs ?? []).filter((job) =>
+            String((job.payload as Record<string, unknown> | null)?.task_id ?? "") === String(task.id)
+          );
+          const exhausted = jobs.find((job) => {
+            const error = String(job.error ?? "");
+            return ["retry", "failed"].includes(String(job.status ?? "")) &&
+              /All configured LLM providers failed/i.test(error) &&
+              /anthropic:\\s*credit_exhaustion/i.test(error) &&
+              /openai:\\s*credit_exhaustion/i.test(error) &&
+              /gemini:\\s*(?:rate_limit|credit_exhaustion)/i.test(error) &&
+              /quota exceeded|credit balance is too low|no credits remaining|credit_balance_exhausted/i.test(error);
+          });
+          if (!exhausted) continue;
+          const reason = String(exhausted.error ?? "All configured LLM providers are out of usable credits/quota.").slice(0, 1500);
+          const { error: taskBlockError } = await supabase.from("orchestration_tasks")
+            .update({
+              status: "failed",
+              output: JSON.stringify({
+                status: "blocked_provider_credits",
+                verified: false,
+                reason: "No model-generated work was accepted as complete. All configured providers reported credit/quota exhaustion; connect an available free/local provider or restore provider quota.",
+                provider_error: reason,
+              }),
+            })
+            .eq("id", task.id)
+            .in("status", ["assigned", "running", "working", "rework"]);
+          if (taskBlockError) throw new Error(`Failed parking provider-blocked task ${String(task.id)}: ${taskBlockError.message}`);
+          task.status = "failed";
+          const summary = "BLOCKED: FKAIOS paused this objective because every configured LLM provider is currently unusable due to exhausted credits/quota. No deliverable was marked complete. NEXT ACTION: configure a working zero-cost/local provider or restore quota for an existing provider; then re-run this objective.";
+          await markObjective(supabase, String(objective.id), "awaiting_approval", summary);
+          results.push({
+            objectiveId: String(objective.id),
+            action: "blocked",
+            projectId: state.projects[0]?.id ? String(state.projects[0].id) : null,
+            summary,
+          });
+          break;
+        }
+        if (results.some((result) => result.objectiveId === String(objective.id) && result.action === "blocked")) continue;
+      }
+
       const pendingTasks = state.tasks.filter((task) => String(task.status ?? "") === "pending");
 
       /*
