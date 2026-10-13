@@ -81,7 +81,7 @@ const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
  * honestly unless routed through the dedicated product builder or an approved tool.
  */
 export function taskRequiresRepositoryMutation(taskText: string): boolean {
-  return /\\b(?:integrate|modify|edit|patch|refactor|commit|deploy|implement|wire|change)\\b[\\s\\S]{0,180}\\b(?:codebase|repository|repo|source code|edge function|cron jobs?|database schema|migration|workflow|api endpoint|configuration files?)\\b/i.test(taskText);
+  return /\b(?:integrate|modify|edit|patch|refactor|commit|deploy|implement|wire|change)\b[\s\S]{0,180}\b(?:codebase|repository|repo|source code|edge function|cron jobs?|database schema|migration|workflow|api endpoint|configuration files?)\b/i.test(taskText);
 }
 
 /** Internal queue-drain requests must prove possession of the service-role key.
