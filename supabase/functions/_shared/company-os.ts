@@ -87,6 +87,8 @@ export interface CapabilityDefinition {
 
 export const CAPABILITY_REGISTRY: Record<string, CapabilityDefinition> = {
   "system.health_check": { edgeFunction: "direct-read-only-health-probe", description: "Read-only HTTP reachability check for the production console and Supabase Auth/PostgREST endpoints; not a full infrastructure audit", verified: true },
+  "system.infrastructure_audit": { edgeFunction: "postgres-read-only-audit", description: "Read-only PostgreSQL catalog, RLS policy, function security, and cron execution audit; does not certify UI or external integrations", verified: true },
+  "crm.pipeline_audit": { edgeFunction: "postgres-read-only-audit", description: "Read-only brand registry and lead-to-brand mapping audit; does not claim external CRM synchronization", verified: true },
   "whatsapp.send_message": { edgeFunction: "whatsapp-engine", action: "send_message", description: "Send a WhatsApp message", verified: true },
   "whatsapp.mark_replied": { edgeFunction: "whatsapp-engine", action: "mark_replied", description: "Mark a WhatsApp thread as replied", verified: true },
   "research.run": { edgeFunction: "research-engine", action: "run", description: "Run a research task", verified: true },
@@ -234,6 +236,24 @@ async function executeSystemHealthCheck(correlationId?: string): Promise<Executi
     : { capability: "system.health_check", status: "error", error: error!, data, attempts: 1 };
 }
 
+async function executeReadOnlyAudit(
+  capability: "system.infrastructure_audit" | "crm.pipeline_audit",
+  rpcName: "fkaios_infrastructure_audit" | "fkaios_crm_pipeline_audit",
+  correlationId?: string,
+): Promise<ExecutionResult> {
+  // These database RPCs are explicitly read-only and grant EXECUTE only to
+  // service_role. Never accept a caller-selected RPC name or SQL from payload.
+  const client = getClient();
+  const { data, error } = await client.rpc(rpcName);
+  if (error || data == null) {
+    const message = error?.message ?? "read-only audit returned no evidence";
+    await logExecution(capability, rpcName, "error", { read_only: true }, null, correlationId, message);
+    return { capability, status: "error", error: message, attempts: 1 };
+  }
+  await logExecution(capability, rpcName, "success", { read_only: true }, data, correlationId);
+  return { capability, status: "success", data, attempts: 1 };
+}
+
 export async function executeCapability(
   capability: string,
   payload: Record<string, unknown>,
@@ -242,6 +262,8 @@ export async function executeCapability(
 ): Promise<ExecutionResult> {
   if (capability === "product.deploy" || capability === "product.verify") return executeProductCapability(capability, payload, correlationId);
   if (capability === "system.health_check") return executeSystemHealthCheck(correlationId);
+  if (capability === "system.infrastructure_audit") return executeReadOnlyAudit(capability, "fkaios_infrastructure_audit", correlationId);
+  if (capability === "crm.pipeline_audit") return executeReadOnlyAudit(capability, "fkaios_crm_pipeline_audit", correlationId);
 
   const def = CAPABILITY_REGISTRY[capability];
   if (!def) {
