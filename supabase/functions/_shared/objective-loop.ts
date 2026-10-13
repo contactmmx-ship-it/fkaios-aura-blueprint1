@@ -1293,7 +1293,7 @@ export async function runObjectiveLoop(
               results.push({
                 objectiveId: String(objective.id),
                 action: "blocked",
-                projectId: latestProjectId,
+                projectId: state.projects[0]?.id ? String(state.projects[0].id) : null,
                 summary,
               });
               continue;
