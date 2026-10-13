@@ -84,6 +84,22 @@ export function taskRequiresRepositoryMutation(taskText: string): boolean {
   return /\b(?:integrate|modify|edit|patch|refactor|commit|deploy|implement|wire|change)\b[\s\S]{0,180}\b(?:codebase|repository|repo|source code|edge function|cron jobs?|database schema|migration|workflow|api endpoint|configuration files?)\b/i.test(taskText);
 }
 
+const APPROVED_WORK_ENGINE_CAPABILITIES = new Set([
+  "research.run",
+  "research.status",
+  "knowledge.search",
+  "system.health_check",
+  "system.infrastructure_audit",
+]);
+
+export function isAllowedWorkEngineCapability(capability: string, founderSubmitted: boolean): boolean {
+  if (!APPROVED_WORK_ENGINE_CAPABILITIES.has(capability)) return false;
+  // Paid/external research is reserved for an objective actually submitted by
+  // the founder, not merely any internally generated row with an objective ID.
+  if (capability === "research.run" && !founderSubmitted) return false;
+  return true;
+}
+
 /** Internal queue-drain requests must prove possession of the service-role key.
  * Gateway JWT validation alone is insufficient because the public anon JWT is valid.
  */
@@ -1073,11 +1089,25 @@ async function executeRequestedCapability(job: AIJob, parsed: Record<string, unk
   // web research, or the narrower HTTP-only health check.
   const capability = isInfrastructureAuditTask ? "system.infrastructure_audit" : requestedCapability;
   if (!capability) return parsed;
-  const founderSubmitted = job.payload?.founder_submitted === true || (typeof job.payload?.objective_id === "string" && job.payload.objective_id.length > 0);
-  const allowed = capability === "research.run" || capability === "research.status" || capability === "knowledge.search" || capability === "system.health_check" || capability === "system.infrastructure_audit";
-  if (!founderSubmitted || !allowed) {
+  const objectiveId = typeof job.payload?.objective_id === "string" ? job.payload.objective_id : "";
+  let founderSubmitted = false;
+  if (objectiveId) {
+    const { data: objectiveOrigin, error: originError } = await supabase
+      .from("orchestrator_requests")
+      .select("requested_by")
+      .eq("id", objectiveId)
+      .maybeSingle();
+    if (originError) {
+      throw new NonRetryableJobError(
+        `Could not verify objective origin before capability dispatch: ${originError.message}`,
+        "OBJECTIVE_ORIGIN_UNVERIFIED",
+      );
+    }
+    founderSubmitted = objectiveOrigin?.requested_by === "founder";
+  }
+  if (!isAllowedWorkEngineCapability(capability, founderSubmitted)) {
     throw new NonRetryableJobError(
-      `Capability request '${capability}' was not authorized for this work_engine_task; refusing autonomous external dispatch.`,
+      `Capability request '${capability}' was not authorized for this work_engine_task; paid research requires a Console-originated founder objective, and unregistered capabilities are refused.`,
       "UNAUTHORIZED_CAPABILITY",
     );
   }

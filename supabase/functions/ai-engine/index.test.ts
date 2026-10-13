@@ -29,6 +29,7 @@ const {
   resultLacksLiveInfrastructureEvidence,
   hasServiceRoleAuthorization,
   taskRequiresRepositoryMutation,
+  isAllowedWorkEngineCapability,
   NonRetryableJobError,
   getHealthTtlMinutes,
 } = await import("./index.ts");
@@ -40,6 +41,14 @@ function assert(condition: boolean, message: string): void {
 function t(name: string, fn: () => void | Promise<void>) {
   Deno.test({ name, sanitizeOps: false, sanitizeResources: false, fn });
 }
+
+t("capability authorization: paid research requires a founder-originated objective", () => {
+  assert(!isAllowedWorkEngineCapability("research.run", false), "internally generated objectives must not spend research credits");
+  assert(isAllowedWorkEngineCapability("research.run", true), "Console-originated founder research is allowed");
+  assert(isAllowedWorkEngineCapability("system.health_check", false), "read-only health checks remain available internally");
+  assert(isAllowedWorkEngineCapability("knowledge.search", false), "internal knowledge lookup remains available");
+  assert(!isAllowedWorkEngineCapability("system.brand_pipeline_audit", true), "unregistered generic capability names remain denied");
+});
 
 t("repository mutation preflight: detects code changes instead of allowing narrative completion", () => {
   assert(taskRequiresRepositoryMutation("Integrate the chosen implementation into the main codebase"), "codebase integration must require an executable repository tool");
