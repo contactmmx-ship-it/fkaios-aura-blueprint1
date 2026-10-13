@@ -224,6 +224,18 @@ async function executeSystemHealthCheck(correlationId?: string): Promise<Executi
     scope: "HTTP reachability only; does not verify database tables, SQL functions, cron jobs, RLS policies, all Edge Functions, or every UI screen",
     missing_supabase_credentials: missingSupabaseCredentials,
     probes,
+    // Canonical evidence contract consumed by resultLacksLiveInfrastructureEvidence.
+    // Include only endpoints that returned an actual HTTP status; a timeout must not
+    // be disguised as an observed response.
+    checks: probes.filter((probe) => typeof probe.http_status === "number").map((probe) => ({
+      name: probe.name,
+      url: probe.url,
+      http_status: probe.http_status,
+      reachable: probe.reachable,
+      healthy: probe.healthy,
+      duration_ms: probe.duration_ms,
+      observed_at: probe.observed_at,
+    })),
     all_probes_reachable: allReachable,
     all_probes_healthy: allHealthy,
   };
