@@ -117,6 +117,26 @@ export interface AllocationResult {
 
 export async function allocateTask(task: { id: string; title: string; description: string; departmentCode: string | null; objectiveId?: string | null; projectId?: string | null; founderSubmitted?: boolean; extraPayload?: Record<string, unknown> }): Promise<AllocationResult> {
   const client = getClient();
+  // Idempotency guard: project ticks and failed-job handoffs can overlap.
+  // Never enqueue a second active job for the same task.
+  const { data: activeJobs, error: activeJobsError } = await client
+    .from("ai_jobs")
+    .select("id, agent_id")
+    .eq("type", "work_engine_task")
+    .in("status", ["pending", "running"])
+    .eq("payload->>task_id", task.id)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (activeJobsError) {
+    return { taskId: task.id, jobId: null, agentId: null, agentName: null, error: `active-job idempotency check failed: ${activeJobsError.message}` };
+  }
+  if (activeJobs?.length) {
+    const active = activeJobs[0];
+    const existingWorker = (await getWorkforce()).find((e) => e.id === active.agent_id);
+    await client.from("orchestration_tasks").update({ status: "assigned" }).eq("id", task.id).in("status", ["pending", "rework"]);
+    return { taskId: task.id, jobId: active.id, agentId: active.agent_id, agentName: existingWorker?.name ?? null };
+  }
+
   const workforce = await getWorkforce();
   if (workforce.length === 0) return { taskId: task.id, jobId: null, agentId: null, agentName: null, error: "no active AI employees available" };
 
@@ -189,7 +209,9 @@ export async function allocateProjectWork(projectId: string): Promise<{ allocate
     .from("orchestration_tasks")
     .select("id, title, description, project_id")
     .eq("project_id", projectId)
-    .eq("status", "pending")
+    // Rework is executable, not terminal. Previously only "pending" tasks
+    // were eligible, stranding failed tasks marked "rework".
+    .in("status", ["pending", "rework"])
     .order("created_at", { ascending: true })
     .limit(1);
   if (!tasks || tasks.length === 0) return { allocated: 0, results: [] };
