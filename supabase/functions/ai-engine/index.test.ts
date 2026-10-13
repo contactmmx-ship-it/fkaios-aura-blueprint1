@@ -27,6 +27,7 @@ const {
   computeInvoiceTotals,
   resultReportsFailure,
   resultLacksLiveInfrastructureEvidence,
+  hasServiceRoleAuthorization,
   NonRetryableJobError,
   getHealthTtlMinutes,
 } = await import("./index.ts");
@@ -38,6 +39,27 @@ function assert(condition: boolean, message: string): void {
 function t(name: string, fn: () => void | Promise<void>) {
   Deno.test({ name, sanitizeOps: false, sanitizeResources: false, fn });
 }
+
+t("internal queue drain: rejects public anon-key requests", () => {
+  const req = new Request("https://example.test/ai-engine/run_jobs", {
+    method: "POST",
+    headers: { Authorization: "Bearer test-anon-key", apikey: "test-anon-key" },
+  });
+  assert(!hasServiceRoleAuthorization(req, "test-service-role-key"), "Public anon JWT must not authorize queue execution");
+});
+
+t("internal queue drain: requires both service-role authorization and apikey", () => {
+  const good = new Request("https://example.test/ai-engine/run_jobs", {
+    method: "POST",
+    headers: { Authorization: "Bearer test-service-role-key", apikey: "test-service-role-key" },
+  });
+  const missingApiKey = new Request("https://example.test/ai-engine/run_jobs", {
+    method: "POST",
+    headers: { Authorization: "Bearer test-service-role-key", apikey: "test-anon-key" },
+  });
+  assert(hasServiceRoleAuthorization(good, "test-service-role-key"), "Internal service-role caller should be accepted");
+  assert(!hasServiceRoleAuthorization(missingApiKey, "test-service-role-key"), "Both internal auth headers must match");
+});
 
 t("infrastructure evidence gate: rejects narrative-only infrastructure reports", () => {
   const result = { status: "completed", findings: { assumptions: ["All 175 tables and 26 crons are healthy"], verified_facts: ["All functions work"] }, sources: [{ url: "https://example.com/security-checklist" }] };
