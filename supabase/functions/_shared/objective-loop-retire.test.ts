@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { retireLivePasses } from "./objective-loop.ts";
+import { retireLivePasses, terminalJobFailure } from "./objective-loop.ts";
 
 // Minimal in-memory stand-in for the three tables retireLivePasses touches.
 type Row = Record<string, unknown>;
@@ -83,4 +83,21 @@ Deno.test("retireLivePasses: nothing live means nothing changes", async () => {
   const { db, updates } = fakeDb({ orchestration_projects: [project("p0", "complete")], orchestration_tasks: [], ai_jobs: [] });
   assertEquals(await retireLivePasses(db, OBJ, "why"), { waiting: false, retired: [] });
   assertEquals(updates.length, 0);
+});
+
+Deno.test("terminalJobFailure: non-retryable failed jobs stay terminal", () => {
+  const failure = terminalJobFailure({
+    status: "failed",
+    error: "Repository write capability is unavailable",
+    result: { error: "Repository write capability is unavailable", retryable: false, kernel_disposition: "CAPABILITY_UNAVAILABLE" },
+  });
+  assertEquals(failure, {
+    reason: "Repository write capability is unavailable",
+    disposition: "CAPABILITY_UNAVAILABLE",
+  });
+});
+
+Deno.test("terminalJobFailure: retryable and completed jobs are not terminal failures", () => {
+  assertEquals(terminalJobFailure({ status: "failed", result: { retryable: true, error: "temporary timeout" } }), null);
+  assertEquals(terminalJobFailure({ status: "completed", result: { retryable: false, error: "stale metadata" } }), null);
 });
