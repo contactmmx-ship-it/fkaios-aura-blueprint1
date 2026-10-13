@@ -76,6 +76,14 @@ const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
+/** Detect tasks that require changing code/configuration rather than writing an analysis.
+ * The generic worker has no repository-write capability; those tasks must fail
+ * honestly unless routed through the dedicated product builder or an approved tool.
+ */
+export function taskRequiresRepositoryMutation(taskText: string): boolean {
+  return /\b(?:integrate|modify|edit|patch|refactor|commit|deploy|implement|wire|change)\b[\s\S]{0,180}\b(?:codebase|repository|repo|source code|edge function|cron jobs?|database schema|migration|workflow|api endpoint|configuration files?)\b/i.test(taskText);
+}
+
 /** Internal queue-drain requests must prove possession of the service-role key.
  * Gateway JWT validation alone is insufficient because the public anon JWT is valid.
  */
@@ -1231,6 +1239,19 @@ async function executeJob(job: AIJob, cid: string): Promise<Record<string, unkno
   }
   if (productBuildTask && objectiveIsProduct) return await executeProductBuild(job, cid);
   if (productLifecycleTask && objectiveIsProduct) return await executeProductLifecycle(job, cid);
+
+  // Never let a generic LLM response stand in for a repository/configuration
+  // change. Only the dedicated product builder above has a real build/deploy
+  // persistence path; GitHub/repository mutation is not an approved generic
+  // worker capability in this V1 runtime.
+  if (job.type === "work_engine_task" &&
+      (job.payload?.founder_submitted === true || typeof job.payload?.objective_id === "string") &&
+      taskRequiresRepositoryMutation(productTaskText)) {
+    throw new NonRetryableJobError(
+      "This task requires a repository/configuration mutation, but no approved repository-write capability is available to the generic worker. No code change was performed; route it through the dedicated builder or enable an approved repository tool.",
+      "CAPABILITY_UNAVAILABLE",
+    );
+  }
 
   // Infrastructure/RLS/cron audit tasks require live PostgreSQL catalog evidence.
   // The former HTTP-only shortcut returned success with two 200s, then failed
