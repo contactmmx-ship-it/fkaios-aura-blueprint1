@@ -254,7 +254,11 @@ export function resultReportsFailure(parsed: unknown): string | null {
 // explicit admissions that the verification itself was not performed.
 export function resultLacksLiveInfrastructureEvidence(task: { title?: unknown; description?: unknown }, result: unknown): string | null {
   const taskText = [task.title, task.description].filter((v) => typeof v === "string").join(" ").toLowerCase();
-  if (!/\b(system connectivity|infrastructure|connectivity test|production health check|database schema|cron execution|security audit|row.level security|rls)\b/.test(taskText) || !/\b(verify|audit|validate|health|security|connectivity)\b/.test(taskText)) return null;
+  // Require a concrete infrastructure-verification intent. The bare words
+  // "infrastructure" or "RLS" often appear in implementation tasks ("wire
+  // CRM infrastructure", "reuse previously verified RLS policies"); those
+  // mentions must not force an unrelated health-check capability.
+  if (!/\b(system connectivity|infrastructure verification|infrastructure audit|connectivity test|production health check|database schema|cron execution|security audit|row.level security)\b/.test(taskText) || !/\b(verify|audit|validate|health|security|connectivity)\b/.test(taskText)) return null;
   const seen = new Set<unknown>();
   const hasProbe = (value: unknown): boolean => {
     if (!value || typeof value !== "object" || seen.has(value)) return false;
