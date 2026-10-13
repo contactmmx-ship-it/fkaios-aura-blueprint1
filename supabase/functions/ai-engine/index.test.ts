@@ -30,6 +30,7 @@ const {
   hasServiceRoleAuthorization,
   taskRequiresRepositoryMutation,
   isAllowedWorkEngineCapability,
+  isFounderSubmittedObjectiveOrigin,
   NonRetryableJobError,
   getHealthTtlMinutes,
 } = await import("./index.ts");
@@ -41,6 +42,12 @@ function assert(condition: boolean, message: string): void {
 function t(name: string, fn: () => void | Promise<void>) {
   Deno.test({ name, sanitizeOps: false, sanitizeResources: false, fn });
 }
+
+t("objective origin: Console marker distinguishes founder submissions from Founder Brain rows", () => {
+  assert(isFounderSubmittedObjectiveOrigin("founder_objective"), "Console-submitted objective classification must be trusted as founder-originated");
+  assert(!isFounderSubmittedObjectiveOrigin(null), "Founder Brain objectives without the Console marker must not qualify");
+  assert(!isFounderSubmittedObjectiveOrigin(""), "Unclassified objectives must not qualify");
+});
 
 t("capability authorization: paid research requires a founder-originated objective", () => {
   assert(!isAllowedWorkEngineCapability("research.run", false), "internally generated objectives must not spend research credits");
