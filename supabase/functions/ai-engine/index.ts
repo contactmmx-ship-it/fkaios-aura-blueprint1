@@ -48,6 +48,7 @@ import { classifyTaskClass, toolRef, workerRef } from "../_shared/resource-ident
 import { callWithContinuation } from "../_shared/continuation.ts";
 import { executeCapability } from "../_shared/company-os.ts";
 import { classifyObjective } from "../_shared/objective-contract.ts";
+import { FOUNDER_OBJECTIVE_CLASSIFICATION } from "../_shared/objective-rerun.ts";
 import { parseJSONCandidate } from "../_shared/json-parse.ts";
 import {
   checkWorkerGrounding,
@@ -91,6 +92,13 @@ const APPROVED_WORK_ENGINE_CAPABILITIES = new Set([
   "system.health_check",
   "system.infrastructure_audit",
 ]);
+
+export function isFounderSubmittedObjectiveOrigin(classification: unknown): boolean {
+  // Console submissions intentionally keep requested_by='founder-brain' so
+  // the same objective loop owns them. The shared classification is the
+  // persisted source marker; requested_by alone cannot distinguish origin.
+  return classification === FOUNDER_OBJECTIVE_CLASSIFICATION;
+}
 
 export function isAllowedWorkEngineCapability(capability: string, founderSubmitted: boolean): boolean {
   if (!APPROVED_WORK_ENGINE_CAPABILITIES.has(capability)) return false;
@@ -1094,7 +1102,7 @@ async function executeRequestedCapability(job: AIJob, parsed: Record<string, unk
   if (objectiveId) {
     const { data: objectiveOrigin, error: originError } = await supabase
       .from("orchestrator_requests")
-      .select("requested_by")
+      .select("classification")
       .eq("id", objectiveId)
       .maybeSingle();
     if (originError) {
@@ -1103,7 +1111,7 @@ async function executeRequestedCapability(job: AIJob, parsed: Record<string, unk
         "OBJECTIVE_ORIGIN_UNVERIFIED",
       );
     }
-    founderSubmitted = objectiveOrigin?.requested_by === "founder";
+    founderSubmitted = isFounderSubmittedObjectiveOrigin(objectiveOrigin?.classification);
   }
   if (!isAllowedWorkEngineCapability(capability, founderSubmitted)) {
     throw new NonRetryableJobError(
