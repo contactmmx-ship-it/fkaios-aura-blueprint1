@@ -76,6 +76,15 @@ const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
+/** Internal queue-drain requests must prove possession of the service-role key.
+ * Gateway JWT validation alone is insufficient because the public anon JWT is valid.
+ */
+export function hasServiceRoleAuthorization(req: Request, serviceRoleKey: string): boolean {
+  if (!serviceRoleKey) return false;
+  return req.headers.get("Authorization") === `Bearer ${serviceRoleKey}` &&
+    req.headers.get("apikey") === serviceRoleKey;
+}
+
 async function getFounderPrinciplesBlock(agentName: string): Promise<string> {
   try {
     const { data, error } = await supabase
@@ -1959,6 +1968,9 @@ Deno.serve(async (req: Request) => {
     }
     const url = new URL(req.url);
     if (url.pathname === "/ai-engine/run_jobs" && req.method === "POST") {
+      if (!hasServiceRoleAuthorization(req, supabaseServiceRoleKey)) {
+        return errorResponse("Service-role authorization required for internal queue drain", 401, undefined, cid);
+      }
       const result = await runJobs(cid);
       return successResponse({ action: "run_jobs", ...result }, 200, cid);
     }
@@ -1980,6 +1992,9 @@ Deno.serve(async (req: Request) => {
         return successResponse({ action: "queue_job", success: true, ...result }, 200, cid);
       }
       case "run_jobs": {
+        if (!hasServiceRoleAuthorization(req, supabaseServiceRoleKey)) {
+          return errorResponse("Service-role authorization required for internal queue drain", 401, undefined, cid);
+        }
         const result = await runJobs(cid);
         return successResponse({ action: "run_jobs", success: true, ...result }, 200, cid);
       }
