@@ -1296,13 +1296,13 @@ export async function runObjectiveLoop(
             const reason = String(failedJob.error ?? "Required execution capability is unavailable.").slice(0, 1200);
             const { error: taskBlockError } = await supabase.from("orchestration_tasks")
               .update({
-                status: "failed",
+                status: "rework",
                 output: JSON.stringify({ status: "blocked_capability", reason, verified: false }),
               })
               .eq("id", task.id)
               .in("status", ["pending", "assigned", "running", "working", "rework"]);
             if (taskBlockError) throw new Error(`Failed parking capability-blocked task ${String(task.id)}: ${taskBlockError.message}`);
-            task.status = "failed";
+            task.status = "rework";
             const summary = `Capability unavailable — FKAIOS stopped this objective instead of repeatedly retrying a task that requires an unavailable or unauthorized capability. No unsupported action was performed. Required capability: ${reason}`;
             await markObjective(supabase, String(objective.id), "awaiting_approval", summary);
             results.push({
@@ -1408,7 +1408,7 @@ export async function runObjectiveLoop(
           const reason = String(exhausted.error ?? "All configured LLM providers are out of usable credits/quota.").slice(0, 1500);
           const { error: taskBlockError } = await supabase.from("orchestration_tasks")
             .update({
-              status: "failed",
+              status: "rework",
               output: JSON.stringify({
                 status: "blocked_provider_credits",
                 verified: false,
@@ -1419,7 +1419,7 @@ export async function runObjectiveLoop(
             .eq("id", task.id)
             .in("status", ["assigned", "running", "working", "rework"]);
           if (taskBlockError) throw new Error(`Failed parking provider-blocked task ${String(task.id)}: ${taskBlockError.message}`);
-          task.status = "failed";
+          task.status = "rework";
           const summary = "BLOCKED: FKAIOS paused this objective because every configured LLM provider is currently unusable due to exhausted credits/quota. No deliverable was marked complete. NEXT ACTION: configure a working zero-cost/local provider or restore quota for an existing provider; then re-run this objective.";
           await markObjective(supabase, String(objective.id), "awaiting_approval", summary);
           results.push({
