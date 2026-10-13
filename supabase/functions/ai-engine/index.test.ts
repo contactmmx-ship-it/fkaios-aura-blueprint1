@@ -28,6 +28,7 @@ const {
   resultReportsFailure,
   resultLacksLiveInfrastructureEvidence,
   hasServiceRoleAuthorization,
+  taskRequiresRepositoryMutation,
   NonRetryableJobError,
   getHealthTtlMinutes,
 } = await import("./index.ts");
@@ -39,6 +40,13 @@ function assert(condition: boolean, message: string): void {
 function t(name: string, fn: () => void | Promise<void>) {
   Deno.test({ name, sanitizeOps: false, sanitizeResources: false, fn });
 }
+
+t("repository mutation preflight: detects code changes instead of allowing narrative completion", () => {
+  assert(taskRequiresRepositoryMutation("Integrate the chosen implementation into the main codebase"), "codebase integration must require an executable repository tool");
+  assert(taskRequiresRepositoryMutation("Implement heartbeat monitoring across cron jobs"), "cron implementation must require an executable tool");
+  assert(!taskRequiresRepositoryMutation("Research three facts about the Indian paint market and cite sources"), "ordinary research remains executable by the research capability");
+  assert(!taskRequiresRepositoryMutation("Draft a concise report describing recommended next steps"), "report writing is not a repository mutation");
+});
 
 t("internal queue drain: rejects public anon-key requests", () => {
   const req = new Request("https://example.test/ai-engine/run_jobs", {
