@@ -1357,9 +1357,9 @@ export async function runObjectiveLoop(
             const error = String(job.error ?? "");
             return ["retry", "failed"].includes(String(job.status ?? "")) &&
               /All configured LLM providers failed/i.test(error) &&
-              /anthropic:\\s*credit_exhaustion/i.test(error) &&
-              /openai:\\s*credit_exhaustion/i.test(error) &&
-              /gemini:\\s*(?:rate_limit|credit_exhaustion)/i.test(error) &&
+              /anthropic:\s*credit_exhaustion/i.test(error) &&
+              /openai:\s*credit_exhaustion/i.test(error) &&
+              /gemini:\s*(?:rate_limit|credit_exhaustion)/i.test(error) &&
               /quota exceeded|credit balance is too low|no credits remaining|credit_balance_exhausted/i.test(error);
           });
           if (!exhausted) continue;
