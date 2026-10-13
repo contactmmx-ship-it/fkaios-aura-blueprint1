@@ -954,6 +954,28 @@ async function createContinuationProject(
   };
 }
 
+/** Terminal failed jobs must not be converted back into rework.
+ * The worker persists retryable=false plus a kernel_disposition for structural
+ * failures; preserve that signal so the objective loop does not retry forever.
+ */
+export function terminalJobFailure(job: { status?: unknown; result?: unknown; error?: unknown }): { reason: string; disposition: string } | null {
+  if (String(job.status ?? "") !== "failed") return null;
+  let result: Record<string, unknown> | null = null;
+  if (job.result && typeof job.result === "object" && !Array.isArray(job.result)) {
+    result = job.result as Record<string, unknown>;
+  } else if (typeof job.result === "string") {
+    try {
+      const parsed = JSON.parse(job.result);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) result = parsed as Record<string, unknown>;
+    } catch { /* error field remains available */ }
+  }
+  if (result?.retryable !== false) return null;
+  return {
+    reason: String(result.error ?? job.error ?? "Non-retryable execution failure."),
+    disposition: String(result.kernel_disposition ?? "NON_RETRYABLE_FAILURE"),
+  };
+}
+
 export async function runObjectiveLoop(
   correlationId?: string,
 ): Promise<ObjectiveLoopResult[]> {
@@ -1240,7 +1262,7 @@ export async function runObjectiveLoop(
       if (taskIds.length > 0) {
         const { data: objectiveJobs } = await supabase
           .from("ai_jobs")
-          .select("id, status, retry_count, payload, created_at")
+          .select("id, status, retry_count, payload, created_at, error, result")
           .eq("type", "work_engine_task")
           .in("payload->>task_id", taskIds)
           .order("created_at", { ascending: false });
@@ -1256,12 +1278,34 @@ export async function runObjectiveLoop(
         }
         for (const task of state.tasks) {
           const taskStatus = String(task.status ?? "");
+          const jobs = jobsByTask.get(String(task.id)) ?? [];
+          // A structural/non-retryable failure is terminal for this task. Do
+          // not checkpoint-resume it or convert it back to rework on every
+          // tick; persist the exact disposition so the objective evaluator can
+          // block/replan based on the real missing capability.
+          const permanentJob = jobs.find((job) => terminalJobFailure(job as { status?: unknown; result?: unknown; error?: unknown }));
+          if (permanentJob) {
+            const failure = terminalJobFailure(permanentJob as { status?: unknown; result?: unknown; error?: unknown })!;
+            const failureOutput = JSON.stringify({
+              status: "failed",
+              reason: failure.reason,
+              kernel_disposition: failure.disposition,
+              job_id: String(permanentJob.id ?? ""),
+            });
+            const { error: failureUpdateError } = await supabase.from("orchestration_tasks")
+              .update({ status: "failed", output: failureOutput })
+              .eq("id", task.id)
+              .in("status", ["pending", "assigned", "running", "working", "rework"]);
+            if (failureUpdateError) throw new Error("Failed persisting terminal task failure " + String(task.id) + ": " + failureUpdateError.message);
+            task.status = "failed";
+            task.output = failureOutput;
+            continue;
+          }
           // "pending" is excluded: pending tasks are deliberately held back
           // (no ai_jobs row yet) until the previous task in the evidence chain
           // returns, and are allocated further below. Only tasks that claim to
           // be executing without a job are orphaned.
           if (!["assigned", "running", "working"].includes(taskStatus)) continue;
-          const jobs = jobsByTask.get(String(task.id)) ?? [];
           const hasLiveJob = jobs.some((job) => ["pending", "running", "retry"].includes(String(job.status ?? "")));
           const hasCompletedJob = jobs.some((job) => String(job.status ?? "") === "completed");
           // A completed job is executable evidence even if returnCompletedWork()
