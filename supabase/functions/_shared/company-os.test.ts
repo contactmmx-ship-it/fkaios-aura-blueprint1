@@ -90,3 +90,79 @@ Deno.test("a wrong secret is rejected too", withEnv(
     assert(result.status === "error" && result.error!.startsWith("HTTP 401"), "wrong secret must be rejected");
   },
 ));
+
+
+Deno.test("system.health_check capability returns live fixed-endpoint evidence", withEnv(
+  {
+    SUPABASE_URL: "https://project.supabase.test",
+    SUPABASE_SERVICE_ROLE_KEY: "test-service-role-key",
+  },
+  async () => {
+    const requests: Array<{ url: string; headers: Headers }> = [];
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input instanceof Request ? input.url : input);
+      requests.push({ url, headers: new Headers(init?.headers) });
+      if (url.endsWith("/auth/v1/health")) return Promise.resolve(new Response("{}", { status: 200 }));
+      if (url.endsWith("/rest/v1/")) return Promise.resolve(new Response("{}", { status: 200 }));
+      if (url.endsWith("/console")) return Promise.resolve(new Response("<html>console</html>", { status: 200 }));
+      // execution_log telemetry is best-effort and must not affect the probe result.
+      return Promise.resolve(new Response("{}", { status: 201 }));
+    }) as typeof fetch;
+
+    const result = await executeCapability("system.health_check", {});
+    assert(result.status === "success", "all three fixed probes should return success");
+    const data = result.data as {
+      all_probes_healthy: boolean;
+      checks: Array<{ name: string; http_status: number; healthy: boolean }>;
+      scope: string;
+    };
+    assert(data.all_probes_healthy === true, "health flag must require all expected probes");
+    assert(data.checks.length === 3, "must record the console, Auth and PostgREST observations");
+    assert(data.checks.every((check) => check.http_status === 200 && check.healthy), "each observation must carry actual 2xx status");
+    assert(data.scope.includes("does not verify database tables"), "must disclose narrow probe scope");
+    assert(requests.some((r) => r.url === "https://fkaios-aura-blueprint1.vercel.app/console"), "console target must be fixed, not payload supplied");
+    assert(requests.some((r) => r.url === "https://project.supabase.test/auth/v1/health"), "Auth endpoint must be probed");
+    assert(requests.some((r) => r.url === "https://project.supabase.test/rest/v1/"), "PostgREST endpoint must be probed");
+    assert(!requests.some((r) => r.url.includes("test-service-role-key")), "service-role key must never appear in a URL");
+  },
+));
+
+Deno.test("system.health_check fails closed on an unhealthy endpoint", withEnv(
+  {
+    SUPABASE_URL: "https://project.supabase.test",
+    SUPABASE_SERVICE_ROLE_KEY: "test-service-role-key",
+  },
+  async () => {
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.endsWith("/auth/v1/health")) return Promise.resolve(new Response("{}", { status: 200 }));
+      if (url.endsWith("/rest/v1/")) return Promise.resolve(new Response("{}", { status: 503 }));
+      if (url.endsWith("/console")) return Promise.resolve(new Response("<html>console</html>", { status: 200 }));
+      return Promise.resolve(new Response("{}", { status: 201 }));
+    }) as typeof fetch;
+
+    const result = await executeCapability("system.health_check", {});
+    assert(result.status === "error", "a 503 must not be reported as a healthy system");
+    const data = result.data as { all_probes_reachable: boolean; all_probes_healthy: boolean; checks: Array<{ name: string; http_status: number }> };
+    assert(data.all_probes_reachable === true, "an HTTP 503 is reachable but unhealthy");
+    assert(data.all_probes_healthy === false, "all_probes_healthy must be false when any endpoint fails");
+    assert(data.checks.some((check) => check.name === "supabase_postgrest_root" && check.http_status === 503), "must preserve observed 503 evidence");
+  },
+));
+
+Deno.test("system.health_check refuses to pass when Supabase credentials are missing", withEnv(
+  { SUPABASE_URL: undefined, SUPABASE_SERVICE_ROLE_KEY: undefined },
+  async () => {
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.endsWith("/console")) return Promise.resolve(new Response("<html>console</html>", { status: 200 }));
+      return Promise.resolve(new Response("{}", { status: 201 }));
+    }) as typeof fetch;
+
+    const result = await executeCapability("system.health_check", {});
+    assert(result.status === "error", "missing Supabase credentials must fail closed");
+    const data = result.data as { missing_supabase_credentials: boolean; checks: Array<{ name: string }> };
+    assert(data.missing_supabase_credentials === true, "must disclose missing credentials");
+    assert(!data.checks.some((check) => check.name.startsWith("supabase_")), "must not claim unperformed Supabase probes");
+  },
+));
