@@ -120,17 +120,17 @@ function toFounderBrainProvider(name: ProviderName): "anthropic" | "gemini" | "o
 function summarizeProviderFailures(failureReason: string | null | undefined): string {
   if (!failureReason?.trim()) return "No provider returned a usable response. Check configured providers and their availability.";
 
-  const segments = failureReason.split(/\\s+\\|\\s+/).map((part) => part.trim()).filter(Boolean);
+  const segments = failureReason.split(/\s+\\|\s+/).map((part) => part.trim()).filter(Boolean);
   const summaries: string[] = [];
   for (const segment of segments) {
-    const match = segment.match(/^([a-z0-9_-]+):\\s*([a-z_]+):?/i);
+    const match = segment.match(/^([a-z0-9_-]+):\s*([a-z_]+):?/i);
     const provider = match?.[1]?.toLowerCase() ?? "provider";
     const category = match?.[2]?.toLowerCase() ?? "";
     const lower = segment.toLowerCase();
     let message: string;
     if (category === "authentication_failure" || /invalid[_ ]api[_ ]key|unauthorized|http (401|403)/i.test(segment)) {
       message = `${provider}: authentication failed; check that provider's API-key secret and permissions.`;
-    } else if (category === "rate_limit" || /rate limit|tokens per minute|\\btpm\\b|http 429/.test(lower)) {
+    } else if (category === "rate_limit" || /rate limit|tokens per minute|\btpm\b|http 429/.test(lower)) {
       message = `${provider}: rate limit/quota exceeded; wait for the limit to reset or reduce request size. This is not evidence of an invalid key.`;
     } else if (category === "credit_exhaustion" || /insufficient_quota|no credits remaining|credit balance is too low/.test(lower)) {
       message = `${provider}: API credits/quota exhausted; the key may be valid, but usage is blocked by the provider's quota or billing limit.`;
