@@ -28,6 +28,9 @@ on:
       - "supabase/functions/_shared/company-os.ts"
       - "supabase/functions/_shared/company-os.test.ts"
       - "supabase/functions/ai-engine/index.ts"
+      - "supabase/functions/builder-engine/index.ts"
+      - "supabase/functions/_shared/product-delivery.ts"
+      - "supabase/functions/_shared/product-delivery.test.ts"
       - "supabase/functions/ai-engine/index.test.ts"
       - "src/app/product/\\[id\\]/route.ts"
       - "src/app/product/\\[id\\]/route.test.ts"
@@ -60,6 +63,9 @@ on:
       - "supabase/functions/_shared/company-os.ts"
       - "supabase/functions/_shared/company-os.test.ts"
       - "supabase/functions/ai-engine/index.ts"
+      - "supabase/functions/builder-engine/index.ts"
+      - "supabase/functions/_shared/product-delivery.ts"
+      - "supabase/functions/_shared/product-delivery.test.ts"
       - "supabase/functions/ai-engine/index.test.ts"
       - "src/app/product/\\[id\\]/route.ts"
       - "src/app/product/\\[id\\]/route.test.ts"
@@ -101,6 +107,8 @@ jobs:
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/llm-router.test.ts
       - name: Run resource selection regression tests
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/resource-selection.test.ts
+      - name: Run public product delivery URL regression tests
+        run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/product-delivery.test.ts
       - name: Run AI engine execution-truth regression tests
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/ai-engine/index.test.ts
       - name: Run task-output truth regression tests

@@ -4,6 +4,7 @@ import { authenticateCaller } from '../_shared/internal-auth.ts';
 import { buildDefaultRouterConfig, callLLMOnResources, type LLMRequest } from '../_shared/llm-router.ts';
 import { selectResources } from '../_shared/resource-selection.ts';
 import { callWithContinuation } from '../_shared/continuation.ts';
+import { buildPublicProductUrl } from '../_shared/product-delivery.ts';
 
 
 const CORS = {
@@ -163,8 +164,7 @@ STRICT RULES: no iframes, no external embeds, no opacity-0 fade-in animations th
     // addressable runtime. FKAIOS serves generated HTML through its production
     // product renderer; this is the deployment target used by the objective
     // completion gate and gives the founder a real usable URL.
-    const publicBase = (Deno.env.get('FKAIOS_PUBLIC_URL') ?? 'https://fkaios-aura-blueprint1.vercel.app').replace(/\/$/, '');
-    const deployedUrl = isHtml ? `${publicBase}/product/${buildId}` : null;
+    const deployedUrl = isHtml ? buildPublicProductUrl(supabaseUrl, buildId) : null;
 
     const { error: updateErr } = await db.from('build_projects').update({
       status: 'complete',

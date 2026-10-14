@@ -48,6 +48,7 @@ import { classifyTaskClass, toolRef, workerRef } from "../_shared/resource-ident
 import { callWithContinuation } from "../_shared/continuation.ts";
 import { executeCapability } from "../_shared/company-os.ts";
 import { classifyObjective } from "../_shared/objective-contract.ts";
+import { buildPublicProductUrl } from "../_shared/product-delivery.ts";
 import { FOUNDER_OBJECTIVE_CLASSIFICATION } from "../_shared/objective-rerun.ts";
 import { parseJSONCandidate } from "../_shared/json-parse.ts";
 import {
@@ -1170,11 +1171,19 @@ async function executeProductBuild(job: AIJob, cid: string): Promise<Record<stri
         try {
           const parsed = JSON.parse(String(t.output ?? ""));
           const cr = parsed?.llmResult?.capability_result;
-          if (cr?.deployed_url && (cr?.product_status === "live" || cr?.live === true)) {
+          const buildId = typeof cr?.build_id === "string" ? cr.build_id : "";
+          const buildType = String(cr?.build_type ?? "website");
+          if (
+            buildId &&
+            ["website", "landing_page"].includes(buildType) &&
+            (cr?.product_status === "live" || cr?.live === true)
+          ) {
             return { status: "success", capability: "product.build", capability_result: {
-              build_id: cr.build_id ?? null,
-              build_type: cr.build_type ?? "website",
-              deployed_url: String(cr.deployed_url),
+              build_id: buildId,
+              build_type: buildType,
+              // Rebind legacy Vercel Console URLs to the public artifact endpoint.
+              // The subsequent product.verify task must still prove HTTP 2xx.
+              deployed_url: buildPublicProductUrl(supabaseUrl, buildId),
               product_status: "live",
               reused: true,
             }};
@@ -1217,7 +1226,9 @@ async function executeProductBuild(job: AIJob, cid: string): Promise<Record<stri
       build_id: data.build_id,
       build_type: data.build_type,
       deployed_url: data.deployed_url ?? null,
-      product_status: "live",
+      // JSON/CRM/SaaS artifacts without a public runnable URL are generated
+      // artifacts, not deployed products. Do not claim they are live.
+      product_status: data.deployed_url ? "live" : "artifact_ready",
     },
   };
 }
