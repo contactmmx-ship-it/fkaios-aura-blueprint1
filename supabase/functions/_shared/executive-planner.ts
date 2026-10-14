@@ -28,6 +28,7 @@ import { reason, getGoals, founderMemory, type Goal, getImaginationHistory, type
 import { CAPABILITY_REGISTRY } from "./company-os.ts";
 import { prepareObjectiveContract } from "./objective-discovery.ts";
 import { completionContract, projectOutputType } from "./objective-contract.ts";
+import { hasPendingEscalationForProject } from "./escalation-dedupe.ts";
 
 function getClient() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
@@ -268,32 +269,58 @@ export async function escalateBlocked(correlationId?: string): Promise<{ escalat
   let escalated = 0;
   const seenProjects = new Set<string>();
 
+  // Idempotency matters here: founder-brain-tick runs every minute. An open
+  // escalation approval is already the human-visible signal; inserting the
+  // same one on every tick created an unbounded duplicate-approval loop.
+  // Keep existing approvals for audit, but do not create another pending one
+  // for a project until the existing escalation has been decided/closed.
+  async function hasOpenEscalation(projectId: string): Promise<boolean> {
+    const { data, error } = await client.from("approvals")
+      .select("action_type,status,payload")
+      .in("action_type", ["escalation_blocked_task", "escalation_blocked_project"])
+      .eq("status", "pending")
+      .contains("payload", { project_id: projectId })
+      .limit(20);
+    if (error) {
+      console.error("executive-planner: could not check pending escalation", { projectId, error: error.message });
+      // Fail closed: a read error must not create another approval every tick.
+      return true;
+    }
+    return hasPendingEscalationForProject(data ?? [], projectId);
+  }
+
   for (const t of stuckTasks ?? []) {
-    if (seenProjects.has(t.project_id)) continue; // one escalation per project per pass, not one per stuck task
+    if (!t.project_id || seenProjects.has(t.project_id)) continue;
     seenProjects.add(t.project_id);
-    try {
-      await client.from("approvals").insert({
-        action_type: "escalation_blocked_task",
-        payload: { project_id: t.project_id, task_id: t.id, title: t.title, attempts: t.attempts },
-        risk_level: "medium",
-        reason: `Task "${t.title}" has failed/reworked ${t.attempts} times without completing — escalated to the Founder Brain for a decision.`,
-      });
-      escalated++;
-    } catch { /* non-blocking, one bad insert never stops the pass */ }
+    if (await hasOpenEscalation(String(t.project_id))) continue;
+    const { error } = await client.from("approvals").insert({
+      action_type: "escalation_blocked_task",
+      payload: { project_id: t.project_id, task_id: t.id, title: t.title, attempts: t.attempts },
+      risk_level: "medium",
+      reason: `Task "${t.title}" has failed/reworked ${t.attempts} times without completing — escalated to the Founder Brain for a decision.`,
+    });
+    if (error) {
+      console.error("executive-planner: blocked-task escalation insert failed", { taskId: t.id, error: error.message });
+      continue;
+    }
+    escalated++;
   }
 
   for (const p of stuckProjects ?? []) {
     if (seenProjects.has(p.id)) continue;
     seenProjects.add(p.id);
-    try {
-      await client.from("approvals").insert({
-        action_type: "escalation_blocked_project",
-        payload: { project_id: p.id, status: p.status },
-        risk_level: "medium",
-        reason: `Project stuck in '${p.status}' — escalated to the Founder Brain for a decision.`,
-      });
-      escalated++;
-    } catch { /* non-blocking */ }
+    if (await hasOpenEscalation(String(p.id))) continue;
+    const { error } = await client.from("approvals").insert({
+      action_type: "escalation_blocked_project",
+      payload: { project_id: p.id, status: p.status },
+      risk_level: "medium",
+      reason: `Project stuck in '${p.status}' — escalated to the Founder Brain for a decision.`,
+    });
+    if (error) {
+      console.error("executive-planner: blocked-project escalation insert failed", { projectId: p.id, error: error.message });
+      continue;
+    }
+    escalated++;
   }
 
   if (escalated > 0) {
