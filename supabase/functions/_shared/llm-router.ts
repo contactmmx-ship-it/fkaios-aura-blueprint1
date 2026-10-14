@@ -348,7 +348,8 @@ function getOpenAIModel(functionClass?: FunctionClass): string {
   return resolveModel("OPENAI_MODEL", "gpt-5.6-luna", OPENAI_CLASS_DEFAULTS, functionClass);
 }
 function getOpenRouterModel(functionClass?: FunctionClass): string { return resolveModel("OPENROUTER_MODEL", "openrouter/free", {}, functionClass); }
-function getGroqModel(functionClass?: FunctionClass): string { return resolveModel("GROQ_MODEL", "openai/gpt-oss-120b", {}, functionClass); }
+// Use the smaller free-tier Groq model by default. The 120B model exhausted the configured free-tier TPM budget and returned empty content during Founder Brain calls; operators can explicitly override GROQ_MODEL when needed.
+function getGroqModel(functionClass?: FunctionClass): string { return resolveModel("GROQ_MODEL", "openai/gpt-oss-20b", {}, functionClass); }
 function getMistralModel(functionClass?: FunctionClass): string { return resolveModel("MISTRAL_MODEL", "mistral-small-latest", {}, functionClass); }
 function getHuggingFaceModel(functionClass?: FunctionClass): string { return resolveModel("HUGGINGFACE_MODEL", "meta-llama/Llama-3.1-8B-Instruct", {}, functionClass); }
 
