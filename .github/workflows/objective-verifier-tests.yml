@@ -69,6 +69,8 @@ jobs:
         uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
         with:
           deno-version: v2.9.7
+      - name: Run blocked-work escalation dedupe regression tests
+        run: deno test --no-check --node-modules-dir=auto --allow-env supabase/functions/_shared/escalation-dedupe.test.ts
       - name: Run objective-loop infrastructure inventory regression tests
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/objective-loop-inventory.test.ts
       - name: Run objective-loop retirement and terminal failure regression tests
