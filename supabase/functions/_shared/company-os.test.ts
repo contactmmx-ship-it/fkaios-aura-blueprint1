@@ -102,7 +102,22 @@ Deno.test("system.brand_pipeline_audit calls the actual brand audit RPC", withEn
       if (url.includes("/rest/v1/rpc/fkaios_brand_pipeline_audit")) {
         return Promise.resolve(new Response(JSON.stringify({
           brand_pipeline_complete: false,
-          counts: { registered_brands: 10, total_leads: 150 },
+          counts: {
+            registered_brands: 10,
+            total_leads: 150,
+            expected_brand_names_matched: 7,
+            missing_brand_registry_entries: 3,
+          },
+          brand_registry: [
+            "Arofur", "Chaat Masters", "Chawla Lab", "Franchise Kart", "Gio Paints",
+            "GoMax", "Kids DPS", "Knead & Bake", "Mr. Chick'n", "Turning Point",
+          ].map((name, index) => ({ id: `brand-${index + 1}`, name })),
+          expected_brand_mapping: [
+            { canonical_name: "Franchise Kart", matched_current_name: null, brand_id: null, registry_match: false },
+            { canonical_name: "Chawla Lab", matched_current_name: null, brand_id: null, registry_match: false },
+            { canonical_name: "Turning Point", matched_current_name: null, brand_id: null, registry_match: false },
+          ],
+          missing_brand_names: ["Franchise Kart", "Chawla Lab", "Turning Point"],
         }), { status: 200, headers: { "Content-Type": "application/json" } }));
       }
       if (url.includes("/rest/v1/execution_log")) {
@@ -115,7 +130,17 @@ Deno.test("system.brand_pipeline_audit calls the actual brand audit RPC", withEn
     assert(result.status === "success", `expected brand audit success, got ${result.status}: ${result.error}`);
     assert(requests.some((url) => url.includes("/rest/v1/rpc/fkaios_brand_pipeline_audit")), "must call the actual migration RPC");
     assert(!requests.some((url) => url.includes("/rest/v1/rpc/fkaios_crm_pipeline_audit")), "must not call the unrelated legacy RPC");
-    const data = result.data as { counts: { total_leads: number } };
+    const data = result.data as {
+      counts: { total_leads: number; expected_brand_names_matched: number; missing_brand_registry_entries: number };
+      expected_brand_mapping: { registry_match: boolean }[];
+      missing_brand_names: string[];
+      brand_pipeline_complete: boolean;
+    };
     assert(data.counts.total_leads === 150, "returns the live audit result");
+    assert(data.counts.expected_brand_names_matched === 10, "matches all ten canonical names from the live registry");
+    assert(data.counts.missing_brand_registry_entries === 0, "does not report legacy-name false positives");
+    assert(data.expected_brand_mapping.every((item) => item.registry_match), "every canonical brand maps to a real registry row");
+    assert(data.missing_brand_names.length === 0, "no canonical registry names remain missing");
+    assert(data.brand_pipeline_complete === false, "does not mask genuine CRM pipeline gaps");
   },
 ));
