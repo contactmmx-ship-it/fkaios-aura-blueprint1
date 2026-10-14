@@ -46,3 +46,22 @@ export function hasSubstantiveTaskOutput(value: unknown, depth = 0): boolean {
     .filter(([key]) => !ignoredKeys.has(key))
     .some(([, item]) => typeof item === "boolean" || hasSubstantiveTaskOutput(item, depth + 1));
 }
+
+
+/** Returns a failure reason when a recorded capability dispatch did not succeed. */
+export function failedCapabilityDispatchReason(value: unknown): string | null {
+  let envelope: unknown = value;
+  if (typeof envelope === "string") {
+    try { envelope = JSON.parse(envelope); } catch { return null; }
+  }
+  if (!envelope || typeof envelope !== "object" || Array.isArray(envelope)) return null;
+  const row = envelope as Record<string, unknown>;
+  const dispatch = row.companyOsDispatch;
+  if (!dispatch || typeof dispatch !== "object" || Array.isArray(dispatch)) return null;
+  const measured = dispatch as Record<string, unknown>;
+  if (measured.status === "success") return null;
+  const capability = typeof measured.capability === "string" ? measured.capability : "unknown capability";
+  const detail = [measured.error, measured.reason, measured.message, measured.status]
+    .find((part) => typeof part === "string" && part.trim());
+  return `Capability dispatch did not succeed (${capability}): ${typeof detail === "string" ? detail : "no failure detail recorded"}`;
+}
