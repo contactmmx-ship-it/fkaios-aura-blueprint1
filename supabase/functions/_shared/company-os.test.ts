@@ -90,3 +90,32 @@ Deno.test("a wrong secret is rejected too", withEnv(
     assert(result.status === "error" && result.error!.startsWith("HTTP 401"), "wrong secret must be rejected");
   },
 ));
+
+
+Deno.test("system.brand_pipeline_audit calls the actual brand audit RPC", withEnv(
+  { SUPABASE_URL: "http://supabase.test", SUPABASE_SERVICE_ROLE_KEY: "svc" },
+  async () => {
+    const requests: string[] = [];
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input instanceof Request ? input.url : input);
+      requests.push(url);
+      if (url.includes("/rest/v1/rpc/fkaios_brand_pipeline_audit")) {
+        return Promise.resolve(new Response(JSON.stringify({
+          brand_pipeline_complete: false,
+          counts: { registered_brands: 10, total_leads: 150 },
+        }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      }
+      if (url.includes("/rest/v1/execution_log")) {
+        return Promise.resolve(new Response(null, { status: 201 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({ message: "unexpected request" }), { status: 404 }));
+    }) as typeof fetch;
+
+    const result = await executeCapability("system.brand_pipeline_audit", {}, undefined, 1);
+    assert(result.status === "success", `expected brand audit success, got ${result.status}: ${result.error}`);
+    assert(requests.some((url) => url.includes("/rest/v1/rpc/fkaios_brand_pipeline_audit")), "must call the actual migration RPC");
+    assert(!requests.some((url) => url.includes("/rest/v1/rpc/fkaios_crm_pipeline_audit")), "must not call the unrelated legacy RPC");
+    const data = result.data as { counts: { total_leads: number } };
+    assert(data.counts.total_leads === 150, "returns the live audit result");
+  },
+));
