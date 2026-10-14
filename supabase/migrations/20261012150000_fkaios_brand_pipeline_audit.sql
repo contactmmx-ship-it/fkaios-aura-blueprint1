@@ -38,14 +38,14 @@ begin
 
   with expected(canonical_name, current_name) as (
     values
-      ('Franchise Kart', 'Franchise Kart'),
+      ('Franchise Kart', 'Franchisee Kart'),
       ('Mr. Chick''n', 'Mr. Chick''n'),
       ('GoMax', 'GoMax'),
       ('Gio Paints', 'Gio Paints'),
       ('Arofur', 'Arofur'),
       ('Chaat Masters', 'Chaat Masters'),
-      ('Chawla Lab', 'Chawla Lab'),
-      ('Turning Point', 'Turning Point'),
+      ('Chawla Lab', 'Chawla Laboratory'),
+      ('Turning Point', 'Turning Points'),
       ('Kids DPS', 'Kids DPS'),
       ('Knead & Bake', 'Knead & Bake')
   )
