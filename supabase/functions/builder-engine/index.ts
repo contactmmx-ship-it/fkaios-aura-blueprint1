@@ -179,9 +179,9 @@ STRICT RULES: no iframes, no external embeds, no opacity-0 fade-in animations th
       deployed_url: null,
       token_cost: { input: genUsage.input, output: genUsage.output, model: genUsage.model, provider: genUsage.provider },
     }).eq('id', buildId);
-    if (updateErr) console.log('UPDATE ERROR (non-fatal)', updateErr.message);
+    if (updateErr) throw new Error("Failed to persist generated product artifact: " + updateErr.message);
 
-    if (!updateErr && isHtml && publicBase) {
+    if (isHtml && publicBase) {
       try {
         const base = new URL(publicBase);
         if (base.protocol === 'https:' && base.hostname && !base.username && !base.password) {
