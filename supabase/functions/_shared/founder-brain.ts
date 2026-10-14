@@ -78,7 +78,7 @@ export interface LLMResult {
   inputTokens: number;
   outputTokens: number;
   model: string;
-  provider: "anthropic" | "gemini" | "openai";
+  provider: ProviderName;
 }
 
 export interface FounderContext {
@@ -113,8 +113,10 @@ export interface FounderContext {
 // guaranteed to be one of the three in practice — mapped defensively below
 // rather than assumed.
 // ──────────────────────────────────────────────
-function toFounderBrainProvider(name: ProviderName): "anthropic" | "gemini" | "openai" {
-  return name === "gemini" || name === "openai" ? name : "anthropic";
+function toFounderBrainProvider(name: ProviderName): ProviderName {
+  // Preserve the actual provider identity. Free-tier providers such as Groq
+  // are first-class router providers and must not be misreported as Anthropic.
+  return name;
 }
 
 function summarizeProviderFailures(failureReason: string | null | undefined): string {
@@ -222,7 +224,7 @@ async function reasonCore(
 // introducing a new cross-module import for a telemetry-only fix). No
 // existing convention anywhere in this codebase covers gemini, so its
 // cost is deliberately left null below rather than invented.
-const REASON_PRICING: Partial<Record<LLMResult["provider"], { inputPerMtok: number; outputPerMtok: number }>> = {
+const REASON_PRICING: Partial<Record<ProviderName, { inputPerMtok: number; outputPerMtok: number }>> = {
   anthropic: { inputPerMtok: 0.25, outputPerMtok: 1.25 },
   openai: { inputPerMtok: 0.15, outputPerMtok: 0.60 },
 };
