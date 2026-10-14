@@ -66,6 +66,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { resolveRuntimeResource } from "./resource-intelligence.ts";
+import { isVerifiedProductRenderer } from "./product-delivery.ts";
 
 function getClient() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
@@ -168,14 +169,12 @@ export async function executeProductCapability(
 
   try {
     const res = await fetch(safeUrl.toString(), { method: "GET", redirect: "manual", signal: AbortSignal.timeout(8000) });
+    const html = await res.text();
     const contentType = res.headers.get("content-type") ?? "";
     const productId = res.headers.get("x-fkaios-product-id") ?? "";
     const versionValue = Number(res.headers.get("x-fkaios-product-renderer-version"));
     const rendererVersion = Number.isInteger(versionValue) ? versionValue : null;
-    const ok = res.ok &&
-      contentType.toLowerCase().includes("text/html") &&
-      productId === expectedProductId &&
-      rendererVersion === 2;
+    const ok = isVerifiedProductRenderer({ status: res.status, headers: res.headers, buildId: expectedProductId, html });
     const data = {
       url: safeUrl.toString(),
       http_status: res.status,
@@ -184,6 +183,7 @@ export async function executeProductCapability(
       content_type: contentType,
       product_id: productId || null,
       renderer_version: rendererVersion,
+      renderer_verified: ok,
     };
     const failure = ok ? undefined : `Renderer verification failed (HTTP ${res.status}, content-type ${contentType || "missing"}, product-id match ${productId === expectedProductId}, renderer version ${rendererVersion ?? "missing"})`;
     await logExecution(capability, "direct-http-verification", ok ? "success" : "error", payload, data, correlationId, failure);
