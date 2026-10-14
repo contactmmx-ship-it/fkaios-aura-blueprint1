@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { classifyObjective, planContractMismatch, projectOutputType } from "./objective-contract.ts";
+import { classifyObjective, planContractMismatch, projectOutputType, hasMeasuredProductBuild, hasMeasuredProductVerification, hasVerifiedLiveProductEvidence } from "./objective-contract.ts";
 
 // The objective text submitted from the Console on 9 Oct 2026 (20cbf892).
 const KIDS_DPS = `**Objective: Prepare a verified Kids DPS preschool franchise opportunity and 90-day action plan for India.**
@@ -44,4 +44,48 @@ Deno.test("planContractMismatch: finished or untyped plans are never reopened", 
   assertEquals(planContractMismatch({ status: "failed", output_type: "product" }, KIDS_DPS), false);
   assertEquals(planContractMismatch({ status: "working", output_type: null }, KIDS_DPS), false);
   assertEquals(planContractMismatch(null, KIDS_DPS), false);
+});
+
+
+const VERIFIED_PRODUCT_URL = "https://fkaios-aura-blueprint1.vercel.app/product/build-123";
+const measuredBuildTask = (url = VERIFIED_PRODUCT_URL) => ({
+  status: "done",
+  output: JSON.stringify({
+    llmResult: {
+      capability: "product.build",
+      capability_result: { build_id: "build-123", build_type: "website", deployed_url: url, product_status: "live" },
+    },
+  }),
+});
+const measuredVerifyTask = (url = VERIFIED_PRODUCT_URL, httpStatus = 200) => ({
+  status: "done",
+  output: JSON.stringify({
+    llmResult: {
+      capability: "product.verify",
+      capability_result: { deployed_url: url, url, http_status: httpStatus, live: httpStatus >= 200 && httpStatus < 300, verified_at: "2026-10-14T00:00:00.000Z" },
+    },
+  }),
+});
+
+Deno.test("product gate accepts only a measured builder-engine build plus HTTP-verified matching URL", () => {
+  const tasks = [measuredBuildTask(), measuredVerifyTask()];
+  assertEquals(hasMeasuredProductBuild(tasks), true);
+  assertEquals(hasMeasuredProductVerification(tasks), true);
+  assertEquals(hasVerifiedLiveProductEvidence(tasks), true);
+});
+
+Deno.test("product gate rejects a plausible but unmeasured random website URL", () => {
+  const fake = { status: "done", output: "Deployed successfully: https://random-example-site.com — HTTP 200" };
+  assertEquals(hasVerifiedLiveProductEvidence([fake]), false);
+  assertEquals(hasVerifiedLiveProductEvidence([measuredBuildTask(), fake]), false);
+});
+
+Deno.test("product gate rejects mismatched deployment URLs and failed HTTP checks", () => {
+  assertEquals(hasVerifiedLiveProductEvidence([measuredBuildTask(), measuredVerifyTask("https://fkaios-aura-blueprint1.vercel.app/product/another-build")]), false);
+  assertEquals(hasMeasuredProductVerification([measuredVerifyTask(VERIFIED_PRODUCT_URL, 404)]), false);
+  assertEquals(hasVerifiedLiveProductEvidence([measuredBuildTask(), measuredVerifyTask(VERIFIED_PRODUCT_URL, 404)]), false);
+});
+
+Deno.test("product gate rejects insecure HTTP URLs even if a model claims they are live", () => {
+  assertEquals(hasVerifiedLiveProductEvidence([measuredBuildTask("http://random-example-site.com"), measuredVerifyTask("http://random-example-site.com")]), false);
 });

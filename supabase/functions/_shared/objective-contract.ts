@@ -62,3 +62,97 @@ export function planContractMismatch(
   if (typeof project.output_type !== "string" || !project.output_type) return false;
   return project.output_type !== projectOutputType(classifyObjective(rawRequest));
 }
+
+
+export interface MeasuredProductCapabilityEvidence {
+  capability: "product.build" | "product.deploy" | "product.verify";
+  deployedUrl: string;
+  buildId: string | null;
+  live: boolean;
+  httpStatus: number | null;
+}
+
+function parseTaskOutputEnvelope(value: unknown): Record<string, unknown> | null {
+  let parsed: unknown = value;
+  if (typeof value === "string") {
+    try { parsed = JSON.parse(value); } catch { return null; }
+  }
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : null;
+}
+
+function secureProductUrl(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== "https:" || !url.hostname || url.username || url.password) return null;
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
+/** Extract only product lifecycle evidence written by ai-engine's deterministic lifecycle handlers. Plain-text URLs and model assertions are not deployment proof. */
+export function measuredProductCapabilityEvidence(taskOutput: unknown): MeasuredProductCapabilityEvidence | null {
+  const envelope = parseTaskOutputEnvelope(taskOutput);
+  const llmResult = envelope?.llmResult;
+  if (!llmResult || typeof llmResult !== "object" || Array.isArray(llmResult)) return null;
+  const result = llmResult as Record<string, unknown>;
+  const capability = result.capability;
+  if (capability !== "product.build" && capability !== "product.deploy" && capability !== "product.verify") return null;
+  const raw = result.capability_result;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const measured = raw as Record<string, unknown>;
+  const deployedUrl = secureProductUrl(measured.deployed_url ?? measured.url);
+  if (!deployedUrl) return null;
+  const httpStatusValue = Number(measured.http_status);
+  const httpStatus = Number.isInteger(httpStatusValue) ? httpStatusValue : null;
+  const live = measured.live === true || measured.product_status === "live";
+
+  if (capability === "product.build") {
+    if (typeof measured.build_id !== "string" || !measured.build_id.trim() || measured.product_status !== "live") return null;
+  } else {
+    if (measured.live !== true || httpStatus === null || httpStatus < 200 || httpStatus >= 300) return null;
+  }
+
+  return {
+    capability,
+    deployedUrl,
+    buildId: typeof measured.build_id === "string" ? measured.build_id : null,
+    live,
+    httpStatus,
+  };
+}
+
+export function hasMeasuredProductBuild(tasks: unknown[]): boolean {
+  return tasks.some((task) => {
+    if (!task || typeof task !== "object") return false;
+    const row = task as Record<string, unknown>;
+    return ["done", "completed", "verified"].includes(String(row.status ?? "").toLowerCase()) &&
+      measuredProductCapabilityEvidence(row.output)?.capability === "product.build";
+  });
+}
+
+export function hasMeasuredProductVerification(tasks: unknown[]): boolean {
+  return tasks.some((task) => {
+    if (!task || typeof task !== "object") return false;
+    const row = task as Record<string, unknown>;
+    return ["done", "completed", "verified"].includes(String(row.status ?? "").toLowerCase()) &&
+      measuredProductCapabilityEvidence(row.output)?.capability === "product.verify";
+  });
+}
+
+/** Completion requires a real builder-engine build and a later measured HTTP verification of that exact same HTTPS URL. */
+export function hasVerifiedLiveProductEvidence(tasks: unknown[]): boolean {
+  const records = tasks.flatMap((task) => {
+    if (!task || typeof task !== "object") return [];
+    const row = task as Record<string, unknown>;
+    if (!["done", "completed", "verified"].includes(String(row.status ?? "").toLowerCase())) return [];
+    const evidence = measuredProductCapabilityEvidence(row.output);
+    return evidence ? [evidence] : [];
+  });
+  const builds = records.filter((e) => e.capability === "product.build");
+  const verifications = records.filter((e) => e.capability === "product.verify");
+  return builds.some((build) => verifications.some((verification) => verification.deployedUrl === build.deployedUrl));
+}

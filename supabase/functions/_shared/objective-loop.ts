@@ -6,7 +6,7 @@ import { contractCriteria, isIndependentVerificationLevel, isRecoverableOutputBl
 import { readObjectiveState, syncObjectiveState } from "./objective-state.ts";
 import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, type TaskEvidenceRecord } from "./fact-grounding.ts";
 import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP, projectUpdateForObjective } from "./objective-rerun.ts";
-import { classifyObjective, completionContract, planContractMismatch, projectOutputType } from "./objective-contract.ts";
+import { classifyObjective, completionContract, planContractMismatch, projectOutputType, measuredProductCapabilityEvidence, hasMeasuredProductBuild, hasMeasuredProductVerification, hasVerifiedLiveProductEvidence } from "./objective-contract.ts";
 import { objectiveDeadline, objectiveDeadlineMinutes, objectiveRunStartedAt, projectsCreatedSince } from "./objective-deadline.ts";
 import { hasSubstantiveTaskOutput } from "./task-output.ts";
 
@@ -138,9 +138,6 @@ function extractDeterministicEvidence(
     if (!parsed || typeof parsed !== "object") continue;
     const dispatch = (parsed as Record<string, unknown>).companyOsDispatch;
     const llmResult = (parsed as Record<string, unknown>).llmResult;
-    const capabilityResult =
-      llmResult && typeof llmResult === "object" &&
-      (llmResult as Record<string, unknown>).capability_result;
     const capability =
       dispatch && typeof dispatch === "object"
         ? String((dispatch as Record<string, unknown>).capability ?? "unknown")
@@ -152,14 +149,7 @@ function extractDeterministicEvidence(
     // work-engine deliberately does NOT dispatch these through Company OS
     // again, so companyOsDispatch.status may legitimately be "unknown_capability"
     // even when the measured product operation succeeded.
-    const measuredProductSuccess =
-      ["product.build", "product.deploy", "product.verify"].includes(capability) &&
-      capabilityResult !== undefined &&
-      typeof capabilityResult === "object" &&
-      (
-        (capabilityResult as Record<string, unknown>).live === true ||
-        String((capabilityResult as Record<string, unknown>).product_status ?? "") === "live"
-      );
+    const measuredProductSuccess = measuredProductCapabilityEvidence(parsed) !== null;
 
     if (
       measuredProductSuccess ||
@@ -203,27 +193,15 @@ async function syncDeterministicVerificationEvidence(
     .filter((t) => typeof t.output === "string")
     .map((t) => ({ task: t, output: String(t.output) }));
 
-  const hasLiveUrl = projects.some((p) =>
-    /https?:\/\//.test(String(p.final_output ?? "")) &&
-    /live|deploy|url|production|vercel|netlify/i.test(String(p.final_output ?? ""))
-  ) || outputs.some(({ output }) =>
-    /https?:\/\//.test(output) &&
-    /live|deploy|url|production|vercel|netlify/i.test(output)
-  );
+  const evidenceTasks = outputs.map(({ task }) => task);
+  const hasLiveUrl = hasVerifiedLiveProductEvidence(evidenceTasks);
 
   const hasSource = outputs.some(({ output }) =>
     /github\.com|gitlab\.com|repository|source code|commit/i.test(output)
   );
 
-  const hasMeasuredBuild = outputs.some(({ output }) =>
-    /build|deploy|deployment/i.test(output) &&
-    /success|passed|live|production/i.test(output)
-  );
-
-  const hasMeasuredFunctionalVerification = outputs.some(({ output }) =>
-    /product\.verify/i.test(output) &&
-    /"live"\s*:\s*true|"product_status"\s*:\s*"live"/i.test(output)
-  );
+  const hasMeasuredBuild = hasMeasuredProductBuild(evidenceTasks);
+  const hasMeasuredFunctionalVerification = hasMeasuredProductVerification(evidenceTasks);
 
   const allTasksTerminalVerified = tasks.length > 0 && tasks.every((t) =>
     ["completed", "done", "verified"].includes(String(t.status ?? "").toLowerCase())
@@ -375,10 +353,9 @@ async function evaluateObjective(
     };
   }
   const { data: objectiveContract } = await getSupabaseAdmin().from("objective_contracts").select("objective_type,intent,requirements,acceptance_criteria,quality_benchmark,discovery,solution_plan,continuity,status").eq("objective_id", String(objective.id)).maybeSingle();
-  const productLiveEvidence = contract.requiresLiveArtifact && (
-    projects.some((p) => (String(p.final_output ?? "").includes("http://") || String(p.final_output ?? "").includes("https://")) && /live|deploy|url/i.test(String(p.final_output ?? ""))) ||
-    tasks.some((t) => typeof t.output === "string" && (t.output.includes("http://") || t.output.includes("https://")) && /live|deploy|url|production|netlify|vercel/i.test(t.output))
-  );
+  const currentPassId = String(projects[0]?.id ?? "");
+  const currentPassTasks = tasks.filter((task) => String(task.project_id ?? "") === currentPassId);
+  const productLiveEvidence = contract.requiresLiveArtifact && hasVerifiedLiveProductEvidence(currentPassTasks);
 
   // Outcome gate: for product objectives, code generation is never the final
   // outcome. A product is complete only when a usable deployed artifact is
@@ -407,11 +384,7 @@ async function evaluateObjective(
     const projectTasks = tasks.filter((task) => String(task.project_id ?? "") === projectId);
     if (projectTasks.length === 0) return false;
     const gate = assessObjectiveTasks(projectTasks as TaskEvidenceRecord[]);
-    const liveEvidence = projectTasks.some((task) =>
-      typeof task.output === "string" &&
-      /https?:\/\//.test(task.output) &&
-      /live|deploy|url|production|vercel|netlify/i.test(task.output)
-    );
+    const liveEvidence = hasVerifiedLiveProductEvidence(projectTasks);
     return gate.allVerified && liveEvidence;
   });
 
