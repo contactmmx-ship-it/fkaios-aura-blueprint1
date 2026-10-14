@@ -1,15 +1,20 @@
-/** Build a public, directly addressable URL for persisted generated HTML.
- * The products-public Edge Function is intentionally unauthenticated and reads
- * only the requested build artifact. This avoids routing public products
- * through the protected internal Console domain.
- */
-export function buildPublicProductUrl(supabaseUrl: string, buildId: string): string {
-  if (!buildId.trim()) throw new Error("buildId is required");
-  const base = new URL(supabaseUrl);
-  if (base.protocol !== "https:" || !base.hostname || base.username || base.password) {
-    throw new Error("SUPABASE_URL must be a valid HTTPS origin");
-  }
-  const endpoint = new URL("/functions/v1/products-public", base.origin);
-  endpoint.searchParams.set("build_id", buildId);
-  return endpoint.toString();
+export interface ProductRendererProbe {
+  status: number;
+  headers: Headers;
+  buildId: string;
+  html: string;
+}
+
+/** A product is live only when the configured renderer serves this exact build as HTML. */
+export function isVerifiedProductRenderer(probe: ProductRendererProbe): boolean {
+  if (!probe.buildId.trim()) return false;
+  const contentType = probe.headers.get("content-type") ?? "";
+  const productId = probe.headers.get("x-fkaios-product-id") ?? "";
+  const rendererVersion = Number(probe.headers.get("x-fkaios-product-renderer-version"));
+  return probe.status >= 200 &&
+    probe.status < 300 &&
+    contentType.toLowerCase().includes("text/html") &&
+    productId === probe.buildId &&
+    rendererVersion === 2 &&
+    /<html[\s>]/i.test(probe.html);
 }
