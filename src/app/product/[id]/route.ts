@@ -14,7 +14,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   // Never decorate or replace generated product content with a generic demo UI.
   // The renderer's job is to return the exact HTML persisted for this build ID.
   // A missing/non-HTML response is a failure, not a successful product page.
-  if (response.ok && (!body.trim() || !/<html[\\s>]/i.test(body))) {
+  if (response.ok && (!body.trim() || !/<html[\s>]/i.test(body))) {
     return new Response("Generated product HTML is missing or invalid; no demo dashboard was substituted.", {
       status: 502,
       headers: {
