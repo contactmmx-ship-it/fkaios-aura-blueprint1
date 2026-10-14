@@ -1217,7 +1217,9 @@ async function executeProductBuild(job: AIJob, cid: string): Promise<Record<stri
       build_id: data.build_id,
       build_type: data.build_type,
       deployed_url: data.deployed_url ?? null,
-      product_status: "live",
+      // JSON/CRM/SaaS artifacts without a public runnable URL are generated
+      // artifacts, not deployed products. Do not claim they are live.
+      product_status: data.deployed_url ? "live" : "artifact_ready",
     },
   };
 }
