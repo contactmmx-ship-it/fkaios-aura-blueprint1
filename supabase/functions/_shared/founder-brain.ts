@@ -117,6 +117,39 @@ function toFounderBrainProvider(name: ProviderName): "anthropic" | "gemini" | "o
   return name === "gemini" || name === "openai" ? name : "anthropic";
 }
 
+function summarizeProviderFailures(failureReason: string | null | undefined): string {
+  if (!failureReason?.trim()) return "No provider returned a usable response. Check configured providers and their availability.";
+
+  const segments = failureReason.split(/\s+\|\s+/).map((part) => part.trim()).filter(Boolean);
+  const summaries: string[] = [];
+  for (const segment of segments) {
+    const match = segment.match(/^([a-z0-9_-]+):\s*([a-z_]+):?/i);
+    const provider = match?.[1]?.toLowerCase() ?? "provider";
+    const category = match?.[2]?.toLowerCase() ?? "";
+    const lower = segment.toLowerCase();
+    let message: string;
+    if (category === "authentication_failure" || /invalid[_ ]api[_ ]key|unauthorized|http (401|403)/i.test(segment)) {
+      message = `${provider}: authentication failed; check that provider's API-key secret and permissions.`;
+    } else if (category === "rate_limit" || /rate limit|tokens per minute|\btpm\b|http 429/.test(lower)) {
+      message = `${provider}: rate limit/quota exceeded; wait for the limit to reset or reduce request size. This is not evidence of an invalid key.`;
+    } else if (category === "credit_exhaustion" || /insufficient_quota|no credits remaining|credit balance is too low/.test(lower)) {
+      message = `${provider}: API credits/quota exhausted; the key may be valid, but usage is blocked by the provider's quota or billing limit.`;
+    } else if (category === "invalid_request") {
+      message = `${provider}: the provider rejected the request; check model and request configuration.`;
+    } else if (category === "model_unavailable") {
+      message = `${provider}: the configured model is unavailable; check the model name or choose a supported model.`;
+    } else if (category === "invalid_response") {
+      message = `${provider}: returned no usable response.`;
+    } else if (category === "provider_outage" || category === "timeout") {
+      message = `${provider}: provider/network unavailable or timed out.`;
+    } else {
+      message = `${provider}: ${segment.slice(0, 180)}`;
+    }
+    if (!summaries.includes(message)) summaries.push(message);
+  }
+  return summaries.slice(0, 5).join(" ");
+}
+
 async function reasonCore(
   systemPrompt: string,
   userContent: string,
@@ -146,7 +179,7 @@ async function reasonCore(
 
   if (result.status !== "success") {
     log("ERROR", "reasonCore: all configured LLM providers failed", { status: result.status, failureReason: result.log.failure_reason }, correlationId);
-    throw new Error(`Founder Brain: no LLM provider succeeded (${result.log.failure_reason ?? "unknown reason"}). Verify ANTHROPIC_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY secrets.`);
+    throw new Error(`Founder Brain: no LLM provider succeeded. ${summarizeProviderFailures(result.log.failure_reason)}`);
   }
 
   if (result.log.attempted_providers.length > 1) {
