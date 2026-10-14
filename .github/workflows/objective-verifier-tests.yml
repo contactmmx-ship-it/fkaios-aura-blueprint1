@@ -29,6 +29,8 @@ on:
       - "supabase/functions/_shared/company-os.test.ts"
       - "supabase/functions/ai-engine/index.ts"
       - "supabase/functions/ai-engine/index.test.ts"
+      - "src/app/product/[id]/route.ts"
+      - "src/app/product/[id]/route.test.ts"
       - ".github/workflows/objective-verifier-tests.yml"
   push:
     branches:
@@ -59,6 +61,8 @@ on:
       - "supabase/functions/_shared/company-os.test.ts"
       - "supabase/functions/ai-engine/index.ts"
       - "supabase/functions/ai-engine/index.test.ts"
+      - "src/app/product/[id]/route.ts"
+      - "src/app/product/[id]/route.test.ts"
       - ".github/workflows/objective-verifier-tests.yml"
 
 permissions:
@@ -77,6 +81,8 @@ jobs:
         uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
         with:
           deno-version: v2.9.7
+      - name: Run generated product integrity regression test
+        run: deno test --no-check --allow-read src/app/product/\[id\]/route.test.ts
       - name: Run blocked-work escalation dedupe regression tests
         run: deno test --no-check --node-modules-dir=auto --allow-env supabase/functions/_shared/escalation-dedupe.test.ts
       - name: Run objective-loop infrastructure inventory regression tests
