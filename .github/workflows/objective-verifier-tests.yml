@@ -29,8 +29,8 @@ on:
       - "supabase/functions/_shared/company-os.test.ts"
       - "supabase/functions/ai-engine/index.ts"
       - "supabase/functions/ai-engine/index.test.ts"
-      - "src/app/product/[id]/route.ts"
-      - "src/app/product/[id]/route.test.ts"
+      - "src/app/product/\\[id\\]/route.ts"
+      - "src/app/product/\\[id\\]/route.test.ts"
       - ".github/workflows/objective-verifier-tests.yml"
   push:
     branches:
@@ -61,8 +61,8 @@ on:
       - "supabase/functions/_shared/company-os.test.ts"
       - "supabase/functions/ai-engine/index.ts"
       - "supabase/functions/ai-engine/index.test.ts"
-      - "src/app/product/[id]/route.ts"
-      - "src/app/product/[id]/route.test.ts"
+      - "src/app/product/\\[id\\]/route.ts"
+      - "src/app/product/\\[id\\]/route.test.ts"
       - ".github/workflows/objective-verifier-tests.yml"
 
 permissions:
