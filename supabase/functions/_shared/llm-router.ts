@@ -515,6 +515,29 @@ export const openaiAdapter: ProviderAdapter = {
 };
 
 
+/** Build a provider-compatible request body. GPT-OSS on Groq is a reasoning model: use its completion-token field and hide reasoning so short task budgets are not consumed before a user-facing answer. Structured calls use JSON mode; the existing schema parser remains the final acceptance gate. */
+export function buildOpenAICompatibleRequestBody(name: ProviderName, model: string, request: LLMRequest): Record<string, unknown> {
+  const groqGptOss = name === "groq" && /^openai\/gpt-oss-/i.test(model);
+  const structured = groqGptOss && isAnthropicToolSchema(request.toolSchema);
+  const body: Record<string, unknown> = {
+    model,
+    ...(groqGptOss
+      ? {
+          max_completion_tokens: request.maxTokens ?? 4096,
+          reasoning_effort: request.functionClass === "founder_intelligence" ? "medium" : "low",
+          reasoning_format: "hidden",
+        }
+      : { max_tokens: request.maxTokens ?? 4096 }),
+    messages: [
+      { role: "system", content: request.systemPrompt + structuredOutputInstruction(request.toolSchema) },
+      { role: "user", content: request.userContent },
+    ],
+    temperature: request.temperature,
+  };
+  if (structured) body.response_format = { type: "json_object" };
+  return body;
+}
+
 // OpenAI-compatible resilience adapters: each provider is optional and is
 // automatically skipped when its key is absent or explicitly disabled.
 function buildOpenAICompatibleAdapter(
@@ -541,7 +564,7 @@ function buildOpenAICompatibleAdapter(
       const response=await fetch(resolvedBaseUrl+"/chat/completions",{
         method:"POST",
         headers:{...(apiKey?{Authorization:"Bearer "+apiKey}:{}),"Content-Type":"application/json",...extraHeaders},
-        body:JSON.stringify({model,max_tokens:request.maxTokens??4096,messages:[{role:"system",content:request.systemPrompt+structuredOutputInstruction(request.toolSchema)},{role:"user",content:request.userContent}],temperature:request.temperature}),
+        body:JSON.stringify(buildOpenAICompatibleRequestBody(name, model, request)),
       });
       const latencyMs=Date.now()-start;
       if(!response.ok){
