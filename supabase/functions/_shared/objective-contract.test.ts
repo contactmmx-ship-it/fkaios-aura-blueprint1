@@ -113,3 +113,27 @@ Deno.test("product gate rejects HTTP 200 text/plain sandbox responses even when 
   };
   assertEquals(hasVerifiedLiveProductEvidence([build, sandboxed]), false);
 });
+
+
+Deno.test("artifact-ready output is not treated as a live product", () => {
+  const artifact = {
+    status: "done",
+    output: JSON.stringify({
+      llmResult: {
+        capability: "product.build",
+        capability_result: {
+          build_id: "build-123",
+          build_type: "website",
+          deployed_url: null,
+          product_status: "artifact_ready",
+          product_id: null,
+          renderer_version: null,
+          content_type: null,
+          renderer_verified: false,
+        },
+      },
+    }),
+  };
+  assertEquals(hasMeasuredProductBuild([artifact]), false);
+  assertEquals(hasVerifiedLiveProductEvidence([artifact, measuredVerifyTask()]), false);
+});
