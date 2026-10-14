@@ -4,6 +4,7 @@ import { authenticateCaller } from '../_shared/internal-auth.ts';
 import { buildDefaultRouterConfig, callLLMOnResources, type LLMRequest } from '../_shared/llm-router.ts';
 import { selectResources } from '../_shared/resource-selection.ts';
 import { callWithContinuation } from '../_shared/continuation.ts';
+import { isVerifiedProductRenderer } from '../_shared/product-delivery.ts';
 
 
 const CORS = {
@@ -190,30 +191,27 @@ STRICT RULES: no iframes, no external embeds, no opacity-0 fade-in animations th
             redirect: 'manual',
             signal: AbortSignal.timeout(8000),
           });
-          const contentType = probe.headers.get('content-type') ?? '';
-          const productId = probe.headers.get('x-fkaios-product-id') ?? '';
-          const version = Number(probe.headers.get('x-fkaios-product-renderer-version'));
           const html = await probe.text();
-          if (
-            probe.ok &&
-            contentType.toLowerCase().includes('text/html') &&
-            productId === buildId &&
-            version === 2 &&
-            /<html[\s>]/i.test(html)
-          ) {
+          const verified = isVerifiedProductRenderer({
+            status: probe.status,
+            headers: probe.headers,
+            buildId,
+            html,
+          });
+          if (verified) {
             const { error: urlUpdateErr } = await db.from('build_projects').update({ deployed_url: candidate }).eq('id', buildId);
             if (!urlUpdateErr) {
               deployedUrl = candidate;
-              rendererVersion = version;
+              rendererVersion = 2;
             } else {
               console.log('PUBLIC URL SAVE FAILED', urlUpdateErr.message);
             }
           } else {
             console.log('PUBLIC PRODUCT HOST NOT VERIFIED', {
               status: probe.status,
-              contentType,
-              productIdMatches: productId === buildId,
-              rendererVersion: Number.isFinite(version) ? version : null,
+              contentType: probe.headers.get('content-type') ?? '',
+              productIdMatches: (probe.headers.get('x-fkaios-product-id') ?? '') === buildId,
+              rendererVersion: probe.headers.get('x-fkaios-product-renderer-version') ?? null,
             });
           }
         }
@@ -233,6 +231,7 @@ STRICT RULES: no iframes, no external embeds, no opacity-0 fade-in animations th
       product_id: deployedUrl ? buildId : null,
       renderer_version: rendererVersion,
       content_type: deployedUrl ? 'text/html' : null,
+      renderer_verified: deployedUrl !== null && rendererVersion === 2,
     });
 
   } catch (e) {
