@@ -237,8 +237,8 @@ async function executeSystemHealthCheck(correlationId?: string): Promise<Executi
 }
 
 async function executeReadOnlyAudit(
-  capability: "system.infrastructure_audit" | "crm.pipeline_audit",
-  rpcName: "fkaios_infrastructure_audit" | "fkaios_crm_pipeline_audit",
+  capability: "system.infrastructure_audit" | "crm.pipeline_audit" | "system.brand_pipeline_audit",
+  rpcName: "fkaios_infrastructure_audit" | "fkaios_crm_pipeline_audit" | "fkaios_brand_pipeline_audit",
   correlationId?: string,
 ): Promise<ExecutionResult> {
   // These database RPCs are explicitly read-only and grant EXECUTE only to
@@ -264,6 +264,9 @@ export async function executeCapability(
   if (capability === "system.health_check") return executeSystemHealthCheck(correlationId);
   if (capability === "system.infrastructure_audit") return executeReadOnlyAudit(capability, "fkaios_infrastructure_audit", correlationId);
   if (capability === "crm.pipeline_audit") return executeReadOnlyAudit(capability, "fkaios_crm_pipeline_audit", correlationId);
+  // The live CRM audit migration exposes fkaios_brand_pipeline_audit().
+  // Keep this explicit alias because existing objective tasks request this name.
+  if (capability === "system.brand_pipeline_audit") return executeReadOnlyAudit(capability, "fkaios_brand_pipeline_audit", correlationId);
 
   const def = CAPABILITY_REGISTRY[capability];
   if (!def) {
