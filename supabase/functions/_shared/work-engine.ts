@@ -56,7 +56,7 @@ import { founderMemory } from "./founder-brain.ts";
 import { getWorkforce, type EmployeeSummary } from "./executive-planner.ts";
 import { executeCapability } from "./company-os.ts";
 import { compactDispatchForStorage } from "./fact-grounding.ts";
-import { hasSubstantiveTaskOutput, serializeTaskOutput } from "./task-output.ts";
+import { failedCapabilityDispatchReason, hasSubstantiveTaskOutput, serializeTaskOutput } from "./task-output.ts";
 
 function getClient() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
@@ -502,12 +502,36 @@ export async function returnCompletedWork(): Promise<{ returned: number; dispatc
       }
     }
 
+    // A completed LLM response is not proof that its requested business action
+    // succeeded. Previously a failed/unknown Company OS dispatch was persisted as
+    // status=done, allowing the objective verifier to count a task as complete
+    // even though its requested capability never ran successfully.
+    const dispatchFailure = failedCapabilityDispatchReason(finalOutput);
+    if (dispatchFailure) {
+      const serializedFailure = serializeTaskOutput(finalOutput);
+      const { error: jobFailureError } = await client.from("ai_jobs")
+        .update({ status: "failed", error: dispatchFailure, updated_at: new Date().toISOString() })
+        .eq("id", job.id)
+        .eq("status", "completed");
+      if (jobFailureError) throw new Error("returnCompletedWork: failed to quarantine unsuccessful capability dispatch " + job.id + ": " + jobFailureError.message);
+      const { error: taskFailureError } = await client.from("orchestration_tasks")
+        .update({ status: "failed", output: serializedFailure, review_notes: dispatchFailure })
+        .eq("id", task.id)
+        .in("status", ["pending", "assigned", "running", "working", "rework"]);
+      if (taskFailureError) throw new Error("returnCompletedWork: failed to mark unsuccessful capability task failed " + task.id + ": " + taskFailureError.message);
+      continue;
+    }
+
     // Preserve valid JSON for the verifier. A character slice can silently corrupt
     // the envelope and erase companyOsDispatch, making a successful research task
     // look like it had no source. serializeTaskOutput removes the duplicated raw
     // research payload (retained in compact companyOsDispatch.data_excerpt) and
     // never truncates the serialized JSON.
-    await client.from("orchestration_tasks").update({ status: "done", output: serializeTaskOutput(finalOutput) }).eq("id", task.id);
+    const { error: taskCompleteError } = await client.from("orchestration_tasks")
+      .update({ status: "done", output: serializeTaskOutput(finalOutput), review_notes: null })
+      .eq("id", task.id)
+      .in("status", ["pending", "assigned", "running", "working", "rework"]);
+    if (taskCompleteError) throw new Error("returnCompletedWork: failed to persist completed task " + task.id + ": " + taskCompleteError.message);
     try {
       // EVOLUTION AUDIT FINDING (2026-07-18): this previously hardcoded
       // success:true unconditionally, even when a Company OS dispatch
