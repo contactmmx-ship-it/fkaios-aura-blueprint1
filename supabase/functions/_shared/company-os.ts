@@ -236,9 +236,65 @@ async function executeSystemHealthCheck(correlationId?: string): Promise<Executi
     : { capability: "system.health_check", status: "error", error: error!, data, attempts: 1 };
 }
 
+const CANONICAL_BRAND_NAMES = [
+  "Arofur",
+  "Chaat Masters",
+  "Chawla Lab",
+  "Franchise Kart",
+  "Gio Paints",
+  "GoMax",
+  "Kids DPS",
+  "Knead & Bake",
+  "Mr. Chick'n",
+  "Turning Point",
+] as const;
+
+/**
+ * The production SQL audit predates the brand-name normalization migration.
+ * Normalize only its registry-name comparison in the read-only result so
+ * historical SQL doesn't report canonical names as missing. Lead assignment,
+ * follow-up, activity and ingestion findings remain untouched.
+ */
+function normalizeBrandPipelineAudit(data: unknown): unknown {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return data;
+  const audit = data as Record<string, unknown>;
+  const registry = Array.isArray(audit.brand_registry)
+    ? audit.brand_registry.filter((item): item is Record<string, unknown> =>
+      Boolean(item) && typeof item === "object" && !Array.isArray(item)
+    )
+    : [];
+  const byName = new Map<string, Record<string, unknown>>();
+  for (const brand of registry) {
+    if (typeof brand.name === "string") byName.set(brand.name.trim().toLocaleLowerCase(), brand);
+  }
+  const mapping = CANONICAL_BRAND_NAMES.map((canonical_name) => {
+    const brand = byName.get(canonical_name.toLocaleLowerCase());
+    return {
+      canonical_name,
+      matched_current_name: brand?.name ?? null,
+      brand_id: brand?.id ?? null,
+      registry_match: Boolean(brand),
+    };
+  });
+  const missing = mapping.filter((item) => !item.registry_match).map((item) => item.canonical_name);
+  const counts = audit.counts && typeof audit.counts === "object" && !Array.isArray(audit.counts)
+    ? audit.counts as Record<string, unknown>
+    : {};
+  return {
+    ...audit,
+    expected_brand_mapping: mapping,
+    missing_brand_names: missing,
+    counts: {
+      ...counts,
+      expected_brand_names_matched: mapping.length - missing.length,
+      missing_brand_registry_entries: missing.length,
+    },
+  };
+}
+
 async function executeReadOnlyAudit(
-  capability: "system.infrastructure_audit" | "crm.pipeline_audit",
-  rpcName: "fkaios_infrastructure_audit" | "fkaios_crm_pipeline_audit",
+  capability: "system.infrastructure_audit" | "crm.pipeline_audit" | "system.brand_pipeline_audit",
+  rpcName: "fkaios_infrastructure_audit" | "fkaios_crm_pipeline_audit" | "fkaios_brand_pipeline_audit",
   correlationId?: string,
 ): Promise<ExecutionResult> {
   // These database RPCs are explicitly read-only and grant EXECUTE only to
@@ -250,8 +306,11 @@ async function executeReadOnlyAudit(
     await logExecution(capability, rpcName, "error", { read_only: true }, null, correlationId, message);
     return { capability, status: "error", error: message, attempts: 1 };
   }
-  await logExecution(capability, rpcName, "success", { read_only: true }, data, correlationId);
-  return { capability, status: "success", data, attempts: 1 };
+  const evidence = capability === "system.brand_pipeline_audit"
+    ? normalizeBrandPipelineAudit(data)
+    : data;
+  await logExecution(capability, rpcName, "success", { read_only: true }, evidence, correlationId);
+  return { capability, status: "success", data: evidence, attempts: 1 };
 }
 
 export async function executeCapability(
@@ -264,6 +323,9 @@ export async function executeCapability(
   if (capability === "system.health_check") return executeSystemHealthCheck(correlationId);
   if (capability === "system.infrastructure_audit") return executeReadOnlyAudit(capability, "fkaios_infrastructure_audit", correlationId);
   if (capability === "crm.pipeline_audit") return executeReadOnlyAudit(capability, "fkaios_crm_pipeline_audit", correlationId);
+  // The live CRM audit migration exposes fkaios_brand_pipeline_audit().
+  // Keep this explicit alias because existing objective tasks request this name.
+  if (capability === "system.brand_pipeline_audit") return executeReadOnlyAudit(capability, "fkaios_brand_pipeline_audit", correlationId);
 
   const def = CAPABILITY_REGISTRY[capability];
   if (!def) {
