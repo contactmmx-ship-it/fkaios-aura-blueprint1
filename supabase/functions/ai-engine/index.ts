@@ -1177,7 +1177,7 @@ async function executeProductBuild(job: AIJob, cid: string): Promise<Record<stri
             ["website", "landing_page"].includes(buildType) &&
             (cr?.product_status === "live" || cr?.live === true)
           ) {
-            const rendererVerified = cr.renderer_version === 2 &&
+            const rendererVerified = cr.renderer_verified === true && cr.renderer_version === 2 &&
               cr.product_id === buildId &&
               String(cr.content_type ?? "").toLowerCase().includes("text/html") &&
               typeof cr.deployed_url === "string" && cr.deployed_url.startsWith("https://");
@@ -1189,6 +1189,7 @@ async function executeProductBuild(job: AIJob, cid: string): Promise<Record<stri
               product_id: rendererVerified ? buildId : null,
               renderer_version: rendererVerified ? 2 : null,
               content_type: rendererVerified ? "text/html" : null,
+              renderer_verified: rendererVerified,
               reused: true,
             }};
           }
@@ -1232,12 +1233,13 @@ async function executeProductBuild(job: AIJob, cid: string): Promise<Record<stri
       deployed_url: data.deployed_url ?? null,
       // A product is live only when the renderer probe returns a versioned,
       // matching product ID and HTML content type.
-      product_status: data.deployed_url && data.renderer_version === 2 && data.product_id === data.build_id && String(data.content_type ?? "").toLowerCase().includes("text/html")
+      product_status: data.deployed_url && data.renderer_verified === true && data.renderer_version === 2 && data.product_id === data.build_id && String(data.content_type ?? "").toLowerCase().includes("text/html")
         ? "live"
         : "artifact_ready",
       product_id: data.product_id ?? null,
       renderer_version: data.renderer_version ?? null,
       content_type: data.content_type ?? null,
+      renderer_verified: data.renderer_verified === true,
     },
   };
 }
