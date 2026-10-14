@@ -15,6 +15,7 @@ import {
   computeProviderHealth,
   buildLogEntry,
   getConfiguredDefaultProviders,
+  buildOpenAICompatibleRequestBody,
   prioritizeFreeProviders,
   anthropicAdapter,
   geminiAdapter,
@@ -866,4 +867,36 @@ Deno.test("zero-key local-first mode configures and calls self-hosted inference 
       globalThis.fetch = originalFetch;
     }
   });
+});
+
+
+Deno.test("Groq GPT-OSS structured requests use JSON mode and bounded reasoning output", () => {
+  const request = baseRequest({
+    functionClass: "founder_intelligence",
+    maxTokens: 700,
+    toolSchema: {
+      name: "emit_test",
+      description: "Return the structured test result",
+      input_schema: {
+        type: "object",
+        properties: { foo: { type: "string" } },
+        required: ["foo"],
+        additionalProperties: false,
+      },
+    },
+  });
+  const body = buildOpenAICompatibleRequestBody("groq", "openai/gpt-oss-20b", request);
+  assert(body.max_completion_tokens === 700, "GPT-OSS must use max_completion_tokens");
+  assert(!("max_tokens" in body), "GPT-OSS must not use the legacy max_tokens field");
+  assert(body.reasoning_effort === "medium", "Founder intelligence should retain medium reasoning effort");
+  assert(body.reasoning_format === "hidden", "Reasoning must not consume the user-facing response channel");
+  assert(JSON.stringify(body.response_format) === JSON.stringify({ type: "json_object" }), "Structured Groq calls must request valid JSON");
+});
+
+Deno.test("non-Groq OpenAI-compatible requests retain their existing token field and output mode", () => {
+  const request = baseRequest({ maxTokens: 321 });
+  const body = buildOpenAICompatibleRequestBody("openrouter", "openrouter/free", request);
+  assert(body.max_tokens === 321, "Other compatible providers must keep the existing max_tokens field");
+  assert(!("max_completion_tokens" in body), "Groq-specific token settings must not leak to other providers");
+  assert(!("response_format" in body), "Unstructured requests must not force JSON mode");
 });
