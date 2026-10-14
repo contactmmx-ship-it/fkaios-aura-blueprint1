@@ -48,7 +48,6 @@ import { classifyTaskClass, toolRef, workerRef } from "../_shared/resource-ident
 import { callWithContinuation } from "../_shared/continuation.ts";
 import { executeCapability } from "../_shared/company-os.ts";
 import { classifyObjective } from "../_shared/objective-contract.ts";
-import { buildPublicProductUrl } from "../_shared/product-delivery.ts";
 import { FOUNDER_OBJECTIVE_CLASSIFICATION } from "../_shared/objective-rerun.ts";
 import { parseJSONCandidate } from "../_shared/json-parse.ts";
 import {
@@ -1178,13 +1177,19 @@ async function executeProductBuild(job: AIJob, cid: string): Promise<Record<stri
             ["website", "landing_page"].includes(buildType) &&
             (cr?.product_status === "live" || cr?.live === true)
           ) {
+            const rendererVerified = cr.renderer_verified === true && cr.renderer_version === 2 &&
+              cr.product_id === buildId &&
+              String(cr.content_type ?? "").toLowerCase().includes("text/html") &&
+              typeof cr.deployed_url === "string" && cr.deployed_url.startsWith("https://");
             return { status: "success", capability: "product.build", capability_result: {
               build_id: buildId,
               build_type: buildType,
-              // Rebind legacy Vercel Console URLs to the public artifact endpoint.
-              // The subsequent product.verify task must still prove HTTP 2xx.
-              deployed_url: buildPublicProductUrl(supabaseUrl, buildId),
-              product_status: "live",
+              deployed_url: rendererVerified ? String(cr.deployed_url) : null,
+              product_status: rendererVerified ? "live" : "artifact_ready",
+              product_id: rendererVerified ? buildId : null,
+              renderer_version: rendererVerified ? 2 : null,
+              content_type: rendererVerified ? "text/html" : null,
+              renderer_verified: rendererVerified,
               reused: true,
             }};
           }
@@ -1226,9 +1231,15 @@ async function executeProductBuild(job: AIJob, cid: string): Promise<Record<stri
       build_id: data.build_id,
       build_type: data.build_type,
       deployed_url: data.deployed_url ?? null,
-      // JSON/CRM/SaaS artifacts without a public runnable URL are generated
-      // artifacts, not deployed products. Do not claim they are live.
-      product_status: data.deployed_url ? "live" : "artifact_ready",
+      // A product is live only when the renderer probe returns a versioned,
+      // matching product ID and HTML content type.
+      product_status: data.deployed_url && data.renderer_verified === true && data.renderer_version === 2 && data.product_id === data.build_id && String(data.content_type ?? "").toLowerCase().includes("text/html")
+        ? "live"
+        : "artifact_ready",
+      product_id: data.product_id ?? null,
+      renderer_version: data.renderer_version ?? null,
+      content_type: data.content_type ?? null,
+      renderer_verified: data.renderer_verified === true,
     },
   };
 }

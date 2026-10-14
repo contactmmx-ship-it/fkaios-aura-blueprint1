@@ -66,6 +66,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { resolveRuntimeResource } from "./resource-intelligence.ts";
+import { isVerifiedProductRenderer } from "./product-delivery.ts";
 
 function getClient() {
   const url = Deno.env.get("SUPABASE_URL") ?? "";
@@ -144,24 +145,51 @@ export async function executeProductCapability(
     return { capability, status: "unknown_capability", error: `unsupported product capability: ${capability}`, attempts: 0 };
   }
 
-  const url = String(payload.deployed_url ?? payload.url ?? "").trim();
-  if (!url || !/^https?:\/\//i.test(url)) {
-    return { capability, status: "error", error: "product URL is required", attempts: 1 };
+  const requestedUrl = String(payload.deployed_url ?? payload.url ?? "").trim();
+  let requested: URL;
+  let configuredBase: URL;
+  try {
+    requested = new URL(requestedUrl);
+    const configured = Deno.env.get("FKAIOS_PUBLIC_URL") ?? "";
+    if (!configured) throw new Error("FKAIOS_PUBLIC_URL is not configured");
+    configuredBase = new URL(configured);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { capability, status: "error", error: "Public product renderer is not configured or the product URL is invalid: " + message, attempts: 0 };
   }
+  if (configuredBase.protocol !== "https:" || requested.protocol !== "https:" || requested.origin !== configuredBase.origin) {
+    return { capability, status: "error", error: "Product verification is restricted to the configured HTTPS renderer origin", attempts: 0 };
+  }
+  const expectedProductId = requested.searchParams.get("build_id") ??
+    requested.pathname.match(/\/product\/([^/]+)\/?$/)?.[1] ?? "";
+  if (!expectedProductId || requested.pathname !== `/product/${expectedProductId}`) {
+    return { capability, status: "error", error: "Product URL does not identify a build on the configured renderer", attempts: 0 };
+  }
+  const safeUrl = new URL(`/product/${encodeURIComponent(expectedProductId)}`, configuredBase.origin);
 
   try {
-    const res = await fetch(url, { method: "GET", redirect: "follow" });
-    const ok = res.ok;
+    const res = await fetch(safeUrl.toString(), { method: "GET", redirect: "manual", signal: AbortSignal.timeout(8000) });
+    const html = await res.text();
+    const contentType = res.headers.get("content-type") ?? "";
+    const productId = res.headers.get("x-fkaios-product-id") ?? "";
+    const versionValue = Number(res.headers.get("x-fkaios-product-renderer-version"));
+    const rendererVersion = Number.isInteger(versionValue) ? versionValue : null;
+    const ok = isVerifiedProductRenderer({ status: res.status, headers: res.headers, buildId: expectedProductId, html });
     const data = {
-      url,
+      url: safeUrl.toString(),
       http_status: res.status,
       live: ok,
       verified_at: new Date().toISOString(),
+      content_type: contentType,
+      product_id: productId || null,
+      renderer_version: rendererVersion,
+      renderer_verified: ok,
     };
-    await logExecution(capability, "direct-http-verification", ok ? "success" : "error", payload, data, correlationId, ok ? undefined : `HTTP ${res.status}`);
+    const failure = ok ? undefined : `Renderer verification failed (HTTP ${res.status}, content-type ${contentType || "missing"}, product-id match ${productId === expectedProductId}, renderer version ${rendererVersion ?? "missing"})`;
+    await logExecution(capability, "direct-http-verification", ok ? "success" : "error", payload, data, correlationId, failure);
     return ok
       ? { capability, status: "success", data, attempts: 1 }
-      : { capability, status: "error", error: `HTTP ${res.status}`, data, attempts: 1 };
+      : { capability, status: "error", error: failure, data, attempts: 1 };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await logExecution(capability, "direct-http-verification", "error", payload, null, correlationId, message);

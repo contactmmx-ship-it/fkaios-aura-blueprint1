@@ -4,7 +4,7 @@ import { authenticateCaller } from '../_shared/internal-auth.ts';
 import { buildDefaultRouterConfig, callLLMOnResources, type LLMRequest } from '../_shared/llm-router.ts';
 import { selectResources } from '../_shared/resource-selection.ts';
 import { callWithContinuation } from '../_shared/continuation.ts';
-import { buildPublicProductUrl } from '../_shared/product-delivery.ts';
+import { isVerifiedProductRenderer } from '../_shared/product-delivery.ts';
 
 
 const CORS = {
@@ -164,18 +164,75 @@ STRICT RULES: no iframes, no external embeds, no opacity-0 fade-in animations th
     // addressable runtime. FKAIOS serves generated HTML through its production
     // product renderer; this is the deployment target used by the objective
     // completion gate and gives the founder a real usable URL.
-    const deployedUrl = isHtml ? buildPublicProductUrl(supabaseUrl, buildId) : null;
+    // Persist the artifact first. A generated HTML blob is not a live product
+    // until a public renderer proves that it serves this exact build as HTML.
+    // The public Supabase Edge Function deliberately serves HTML as text/plain
+    // with a sandbox CSP, so it must not be used as the customer-facing URL.
+    let deployedUrl: string | null = null;
+    let rendererVersion: number | null = null;
+    const publicBase = (Deno.env.get('FKAIOS_PUBLIC_URL') ?? '').replace(/\/+$/, '');
 
     const { error: updateErr } = await db.from('build_projects').update({
       status: 'complete',
       output_html: outputHtml,
       output_json: outputJson,
-      deployed_url: deployedUrl,
+      deployed_url: null,
       token_cost: { input: genUsage.input, output: genUsage.output, model: genUsage.model, provider: genUsage.provider },
     }).eq('id', buildId);
-    if (updateErr) console.log('UPDATE ERROR (non-fatal)', updateErr.message);
+    if (updateErr) throw new Error("Failed to persist generated product artifact: " + updateErr.message);
 
-    return ok({ build_id: buildId, status: 'complete', build_type, brand: brandName, model: genUsage.model, deployed_url: deployedUrl });
+    if (isHtml && publicBase) {
+      try {
+        const base = new URL(publicBase);
+        if (base.protocol === 'https:' && base.hostname && !base.username && !base.password) {
+          const candidate = new URL(`/product/${encodeURIComponent(buildId)}`, base.origin).toString();
+          const probe = await fetch(candidate, {
+            method: 'GET',
+            redirect: 'manual',
+            signal: AbortSignal.timeout(8000),
+          });
+          const html = await probe.text();
+          const verified = isVerifiedProductRenderer({
+            status: probe.status,
+            headers: probe.headers,
+            buildId,
+            html,
+          });
+          if (verified) {
+            const { error: urlUpdateErr } = await db.from('build_projects').update({ deployed_url: candidate }).eq('id', buildId);
+            if (!urlUpdateErr) {
+              deployedUrl = candidate;
+              rendererVersion = 2;
+            } else {
+              console.log('PUBLIC URL SAVE FAILED', urlUpdateErr.message);
+            }
+          } else {
+            console.log('PUBLIC PRODUCT HOST NOT VERIFIED', {
+              status: probe.status,
+              contentType: probe.headers.get('content-type') ?? '',
+              productIdMatches: (probe.headers.get('x-fkaios-product-id') ?? '') === buildId,
+              rendererVersion: probe.headers.get('x-fkaios-product-renderer-version') ?? null,
+            });
+          }
+        }
+      } catch (probeError) {
+        console.log('PUBLIC PRODUCT HOST PROBE FAILED', probeError instanceof Error ? probeError.message : String(probeError));
+      }
+    }
+
+    return ok({
+      build_id: buildId,
+      status: 'complete',
+      build_type,
+      brand: brandName,
+      model: genUsage.model,
+      deployed_url: deployedUrl,
+      product_status: deployedUrl ? 'live' : 'artifact_ready',
+      product_id: deployedUrl ? buildId : null,
+      renderer_version: rendererVersion,
+      content_type: deployedUrl ? 'text/html' : null,
+      renderer_verified: deployedUrl !== null && rendererVersion === 2,
+    });
 
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

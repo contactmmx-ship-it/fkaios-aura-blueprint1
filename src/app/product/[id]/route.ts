@@ -21,6 +21,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
         "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "no-store",
         "X-FKAIOS-Product-ID": id,
+        "X-FKAIOS-Product-Renderer-Version": "2",
       },
     });
   }
@@ -31,6 +32,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store",
       "X-FKAIOS-Product-ID": id,
+        "X-FKAIOS-Product-Renderer-Version": "2",
     },
   });
 }
