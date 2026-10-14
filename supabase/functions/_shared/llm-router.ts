@@ -517,7 +517,7 @@ export const openaiAdapter: ProviderAdapter = {
 
 /** Build a provider-compatible request body. GPT-OSS on Groq is a reasoning model: use its completion-token field and hide reasoning so short task budgets are not consumed before a user-facing answer. Structured calls use JSON mode; the existing schema parser remains the final acceptance gate. */
 export function buildOpenAICompatibleRequestBody(name: ProviderName, model: string, request: LLMRequest): Record<string, unknown> {
-  const groqGptOss = name === "groq" && /^openai\\/gpt-oss-/i.test(model);
+  const groqGptOss = name === "groq" && /^openai\/gpt-oss-/i.test(model);
   const structured = groqGptOss && isAnthropicToolSchema(request.toolSchema);
   const body: Record<string, unknown> = {
     model,
