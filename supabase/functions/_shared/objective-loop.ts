@@ -138,9 +138,6 @@ function extractDeterministicEvidence(
     if (!parsed || typeof parsed !== "object") continue;
     const dispatch = (parsed as Record<string, unknown>).companyOsDispatch;
     const llmResult = (parsed as Record<string, unknown>).llmResult;
-    const capabilityResult =
-      llmResult && typeof llmResult === "object" &&
-      (llmResult as Record<string, unknown>).capability_result;
     const capability =
       dispatch && typeof dispatch === "object"
         ? String((dispatch as Record<string, unknown>).capability ?? "unknown")
