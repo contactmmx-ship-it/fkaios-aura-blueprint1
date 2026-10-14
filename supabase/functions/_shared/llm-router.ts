@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { restrictProvidersForFreeTier } from "./provider-policy.ts";
 // FKAIOS Shared LLM Router — Phase 6A Step 2
 //
 // Provider reliability and routing layer. Routes requests, classifies
@@ -667,7 +668,14 @@ export function getConfiguredDefaultProviders(): ProviderAdapter[] {
   if (getMistralApiKey() && isProviderEnabled("PROVIDER_MISTRAL_ENABLED")) providers.push(mistralAdapter);
   if (getHuggingFaceApiKey() && isProviderEnabled("PROVIDER_HUGGINGFACE_ENABLED")) providers.push(huggingFaceAdapter);
   if (getSelfHostedBaseUrl() && isProviderEnabled("PROVIDER_SELF_HOSTED_ENABLED")) providers.push(selfHostedAdapter);
-  return prioritizeFreeProviders(providers, explicitlyFreeTierProviders());
+
+  const explicitlyFree = explicitlyFreeTierProviders();
+  // The founder's free-tier marker is a spending boundary, not just a sort
+  // hint. Paid fallbacks remain excluded unless the operator explicitly opts
+  // in with PROVIDER_ALLOW_PAID_FALLBACK=true after approving paid spend.
+  const allowPaidFallback = Deno.env.get("PROVIDER_ALLOW_PAID_FALLBACK") === "true";
+  const safeProviders = restrictProvidersForFreeTier(providers, explicitlyFree, allowPaidFallback);
+  return prioritizeFreeProviders(safeProviders, explicitlyFree);
 }
 
 /**
