@@ -1,5 +1,5 @@
 /// <reference lib="deno.ns" />
-import { hasSubstantiveTaskOutput, serializeTaskOutput } from "./task-output.ts";
+import { failedCapabilityDispatchReason, hasSubstantiveTaskOutput, serializeTaskOutput } from "./task-output.ts";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -54,4 +54,19 @@ Deno.test("real deliverables and measured evidence are substantive", () => {
   ]) {
     if (!hasSubstantiveTaskOutput(value)) throw new Error("substantive output must be accepted: " + JSON.stringify(value));
   }
+});
+
+
+Deno.test("failed capability dispatch is never treated as successful execution", () => {
+  const failure = {
+    llmResult: { capability: "system.brand_pipeline_audit" },
+    companyOsDispatch: { capability: "system.brand_pipeline_audit", status: "error", error: "unknown_capability" },
+  };
+  const reason = failedCapabilityDispatchReason(failure);
+  assert(typeof reason === "string" && reason.includes("system.brand_pipeline_audit") && reason.includes("unknown_capability"), "failure reason must preserve capability and concrete error");
+});
+
+Deno.test("successful measured capability dispatch remains successful", () => {
+  assert(failedCapabilityDispatchReason({ companyOsDispatch: { capability: "research.run", status: "success" } }) === null, "successful dispatch must not be rejected");
+  assert(failedCapabilityDispatchReason({ deliverable: "No capability was requested" }) === null, "ordinary output without dispatch must not be rejected");
 });
