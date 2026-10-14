@@ -53,7 +53,7 @@ const measuredBuildTask = (url = VERIFIED_PRODUCT_URL) => ({
   output: JSON.stringify({
     llmResult: {
       capability: "product.build",
-      capability_result: { build_id: "build-123", build_type: "website", deployed_url: url, product_status: "live" },
+      capability_result: { build_id: "build-123", build_type: "website", deployed_url: url, product_status: "live", product_id: "build-123", renderer_version: 2, content_type: "text/html", renderer_verified: true },
     },
   }),
 });
@@ -62,7 +62,7 @@ const measuredVerifyTask = (url = VERIFIED_PRODUCT_URL, httpStatus = 200) => ({
   output: JSON.stringify({
     llmResult: {
       capability: "product.verify",
-      capability_result: { deployed_url: url, url, http_status: httpStatus, live: httpStatus >= 200 && httpStatus < 300, verified_at: "2026-10-14T00:00:00.000Z" },
+      capability_result: { deployed_url: url, url, http_status: httpStatus, live: httpStatus >= 200 && httpStatus < 300, content_type: "text/html", product_id: "build-123", renderer_version: 2, renderer_verified: httpStatus >= 200 && httpStatus < 300, verified_at: "2026-10-14T00:00:00.000Z" },
     },
   }),
 });
@@ -88,4 +88,28 @@ Deno.test("product gate rejects mismatched deployment URLs and failed HTTP check
 
 Deno.test("product gate rejects insecure HTTP URLs even if a model claims they are live", () => {
   assertEquals(hasVerifiedLiveProductEvidence([measuredBuildTask("http://random-example-site.com"), measuredVerifyTask("http://random-example-site.com")]), false);
+});
+
+
+Deno.test("product gate rejects HTTP 200 text/plain sandbox responses even when the body contains HTML", () => {
+  const build = measuredBuildTask();
+  const sandboxed = {
+    status: "done",
+    output: JSON.stringify({
+      llmResult: {
+        capability: "product.verify",
+        capability_result: {
+          deployed_url: VERIFIED_PRODUCT_URL,
+          url: VERIFIED_PRODUCT_URL,
+          http_status: 200,
+          live: false,
+          content_type: "text/plain",
+          product_id: "build-123",
+          renderer_version: 2,
+          renderer_verified: false,
+        },
+      },
+    }),
+  };
+  assertEquals(hasVerifiedLiveProductEvidence([build, sandboxed]), false);
 });
