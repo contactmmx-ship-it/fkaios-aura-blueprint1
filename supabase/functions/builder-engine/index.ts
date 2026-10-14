@@ -169,7 +169,7 @@ STRICT RULES: no iframes, no external embeds, no opacity-0 fade-in animations th
     // with a sandbox CSP, so it must not be used as the customer-facing URL.
     let deployedUrl: string | null = null;
     let rendererVersion: number | null = null;
-    const publicBase = (Deno.env.get('FKAIOS_PUBLIC_URL') ?? '').replace(/\\/+$/, '');
+    const publicBase = (Deno.env.get('FKAIOS_PUBLIC_URL') ?? '').replace(/\/+$/, '');
 
     const { error: updateErr } = await db.from('build_projects').update({
       status: 'complete',
@@ -199,7 +199,7 @@ STRICT RULES: no iframes, no external embeds, no opacity-0 fade-in animations th
             contentType.toLowerCase().includes('text/html') &&
             productId === buildId &&
             version === 2 &&
-            /<html[\\s>]/i.test(html)
+            /<html[\s>]/i.test(html)
           ) {
             const { error: urlUpdateErr } = await db.from('build_projects').update({ deployed_url: candidate }).eq('id', buildId);
             if (!urlUpdateErr) {
