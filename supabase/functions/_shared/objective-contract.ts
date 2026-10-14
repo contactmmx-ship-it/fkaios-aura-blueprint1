@@ -70,6 +70,10 @@ export interface MeasuredProductCapabilityEvidence {
   buildId: string | null;
   live: boolean;
   httpStatus: number | null;
+  contentType: string;
+  productId: string | null;
+  rendererVersion: number | null;
+  rendererVerified: boolean;
 }
 
 function parseTaskOutputEnvelope(value: unknown): Record<string, unknown> | null {
@@ -93,7 +97,16 @@ function secureProductUrl(value: unknown): string | null {
   }
 }
 
-/** Extract only product lifecycle evidence written by ai-engine's deterministic lifecycle handlers. Plain-text URLs and model assertions are not deployment proof. */
+function productIdFromUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.searchParams.get("build_id") ?? url.pathname.match(/\/product\/([^/]+)\/?$/)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Extract only measured lifecycle evidence from the deterministic product handlers. Plain-text URLs and HTTP 200 text/plain sandbox responses are not deployment proof. */
 export function measuredProductCapabilityEvidence(taskOutput: unknown): MeasuredProductCapabilityEvidence | null {
   const envelope = parseTaskOutputEnvelope(taskOutput);
   const llmResult = envelope?.llmResult;
@@ -108,20 +121,41 @@ export function measuredProductCapabilityEvidence(taskOutput: unknown): Measured
   if (!deployedUrl) return null;
   const httpStatusValue = Number(measured.http_status);
   const httpStatus = Number.isInteger(httpStatusValue) ? httpStatusValue : null;
+  const contentType = String(measured.content_type ?? "").toLowerCase();
+  const productId = typeof measured.product_id === "string" ? measured.product_id : null;
+  const rendererVersionValue = Number(measured.renderer_version);
+  const rendererVersion = Number.isInteger(rendererVersionValue) ? rendererVersionValue : null;
+  const rendererVerified = measured.renderer_verified === true;
   const live = measured.live === true || measured.product_status === "live";
 
+  if (!rendererVerified || !contentType.includes("text/html") || rendererVersion !== 2 || !productId) return null;
   if (capability === "product.build") {
-    if (typeof measured.build_id !== "string" || !measured.build_id.trim() || measured.product_status !== "live") return null;
+    if (
+      typeof measured.build_id !== "string" ||
+      !measured.build_id.trim() ||
+      measured.product_status !== "live" ||
+      productId !== measured.build_id
+    ) return null;
   } else {
-    if (measured.live !== true || httpStatus === null || httpStatus < 200 || httpStatus >= 300) return null;
+    if (
+      measured.live !== true ||
+      httpStatus === null ||
+      httpStatus < 200 ||
+      httpStatus >= 300 ||
+      productId !== productIdFromUrl(deployedUrl)
+    ) return null;
   }
 
   return {
     capability,
     deployedUrl,
-    buildId: typeof measured.build_id === "string" ? measured.build_id : null,
+    buildId: typeof measured.build_id === "string" ? measured.build_id : productIdFromUrl(deployedUrl),
     live,
     httpStatus,
+    contentType,
+    productId,
+    rendererVersion,
+    rendererVerified,
   };
 }
 
