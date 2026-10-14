@@ -120,7 +120,7 @@ function toFounderBrainProvider(name: ProviderName): "anthropic" | "gemini" | "o
 function summarizeProviderFailures(failureReason: string | null | undefined): string {
   if (!failureReason?.trim()) return "No provider returned a usable response. Check configured providers and their availability.";
 
-  const segments = failureReason.split(/\s+\\|\s+/).map((part) => part.trim()).filter(Boolean);
+  const segments = failureReason.split(/\s+\|\s+/).map((part) => part.trim()).filter(Boolean);
   const summaries: string[] = [];
   for (const segment of segments) {
     const match = segment.match(/^([a-z0-9_-]+):\s*([a-z_]+):?/i);
