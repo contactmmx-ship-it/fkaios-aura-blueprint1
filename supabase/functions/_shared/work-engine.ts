@@ -515,10 +515,10 @@ export async function returnCompletedWork(): Promise<{ returned: number; dispatc
         .eq("status", "completed");
       if (jobFailureError) throw new Error("returnCompletedWork: failed to quarantine unsuccessful capability dispatch " + job.id + ": " + jobFailureError.message);
       const { error: taskFailureError } = await client.from("orchestration_tasks")
-        .update({ status: "failed", output: serializedFailure, review_notes: dispatchFailure })
+        .update({ status: "rework", output: serializedFailure, review_notes: dispatchFailure, attempts: Number(task.attempts ?? 0) + 1 })
         .eq("id", task.id)
         .in("status", ["pending", "assigned", "running", "working", "rework"]);
-      if (taskFailureError) throw new Error("returnCompletedWork: failed to mark unsuccessful capability task failed " + task.id + ": " + taskFailureError.message);
+      if (taskFailureError) throw new Error("returnCompletedWork: failed to route unsuccessful capability task to bounded rework " + task.id + ": " + taskFailureError.message);
       continue;
     }
 
