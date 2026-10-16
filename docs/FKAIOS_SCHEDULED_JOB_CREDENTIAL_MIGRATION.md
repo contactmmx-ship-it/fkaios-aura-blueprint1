@@ -31,6 +31,8 @@ A read-only log aggregation for 16 October 2026 reported five POST requests to `
 
 The inspected deployed handlers for these three functions accept either `x-heartbeat-secret` or `?secret=` and compare the supplied value with their configured `HEARTBEAT_SECRET`. Therefore, the presence of the query parameter alone does not explain the 401. The leading hypotheses are a secret/configuration mismatch or a difference between the inspected source and effective runtime configuration; neither is yet proven.
 
+A follow-up read-only check on 16 October 2026 found the problem was still active: `agent-scheduler/tick` returned 401 at 13:36:30 UTC and `auto-pilot` returned 401 at 13:40:00 UTC. Their cron scheduler rows were marked `succeeded`, but that status only confirms the `pg_net` call was queued/executed at the database layer; it does not mean the HTTP request succeeded. The Edge Function request logs also recorded full query strings for rejected requests, confirming that this credential transport exposes the secret in log URLs. Treat the shared value as exposed and prioritize a coordinated, authorized rotation after safe caller migration. The observed 13:40 UTC `auto-pilot` log explicitly said the `?secret=` credential was missing even though the gateway request URL included it; this points to an additional request/handler parsing or runtime mismatch, but does not establish which layer is responsible.
+
 Before changing any cron command:
 1. Compare the cron-held value with the configured function secret through an authorized secret-management path, using a safe equality/fingerprint check that never prints either value.
 2. Confirm the active deployed function version and its secret configuration for each route.
