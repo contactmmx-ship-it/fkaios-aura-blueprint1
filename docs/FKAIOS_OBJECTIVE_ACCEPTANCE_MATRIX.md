@@ -50,3 +50,21 @@ Copy one row per test execution and populate evidence before marking status:
 | Test ID | Run timestamp (UTC) | Objective ID | Correlation key | Artifact SHA-256 | Verifier | Attempts / cap | Terminal status | Result |
 |---|---|---|---|---|---|---|---|---|
 | OBJ-01 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | Not run |
+
+
+## Production trace checkpoint — 2026-10-16
+
+**Status: investigation evidence; not an acceptance pass.** Read-only unified-log queries for 2026-10-16 11:45–12:15 UTC found two concrete blockers:
+
+1. **Founder Brain provider-chain failure.** The deployed `founder-brain-tick` function (function ID `6ecb84ff-ab81-46fc-8c2a-029b213dc23b`, version 191) logged 10 provider-failure/error matches in this window. A representative cycle at 12:03:06–12:03:07 UTC reported that no configured LLM provider succeeded; the visible reason was Groq token-per-minute rate limiting. This is direct evidence of a provider-capacity failure in that window, not proof that all cycles or all providers are unavailable.
+
+2. **Two scheduled endpoints reject authentication.** In the same window, `agent-scheduler` (function ID `4a65a508-eda3-4afe-85df-5618883cdb16`, version 51) logged 6 authentication failures, and `auto-pilot` (function ID `aef75683-312d-45f6-8bc5-b0097795ff04`, version 60) logged 6. Messages included missing Authorization / query-secret authentication and rejected credentials. This shows these requests are not authorized; it does not yet identify which cron job or caller generated each request.
+
+### Required follow-up before acceptance
+
+- Trace the two 401-producing functions back to their exact caller/job using sanitized request IDs and the cron inventory; inspect handler auth and caller configuration together. Do not change secrets or cron schedules until the owner-approved migration is ready.
+- Inspect provider routing, rate-limit handling, token budgets, and backoff for the Founder Brain cycle. Do not switch to paid tiers or increase spend without approval. Test free-provider fallback and truthful blocked/failed reporting.
+- For a single dedicated no-spend objective, capture the complete chain: accepted request → persisted objective → project/task → claimed job → provider attempt → durable output → independent verifier → terminal status.
+- Mark OBJ-01 and OBJ-05 **Not run** until a trace includes correlated IDs and persisted evidence. Existing regression tests do not substitute for this live trace.
+
+**Safety:** these findings came from read-only log inspection. No production writes, queue replays, secret changes, cron changes, deployments, or paid-provider actions were performed.
