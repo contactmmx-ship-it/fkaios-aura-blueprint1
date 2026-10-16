@@ -25,10 +25,22 @@ The following 16 active jobs were observed using a `?secret=` query parameter. Q
 | workday-midday | `/functions/v1/workday-engine?secret=[REDACTED]` | Query-string secret | Not migrated |
 | workday-morning | `/functions/v1/workday-engine?secret=[REDACTED]` | Query-string secret | Not migrated |
 
+## New finding: authentication mismatch must be diagnosed before migration
+
+A read-only log aggregation for 16 October 2026 reported five POST requests to `agent-scheduler/tick`, five GET requests to `auto-pilot`, and one POST request to `auto-agents-engine`; all 11 requests had a query-secret parameter and returned HTTP 401. The caller was `pg_net/0.20.3`. This is historical evidence from that log window, not a claim that every later invocation still fails.
+
+The inspected deployed handlers for these three functions accept either `x-heartbeat-secret` or `?secret=` and compare the supplied value with their configured `HEARTBEAT_SECRET`. Therefore, the presence of the query parameter alone does not explain the 401. The leading hypotheses are a secret/configuration mismatch or a difference between the inspected source and effective runtime configuration; neither is yet proven.
+
+Before changing any cron command:
+1. Compare the cron-held value with the configured function secret through an authorized secret-management path, using a safe equality/fingerprint check that never prints either value.
+2. Confirm the active deployed function version and its secret configuration for each route.
+3. Check whether the rejected requests and cron jobs correlate by timestamp; do not infer exact job-to-request mapping from route alone.
+4. Only after the mismatch is resolved, migrate one caller to a header and validate its response and durable business effect.
+
 ## Controlled migration checklist
 
 1. Identify the exact secret and all callers/validators through the approved secret-management path. Never print the value into logs, tickets, chat, shell output, or this file.
-2. Confirm each target Edge Function accepts and validates the intended header (for example, `x-heartbeat-secret`) using constant-time comparison where appropriate, rejects missing/invalid credentials, and does not fall back to query-string auth.
+2. Confirm each target Edge Function accepts and validates the intended header (for example, `x-heartbeat-secret`) using constant-time comparison where appropriate, rejects missing/invalid credentials, and does not fall back to query-string auth after migration.
 3. Deploy the reviewed function change through the repository's CI/CD path. Confirm the deployed version and inspect sanitized logs.
 4. Update one cron job at a time to send the credential in the header and remove the query parameter. Preserve schedule, payload, timeout, and retry semantics.
 5. Trigger or wait for one controlled execution, verify the expected response and business-level effect, and confirm the credential is absent from URLs/logs. HTTP 200 alone is not enough to validate the business effect.
