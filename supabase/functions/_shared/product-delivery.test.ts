@@ -17,6 +17,15 @@ Deno.test("renderer evidence accepts only the exact generated HTML page", () => 
   }), true);
 });
 
+Deno.test("renderer evidence rejects the known persisted demo product fixture", () => {
+  assertEquals(isVerifiedProductRenderer({
+    status: 200,
+    headers: goodHeaders(),
+    buildId,
+    html: "<!doctype html><html><head><title>FKAIOS Product Test - Dashboard</title></head><body>99.97% · 4.1 TB · 2,874</body></html>",
+  }), false);
+});
+
 Deno.test("renderer evidence rejects the public Supabase text/plain sandbox response", () => {
   const headers = new Headers({
     "content-type": "text/plain",
