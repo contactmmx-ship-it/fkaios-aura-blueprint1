@@ -1,3 +1,13 @@
+Deno.test("generated product route rejects the known persisted demo dashboard", async () => {
+  const source = await Deno.readTextFile("src/app/product/[id]/route.ts");
+  if (!source.includes("FKAIOS Product Test - Dashboard")) {
+    throw new Error("Known persisted demo fixture must be rejected, not served as a verified product.");
+  }
+  if (!source.includes("Persisted product HTML matches a known demo fixture")) {
+    throw new Error("Known demo fixture must return an explicit failure instead of HTTP success.");
+  }
+});
+
 Deno.test("generated product route never injects a fabricated generic dashboard", async () => {
   const source = await Deno.readTextFile("src/app/product/[id]/route.ts");
   for (const fabricatedValue of [
