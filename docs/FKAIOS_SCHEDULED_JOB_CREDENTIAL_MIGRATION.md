@@ -129,3 +129,8 @@ A read-only aggregation of recent Supabase function-edge logs found **667 HTTP 4
 | `executive-intelligence` | 22 | 1 | 02:00:01 UTC |
 
 This confirms the issue was still active in production at the time of the query; it is not merely a historical incident. Counts can include non-cron callers and should not be interpreted as one failure per job. No request URLs, query strings, or credential values were selected or included in this aggregation.
+
+
+## Latest one-hour confirmation — 17 October 2026, 09:26 UTC
+
+A separate read-only query scoped to 08:26–09:26 UTC found **29 HTTP 401 responses** on the affected scheduled routes, with `agent-scheduler/tick` and `auto-pilot` still failing at 09:25 UTC (11 and 12 responses respectively in that hour). Other observed failures in that window were proposal-engine (1), enrichment (2), auto-agents-engine (2), and workday-engine (1). These counts are scoped to this hour and the listed routes; they are not unique cron job counts and may include other callers. This confirms the incident continued after the earlier log snapshot. No production writes were made.
