@@ -5,6 +5,7 @@ on:
     paths:
       - "supabase/functions/_shared/cron-auth.ts"
       - "supabase/functions/executive-intelligence/index_test.ts"
+      - "supabase/functions/executive-intelligence/index.ts"
       - ".github/workflows/test-cron-auth.yml"
   push:
     branches:
@@ -29,6 +30,6 @@ jobs:
         with:
           deno-version: v2.x
       - name: Type-check executive-intelligence handler
-        run: deno check supabase/functions/executive-intelligence/index.ts
+        run: deno check --node-modules-dir=auto supabase/functions/executive-intelligence/index.ts
       - name: Run cron authentication tests
         run: deno test supabase/functions/executive-intelligence/index_test.ts
