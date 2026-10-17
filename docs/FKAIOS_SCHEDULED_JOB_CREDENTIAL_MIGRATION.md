@@ -79,3 +79,12 @@ This establishes a concrete configuration mismatch between the scheduled callers
 2. If the Edge Function secret matches Vault, update the cron callers to use the approved current credential—but first migrate from URL query strings to the supported `x-heartbeat-secret` header and verify a canary caller end to end.
 3. If the Edge Function secret does not match Vault, agree which value is canonical, then coordinate the function secret and caller migration under change control.
 4. Rotate the exposed query-string credential after all affected callers are migrated and verified. Do not change the 16 production jobs or function secrets blindly.
+
+
+## Deployed auth-contract inventory for migration planning — 17 October 2026
+
+A read-only inspection of currently deployed Edge Function source confirmed that most checked handlers parse either `x-heartbeat-secret` or `?secret=` and compare against `HEARTBEAT_SECRET`. One important exception was found:
+
+- `executive-intelligence` is deployed at version 22. It defines a shared-secret variable but its request gate checks `CRON_SECRET` and `url.searchParams.get("secret")` only. The inspected gate does not accept `x-heartbeat-secret`.
+
+Therefore, a blanket cron-only migration to header authentication would break at least this route unless its handler is first updated and deployed. Before migrating each caller, record the exact live auth contract and expected environment-variable name for its target function. Treat the migration as a per-function reviewed change, not a search-and-replace across all cron commands. This inventory is based on the currently deployed source returned by the project API; it does not prove the effective secret values configured in the runtime.
