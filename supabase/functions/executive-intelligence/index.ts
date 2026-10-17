@@ -5,12 +5,12 @@
 // the Enterprise Knowledge Network via record_enterprise_memory(). Governed
 // decision 55106426 (APPROVED). Everything else identical to v4.
 //
-// [GIT PARITY 2026-07-12] This function existed ONLY in production and was
-// never committed. Pulled into the repo as-is (Blueprint P2.4 — deployment
-// discipline). SECURITY: SHARED_SECRET is hardcoded below; it must be moved
-// to Deno.env.get('HEARTBEAT_SECRET') and rotated (Blueprint P1.5).
+// [GIT PARITY 2026-07-12] This function previously existed only in production.
+// Keep its source under version control and deploy it through the reviewed CI
+// workflow. Cron authentication uses runtime environment secrets, never literals.
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { hasValidCronSecret, resolveCronSecret } from "../_shared/cron-auth.ts";
 // Executive Intelligence Upgrade (governed_decisions: see FKAIOS_EIL_UPGRADE governance
 // record) — folds cognitiveTick()'s unique capabilities into this already-live daily
 // cycle instead of deploying a second, competing daily brain loop (founder-brain-tick).
@@ -26,11 +26,9 @@ import { generateFounderDecisionProfile } from "../_shared/decision-intelligence
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
-// SECURITY (P1.5 remediated): the secret is NO LONGER hardcoded. It is read from
-// the HEARTBEAT_SECRET env var, so rotating it is now a one-step dashboard change
-// (set the env var + update the cron command text) with no code deploy required.
-// Fails closed: if the env var is unset, every request is rejected.
-const SHARED_SECRET = Deno.env.get("HEARTBEAT_SECRET") ?? "";
+// SECURITY: support the deployed CRON_SECRET name first, with HEARTBEAT_SECRET
+// as the documented fallback. Never log either value or the request URL.
+const SHARED_SECRET = resolveCronSecret(Deno.env.get("CRON_SECRET"), Deno.env.get("HEARTBEAT_SECRET"));
 const supabase = createClient(supabaseUrl, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
 const j = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } });
 
@@ -61,7 +59,7 @@ const CYCLE_TOOL = {
 Deno.serve(async (req: Request) => {
   const started = Date.now();
   const url = new URL(req.url);
-  if (!SHARED_SECRET || url.searchParams.get("secret") !== SHARED_SECRET) return j({ error: "unauthorized" }, 401);
+  if (!hasValidCronSecret(req, SHARED_SECRET)) return j({ error: "unauthorized" }, 401);
 
   try {
     const [milestones, leadsByStage, pendingApprovals, projects, trust, kpis, delegations, duePredictions, memory, board, execCommittee, orgUnits, founderDecisionProfile] = await Promise.all([

@@ -146,7 +146,7 @@ Deno.serve(async (req) => {
       const { data: agent } = await db.from('ai_agents').select('id, name').eq('task', 'GENERATE_REPORT').maybeSingle();
       if (!agent) return err('MIS AI not found');
 
-      const res = await fetch(`${supabaseUrl}/functions/v1/staff-engine?secret=${hbSecret}`, {
+      const res = await fetch(`${supabaseUrl}/functions/v1/staff-engine`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-heartbeat-secret': hbSecret ?? '' },
         body: JSON.stringify({ action: 'generate_report', type: 'daily' }),
@@ -185,7 +185,7 @@ Deno.serve(async (req) => {
       const platformPrefix = PLATFORM_PREFIXES[dayIndex % PLATFORM_PREFIXES.length];
       const finalQuery = `${platformPrefix}${baseQuery}`;
 
-      const res = await fetch(`${supabaseUrl}/functions/v1/lead-discovery?secret=${hbSecret}`, {
+      const res = await fetch(`${supabaseUrl}/functions/v1/lead-discovery`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-heartbeat-secret': hbSecret ?? '' },
         body: JSON.stringify({ action: 'discover', query: finalQuery, brand: targetCompany, requested_by: 'auto-agents-engine' }),

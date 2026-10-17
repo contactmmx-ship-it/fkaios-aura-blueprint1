@@ -47,5 +47,9 @@ jobs:
           supabase functions deploy opportunity-engine --no-verify-jwt --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy evolution-engine --no-verify-jwt --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy executive-brain --no-verify-jwt --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy executive-intelligence --no-verify-jwt --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy workday-engine --no-verify-jwt --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy staff-engine --no-verify-jwt --project-ref "$SUPABASE_PROJECT_REF"
+          # Cron-auth repair: keep these endpoints gateway-JWT-disabled; handlers validate the shared secret.
+          supabase functions deploy auto-pilot --no-verify-jwt --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy agent-scheduler --no-verify-jwt --project-ref "$SUPABASE_PROJECT_REF"

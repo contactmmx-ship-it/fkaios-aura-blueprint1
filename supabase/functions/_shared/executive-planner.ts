@@ -176,7 +176,10 @@ export async function planObjective(objective: Objective, correlationId?: string
     .single();
   if (pErr || !proj) return { projectId: null, tasksCreated: 0, error: pErr?.message ?? "project insert failed" };
 
+  // Generate task IDs before insertion so work-package links do not depend on
+  // PostgreSQL RETURNING row order (which is not guaranteed to match insert order).
   const tasks = taskDrafts.slice(0, 5).map((t) => ({
+    id: crypto.randomUUID(),
     project_id: proj.id,
     role: "general", // orchestration_tasks.role is a software-persona field (frontend/backend/.../general); business objectives stay 'general' — department assignment is already tracked on the objective itself, not duplicated here.
     title: String(t.title ?? "Task").slice(0, 200),
@@ -185,8 +188,12 @@ export async function planObjective(objective: Objective, correlationId?: string
     attempts: 0,
   }));
 
-  const { error: tErr } = await client.from("orchestration_tasks").insert(tasks);
-  if (tErr) return { projectId: proj.id, tasksCreated: 0, error: tErr.message };
+  const { error: tErr } = await client
+    .from("orchestration_tasks")
+    .insert(tasks);
+  if (tErr) {
+    return { projectId: proj.id, tasksCreated: 0, error: tErr.message };
+  }
 
   const packages = tasks.map((t, index) => {
     const title = String(t.title ?? "");
