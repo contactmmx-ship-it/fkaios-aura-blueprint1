@@ -82,3 +82,8 @@ The cron run-detail table marks recent invocations `succeeded`, while Edge Funct
 ### Credential-mismatch finding — 17 October 2026
 
 A secret-safe, read-only comparison of the 16 active cron jobs that embed `secret=` in their request URLs against Supabase Vault's `heartbeat_secret` found **0 exact matches out of 16**. All 16 cron URL credentials are 48 characters; the Vault credential is 64 characters. No secret values or fingerprints were retrieved. This confirms caller/Vault credential drift and is a strong candidate explanation for the scheduled-function 401s. It does not yet prove the deployed Edge Functions' expected value, because their configured `HEARTBEAT_SECRET` cannot be safely inspected through the available tool interface. Objective acceptance remains blocked until the runtime secret is compared through an authorized secret-management path, the callers are migrated off query-string credentials, and a low-risk workflow is verified through its durable business effect. No production jobs, function secrets, or schedules were changed during this audit.
+
+
+### Scheduled-auth incident remains active (17 October 2026)
+
+Recent read-only function-edge log aggregation observed 667 HTTP 401 responses across ten scheduled function routes, with the latest failures at approximately 09:15 UTC. The largest counts were `auto-pilot` (274), `agent-scheduler/tick` (270), `auto-agents-engine` (49), `enrichment` (42), and `proposal-engine` (24). These are request counts and may include non-cron callers; they are not unique job counts. Credential mismatch against Vault remains a strong hypothesis, not a proven runtime comparison. No production credentials, function configuration, or cron schedules were changed.
