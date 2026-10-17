@@ -5,10 +5,9 @@
 // the Enterprise Knowledge Network via record_enterprise_memory(). Governed
 // decision 55106426 (APPROVED). Everything else identical to v4.
 //
-// [GIT PARITY 2026-07-12] This function existed ONLY in production and was
-// never committed. Pulled into the repo as-is (Blueprint P2.4 — deployment
-// discipline). SECURITY: SHARED_SECRET is hardcoded below; it must be moved
-// to Deno.env.get('HEARTBEAT_SECRET') and rotated (Blueprint P1.5).
+// [GIT PARITY 2026-07-12] This function previously existed only in production.
+// Keep its source under version control and deploy it through the reviewed CI
+// workflow. Cron authentication uses runtime environment secrets, never literals.
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { hasValidCronSecret, resolveCronSecret } from "../_shared/cron-auth.ts";
