@@ -94,7 +94,7 @@ Therefore, a blanket cron-only migration to header authentication would break at
 
 The deployed `executive-intelligence` function is version 22 and its returned source defines `CRON_SECRET = Deno.env.get("CRON_SECRET") || SHARED_SECRET`, then validates only `url.searchParams.get("secret")`. The current `main` source at `supabase/functions/executive-intelligence/index.ts` instead defines `SHARED_SECRET` from `HEARTBEAT_SECRET` and validates the query parameter against that value; it does not include the deployed `CRON_SECRET` fallback. This is direct evidence of source/deployed auth-contract drift for this function. It is separate from, and does not prove the cause of, the observed 401s on the other three functions.
 
-For migration readiness, current deployed auth behavior was inspected for all seven distinct function routes used by the 16 active query-secret jobs:
+For migration readiness, current deployed auth behavior was inspected for all ten distinct function routes used by the 16 active query-secret jobs:
 - `agent-scheduler` (v51): `HEARTBEAT_SECRET`, header or query; can also authenticate service-role JWT/admin JWT.
 - `auto-agents-engine` (v28): `HEARTBEAT_SECRET`, header or query; fails closed if missing.
 - `auto-pilot` (v60): `HEARTBEAT_SECRET`, header or query, with service-role JWT fallback.
