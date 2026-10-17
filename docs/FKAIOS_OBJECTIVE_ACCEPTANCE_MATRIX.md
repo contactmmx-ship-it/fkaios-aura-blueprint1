@@ -119,3 +119,6 @@ The auth mismatch is now supported by both caller/Vault drift and the handlers' 
 ### Separate Vercel check failure — 17 October 2026
 
 The commit status for PR #168 includes a failure from the separate Vercel project `gomax-order-app-2`. Deployment inspection identifies `STATIC_BUILD_NO_OUT_DIR`: the project is configured to expect a `dist` output directory, but the build did not produce it. The primary `fkaios-aura-blueprint1` Vercel check and the `fkaios-aura-blueprint1-lmjz` check succeeded for this commit. The separate project failure should be handled as its own project/build configuration issue; it is not evidence that the cron-auth tests failed.
+
+
+Follow-up diagnosis of the separate Vercel build failure: the checked repository branch's `package.json` declares `build: next build` and depends on Next.js; its `vercel.json` defines response headers but no custom output directory. The failing `gomax-order-app-2` Vercel project is configured as Vite and expects `dist`. That is a project-to-repository framework/output-directory mismatch, not a missing `dist` directory that should be manufactured in this Next.js repository. Correct the separate Vercel project's framework/output settings only after confirming that project is intended to build this repository; no Vercel settings were changed.
