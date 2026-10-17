@@ -141,3 +141,31 @@ A separate read-only query scoped to 08:26–09:26 UTC found **29 HTTP 401 respo
 A read-only aggregation over the last 24 hours of available function-edge logs found **668 requests** to these routes where the logged request URL contains a `secret=` query parameter. The grouped results included 667 HTTP 401 responses and one HTTP 503 response. The query returned only counts, route names, status codes, and timestamps; it did not return or print any request URL or credential value.
 
 This confirms that query-string credentials are present in the logged request URLs, increasing exposure risk beyond the cron configuration itself. Treat the URL credential as potentially exposed. Once the correct runtime authentication contract and a safe cutover sequence are established, rotate the credential and migrate callers away from query strings; do not rotate or rewrite production jobs blindly because the effective Edge Function secrets are not yet verified. Use the header where each function supports it, and update/deploy any query-only handler before moving its caller.
+
+
+## Caller-side cutover shape (prepared from redacted cron definitions)
+
+The live cron commands use `net.http_post` for 15 jobs and `net.http_get` for `auto-pilot-5min`. Their request bodies, timeout values, schedules, and HTTP methods must remain unchanged during credential migration. The current header objects only set `Content-Type`; where supported, the intended change is to add `x-heartbeat-secret` to the header JSON and remove `?secret=...` from the URL. Never paste or print the credential while generating or reviewing the migration.
+
+| Caller group | Jobs | Request form | Migration note |
+|---|---:|---|---|
+| Agent scheduler | 1 | POST, JSON body | Add auth header only after runtime secret equality is verified |
+| Auto-agents engine | 4 | POST, distinct phase/company bodies | Preserve each body's exact phase/company and timeout |
+| Auto-pilot | 1 | GET | Verify `net.http_get` header support and handler semantics before changing |
+| Opportunity engine | 1 | POST | Preserve 150-second timeout |
+| Enrichment | 1 | POST | Preserve action/limit and 90-second timeout; conditional auth gate needs a targeted test |
+| Evolution engine | 1 | POST | Preserve 150-second timeout |
+| Executive brain | 1 | POST | Preserve body and 150-second timeout |
+| Executive intelligence | 1 | POST | **Do not migrate caller first**: deployed handler only accepts query auth; update and deploy handler through a verified deployment path first |
+| Proposal engine | 1 | POST | Preserve 120-second timeout |
+| Workday engine | 4 | POST, distinct phase bodies | Preserve each phase and timeout |
+
+Recommended rollout order:
+1. Establish which runtime variable is authoritative for each function and compare it without revealing values (e.g., equality booleans and lengths only).
+2. Repair and deploy handler-side auth changes where required, with explicit regression tests for query/header behavior and existing service-role/JWT paths.
+3. Stage one low-frequency job with the same schedule/body/timeout, switching to header auth while keeping a rollback snapshot that redacts secrets.
+4. Verify HTTP status **and** expected business-side durable state; cron extension-level “success” alone is insufficient.
+5. Migrate remaining jobs in small batches, verify each target route, then rotate the exposed credential and confirm that no active caller uses query-string auth.
+6. Keep secrets out of CI output, request URLs, logs, PR diffs, and diagnostics.
+
+This is a runbook only. No cron commands were altered and no Edge Function was deployed as part of this audit.
