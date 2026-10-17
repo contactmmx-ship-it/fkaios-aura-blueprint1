@@ -59,3 +59,23 @@ Before changing any cron command:
 - Do not assume a route supports header authentication until its deployed handler has been inspected and tested.
 - Two active jobs were observed using a header-based pattern (`aeos-heartbeat` and `job-scheduler-drain`); use these as patterns to inspect, not as proof that every other endpoint is compatible.
 - One inactive job, `sales-draft-proposals-hourly`, also contained a query-string secret in its configured command. It is excluded from the 16-active-job count but should be reviewed before reactivation.
+
+
+## Updated 17 October 2026: cron credential differs from Vault credential
+
+A further read-only SQL check compared the credential embedded in active cron command URLs with the decrypted value named `heartbeat_secret` in Supabase Vault. It returned aggregate metadata only; neither credential value nor a fingerprint was selected or logged.
+
+- Active cron jobs containing a `secret=` URL parameter: **16**
+- Exact matches between those URL credentials and Vault `heartbeat_secret`: **0**
+- Mismatches: **16**
+- Length of cron URL credential: **48 characters** (all 16)
+- Length of Vault credential: **64 characters**
+
+This establishes a concrete configuration mismatch between the scheduled callers and the Vault secret. It is a strong candidate explanation for the observed 401s, but **does not by itself prove the exact runtime root cause**: the configured `HEARTBEAT_SECRET` inside the deployed Edge Functions is not exposed by the available read-only tools, so it has not been compared safely to either value. Do not infer that the live Edge Function secret equals the Vault secret without verifying it through the authorized Supabase secret-management interface.
+
+### Required next action
+
+1. Through an authorized secret-management path, confirm whether the deployed functions' `HEARTBEAT_SECRET` matches the Vault `heartbeat_secret`, using a comparison that returns only equal/not-equal and never the value or fingerprint.
+2. If the Edge Function secret matches Vault, update the cron callers to use the approved current credential—but first migrate from URL query strings to the supported `x-heartbeat-secret` header and verify a canary caller end to end.
+3. If the Edge Function secret does not match Vault, agree which value is canonical, then coordinate the function secret and caller migration under change control.
+4. Rotate the exposed query-string credential after all affected callers are migrated and verified. Do not change the 16 production jobs or function secrets blindly.
