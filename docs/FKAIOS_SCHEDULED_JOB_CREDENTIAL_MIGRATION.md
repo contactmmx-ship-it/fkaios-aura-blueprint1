@@ -169,3 +169,22 @@ Recommended rollout order:
 6. Keep secrets out of CI output, request URLs, logs, PR diffs, and diagnostics.
 
 This is a runbook only. No cron commands were altered and no Edge Function was deployed as part of this audit.
+
+## Updated 24-hour production auth-failure snapshot — 17 October 2026, 11:34 UTC
+
+A fresh read-only aggregation of `function_edge_logs` counted **680 HTTP 401 responses** across the ten affected function routes in the available 24-hour window. Latest events for the two highest-volume routes were at approximately 11:30 UTC. This is request-level evidence; it can include non-cron callers and does not represent unique jobs.
+
+| Deployed route | HTTP 401 count | Latest observed |
+|---|---:|---|
+| `auto-pilot` | 278 | 11:30:00 UTC |
+| `agent-scheduler/tick` | 276 | 11:30:01 UTC |
+| `auto-agents-engine` | 50 | 11:30:00 UTC |
+| `enrichment` | 44 | 11:05:00 UTC |
+| `proposal-engine` | 24 | 11:15:01 UTC |
+| `workday-engine` | 4 | 08:30:05 UTC |
+| `evolution-engine` | 1 | 04:00:02 UTC |
+| `executive-intelligence` | 1 | 02:00:01 UTC |
+| `executive-brain` | 1 | 04:30:05 UTC |
+| `opportunity-engine` | 1 | 03:30:06 UTC |
+
+The query grouped only by request pathname and response status and returned counts and timestamps; it did not select request URLs, query parameters, or credential values. The latest snapshot strengthens the evidence that the auth incident remains active. It does not identify the exact caller for each request or prove that the Vault mismatch is the sole runtime cause. Keep the per-function runtime-secret comparison and controlled canary migration as prerequisites; do not rewrite cron commands or rotate secrets based on request counts alone.
