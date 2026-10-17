@@ -185,10 +185,16 @@ export async function planObjective(objective: Objective, correlationId?: string
     attempts: 0,
   }));
 
-  const { error: tErr } = await client.from("orchestration_tasks").insert(tasks);
-  if (tErr) return { projectId: proj.id, tasksCreated: 0, error: tErr.message };
+  const { data: createdTasks, error: tErr } = await client
+    .from("orchestration_tasks")
+    .insert(tasks)
+    .select("id, title");
+  if (tErr || !createdTasks) {
+    return { projectId: proj.id, tasksCreated: 0, error: tErr?.message ?? "task insert returned no rows" };
+  }
 
-  const packages = tasks.map((t, index) => {
+  const packages = createdTasks.map((createdTask, index) => {
+    const t = tasks[index];
     const title = String(t.title ?? "");
     const taskWords = title.toLowerCase().split(/[^a-z0-9]+/).filter((w:string)=>w.length>=4);
     const providerCandidates = Array.isArray(discoveryContract.discovery?.capabilities) ? discoveryContract.discovery.capabilities : [];
@@ -204,7 +210,7 @@ export async function planObjective(objective: Objective, correlationId?: string
     input_artifacts: [],
     required_outputs: [t.description],
     acceptance_criteria: Array.isArray(discoveryContract.acceptance_criteria) ? discoveryContract.acceptance_criteria : [],
-    state: { project_id: proj.id, task_id: t.id, continuity: discoveryContract.continuity },
+    state: { project_id: proj.id, task_id: createdTask.id, continuity: discoveryContract.continuity },
     selected_provider: bestProvider,
     handoff_notes: { rule: "preserve contract and artifacts across providers; never restart from a blank prompt", selected_provider: bestProvider },
     status: "ready",
