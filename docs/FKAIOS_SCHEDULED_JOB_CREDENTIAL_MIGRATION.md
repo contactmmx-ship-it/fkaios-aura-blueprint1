@@ -88,3 +88,24 @@ A read-only inspection of currently deployed Edge Function source confirmed that
 - `executive-intelligence` is deployed at version 22. It defines a shared-secret variable but its request gate checks `CRON_SECRET` and `url.searchParams.get("secret")` only. The inspected gate does not accept `x-heartbeat-secret`.
 
 Therefore, a blanket cron-only migration to header authentication would break at least this route unless its handler is first updated and deployed. Before migrating each caller, record the exact live auth contract and expected environment-variable name for its target function. Treat the migration as a per-function reviewed change, not a search-and-replace across all cron commands. This inventory is based on the currently deployed source returned by the project API; it does not prove the effective secret values configured in the runtime.
+
+
+## Source-to-deployed auth drift — 17 October 2026
+
+The deployed `executive-intelligence` function is version 22 and its returned source defines `CRON_SECRET = Deno.env.get("CRON_SECRET") || SHARED_SECRET`, then validates only `url.searchParams.get("secret")`. The current `main` source at `supabase/functions/executive-intelligence/index.ts` instead defines `SHARED_SECRET` from `HEARTBEAT_SECRET` and validates the query parameter against that value; it does not include the deployed `CRON_SECRET` fallback. This is direct evidence of source/deployed auth-contract drift for this function. It is separate from, and does not prove the cause of, the observed 401s on the other three functions.
+
+For migration readiness, current deployed auth behavior was inspected for all seven distinct function routes used by the 16 active query-secret jobs:
+- `agent-scheduler` (v51): `HEARTBEAT_SECRET`, header or query; can also authenticate service-role JWT/admin JWT.
+- `auto-agents-engine` (v28): `HEARTBEAT_SECRET`, header or query; fails closed if missing.
+- `auto-pilot` (v60): `HEARTBEAT_SECRET`, header or query, with service-role JWT fallback.
+- `opportunity-engine` (v21): `HEARTBEAT_SECRET`, header or query; fails closed if missing.
+- `enrichment` (v46): accepts header or query; has a distinct conditional auth path, so must be validated independently before migration.
+- `evolution-engine` (v21): `HEARTBEAT_SECRET`, header or query; fails closed if missing.
+- `executive-brain` (v21): `HEARTBEAT_SECRET`, header or query; fails closed if missing.
+- `executive-intelligence` (v22): `CRON_SECRET` or fallback `HEARTBEAT_SECRET`, query only in deployed source.
+- `proposal-engine` (v14): `HEARTBEAT_SECRET`, header or query; header is a fallback if query parameter is absent.
+- `workday-engine` (v33): header or query plus additional authorization logic.
+
+The 16 jobs cover ten distinct function routes, because four workday jobs and four auto-agents jobs share their respective handlers; the inventory above lists all routes observed in the active cron commands. Before a rollout, reconcile the route inventory against the full ten-route list and inspect each deployed auth gate. Do not infer that a handler's source-level support means the runtime secret value is correct.
+
+The deployment workflow's known fixed function list does not include `executive-intelligence`; therefore, changing its source on `main` alone does not prove that the deployed function will be updated. Deployment coverage must be explicitly reconciled before attempting this migration.
