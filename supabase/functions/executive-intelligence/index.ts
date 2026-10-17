@@ -11,7 +11,7 @@
 // to Deno.env.get('HEARTBEAT_SECRET') and rotated (Blueprint P1.5).
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-import { hasValidCronSecret } from "../_shared/cron-auth.ts";
+import { hasValidCronSecret, resolveCronSecret } from "../_shared/cron-auth.ts";
 // Executive Intelligence Upgrade (governed_decisions: see FKAIOS_EIL_UPGRADE governance
 // record) — folds cognitiveTick()'s unique capabilities into this already-live daily
 // cycle instead of deploying a second, competing daily brain loop (founder-brain-tick).
@@ -29,7 +29,7 @@ const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
 // SECURITY: support the deployed CRON_SECRET name first, with HEARTBEAT_SECRET
 // as the documented fallback. Never log either value or the request URL.
-const SHARED_SECRET = Deno.env.get("CRON_SECRET") || Deno.env.get("HEARTBEAT_SECRET") || "";
+const SHARED_SECRET = resolveCronSecret(Deno.env.get("CRON_SECRET"), Deno.env.get("HEARTBEAT_SECRET"));
 const supabase = createClient(supabaseUrl, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
 const j = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } });
 
