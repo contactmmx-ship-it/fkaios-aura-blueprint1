@@ -44,10 +44,10 @@ jobs:
         run: deno check --node-modules-dir=auto supabase/functions/executive-intelligence/index.ts
       - name: Type-check affected cron handlers
         run: |
-          deno check --lib=deno.ns,dom,dom.iterable,dom.asynciterable,esnext --node-modules-dir=auto supabase/functions/proposal-engine/index.ts
-          deno check --lib=deno.ns,dom,dom.iterable,dom.asynciterable,esnext --node-modules-dir=auto supabase/functions/auto-agents-engine/index.ts
-          deno check --lib=deno.ns,dom,dom.iterable,dom.asynciterable,esnext --node-modules-dir=auto supabase/functions/staff-engine/index.ts
-          deno check --lib=deno.ns,dom,dom.iterable,dom.asynciterable,esnext --node-modules-dir=auto supabase/functions/lead-discovery/index.ts
+          deno check --node-modules-dir=auto supabase/functions/proposal-engine/index.ts
+          deno check --node-modules-dir=auto supabase/functions/auto-agents-engine/index.ts
+          deno check --node-modules-dir=auto supabase/functions/staff-engine/index.ts
+          deno check --node-modules-dir=auto supabase/functions/lead-discovery/index.ts
       - name: Assert header-first auth and URL hygiene
         run: |
           grep -F 'req.headers.get("x-heartbeat-secret") ?? new URL(req.url).searchParams.get("secret")' supabase/functions/proposal-engine/index.ts
