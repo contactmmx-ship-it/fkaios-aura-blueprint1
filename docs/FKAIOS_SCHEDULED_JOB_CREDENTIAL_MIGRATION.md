@@ -134,3 +134,10 @@ This confirms the issue was still active in production at the time of the query;
 ## Latest one-hour confirmation — 17 October 2026, 09:26 UTC
 
 A separate read-only query scoped to 08:26–09:26 UTC found **29 HTTP 401 responses** on the affected scheduled routes, with `agent-scheduler/tick` and `auto-pilot` still failing at 09:25 UTC (11 and 12 responses respectively in that hour). Other observed failures in that window were proposal-engine (1), enrichment (2), auto-agents-engine (2), and workday-engine (1). These counts are scoped to this hour and the listed routes; they are not unique cron job counts and may include other callers. This confirms the incident continued after the earlier log snapshot. No production writes were made.
+
+
+## Query-string credential exposure confirmed in function-edge logs
+
+A read-only aggregation over the last 24 hours of available function-edge logs found **668 requests** to these routes where the logged request URL contains a `secret=` query parameter. The grouped results included 667 HTTP 401 responses and one HTTP 503 response. The query returned only counts, route names, status codes, and timestamps; it did not return or print any request URL or credential value.
+
+This confirms that query-string credentials are present in the logged request URLs, increasing exposure risk beyond the cron configuration itself. Treat the URL credential as potentially exposed. Once the correct runtime authentication contract and a safe cutover sequence are established, rotate the credential and migrate callers away from query strings; do not rotate or rewrite production jobs blindly because the effective Edge Function secrets are not yet verified. Use the header where each function supports it, and update/deploy any query-only handler before moving its caller.
