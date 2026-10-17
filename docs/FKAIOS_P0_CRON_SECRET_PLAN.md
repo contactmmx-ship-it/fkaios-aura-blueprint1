@@ -74,3 +74,17 @@ The deployed `executive-intelligence` v19 reads the secret only from the query s
 - **Edge logs:** no request URL contains `secret=` after the switch.
 - **Every rewritten job:** its next run returns 200.
 - **The old secret:** a probe with it returns 401.
+
+
+## Verified follow-up — 2026-10-17
+
+This section supersedes any assumption that the existing inventory and source review are complete.
+
+- The latest read-only inventory found 19 active Edge Function cron jobs: 16 with query-string credentials, 2 using the header, and 1 using neither pattern. Review the last job separately; do not include it in a generic rewrite.
+- The shared cron credential must be treated as exposed because request URLs were logged. Do not copy credentials into source, comments, runbooks, or diagnostic output.
+- Recent edge request logs showed repeated 401 responses for auto-pilot and agent-scheduler/tick, plus an executive-intelligence 401. This does not establish that every scheduled job is failing.
+- The proposal-engine handler now prefers the x-heartbeat-secret header and keeps query-string support only for compatibility.
+- auto-agents-engine internal calls to staff-engine and lead-discovery now send the credential only in the header; both downstream handlers support that header in repository source.
+- These repository changes are not production fixes until the reviewed deployment workflow succeeds and deployed function versions are verified.
+- GitHub migration-drift check was skipped because the configured token lacks the required migration-read permission. Production migration drift therefore remains unknown.
+- Do not rotate the shared credential or alter production cron commands until the deployment/auth contracts and a per-job rollback/verification sequence are ready. No production secrets or cron schedules were changed by this audit.
