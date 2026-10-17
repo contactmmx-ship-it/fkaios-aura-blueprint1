@@ -68,3 +68,12 @@ Copy one row per test execution and populate evidence before marking status:
 - Mark OBJ-01 and OBJ-05 **Not run** until a trace includes correlated IDs and persisted evidence. Existing regression tests do not substitute for this live trace.
 
 **Safety:** these findings came from read-only log inspection. No production writes, queue replays, secret changes, cron changes, deployments, or paid-provider actions were performed.
+
+
+## Production trace checkpoint — 2026-10-17
+
+**Status: acceptance blocked; investigation evidence only.** A read-only log query covering 07:30–08:30 UTC observed HTTP 401 responses from `agent-scheduler/tick`, `auto-pilot`, and `proposal-engine`, with repeated failures around five-minute intervals. The database cron inventory confirms 16 active jobs use a query-string credential and an aggregate-only comparison confirms those jobs share one distinct value. The value and its fingerprint were not retrieved. Supabase request logs contain the query strings on rejected requests, so treat the shared credential as exposed.
+
+This is a broader authentication failure than the previous checkpoint. Repository source for `auto-pilot` and `proposal-engine` parses the `secret` query parameter and compares it with `HEARTBEAT_SECRET`; runtime logs nevertheless report failed authentication. The exact cause is unproven because the available project tools do not expose a safe read-only comparison of configured function secrets. Do not change cron commands or rotate the credential without an approved, coordinated migration plan and an authorized secret-management path.
+
+The cron run-detail table marks recent invocations `succeeded`, while Edge Function request logs show HTTP 401. This demonstrates why scheduler-level status is not business-level evidence. OBJ-01 and OBJ-05 remain **Not run**; no new objective was submitted and no production state was changed.
