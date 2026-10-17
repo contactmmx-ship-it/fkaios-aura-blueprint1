@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 import { hasValidCronSecret } from "../_shared/cron-auth.ts";
 
 Deno.test("accepts the shared secret in x-heartbeat-secret", () => {
