@@ -109,3 +109,23 @@ For migration readiness, current deployed auth behavior was inspected for all te
 The 16 jobs cover ten distinct function routes, because four workday jobs and four auto-agents jobs share their respective handlers; the inventory above lists all routes observed in the active cron commands. Before a rollout, reconcile the route inventory against the full ten-route list and inspect each deployed auth gate. Do not infer that a handler's source-level support means the runtime secret value is correct.
 
 The deployment workflow's known fixed function list does not include `executive-intelligence`; therefore, changing its source on `main` alone does not prove that the deployed function will be updated. Deployment coverage must be explicitly reconciled before attempting this migration.
+
+
+## Fresh production log check — 17 October 2026, approximately 09:15 UTC
+
+A read-only aggregation of recent Supabase function-edge logs found **667 HTTP 401 responses** across the ten scheduled function routes in the available recent log window. This is a request count, not a count of unique cron jobs or unique incidents.
+
+| Deployed route | Version | HTTP 401 count | Latest observed |
+|---|---:|---:|---|
+| `agent-scheduler/tick` | 51 | 270 | 09:15:01 UTC |
+| `auto-pilot` | 60 | 274 | 09:15:01 UTC |
+| `proposal-engine` | 14 | 24 | 09:15:01 UTC |
+| `enrichment` | 46 | 42 | 09:05:00 UTC |
+| `auto-agents-engine` | 28 | 49 | 09:00:00 UTC |
+| `workday-engine` | 33 | 4 | 08:30:05 UTC |
+| `executive-brain` | 21 | 1 | 04:30:05 UTC |
+| `evolution-engine` | 21 | 1 | 04:00:02 UTC |
+| `opportunity-engine` | 21 | 1 | 03:30:06 UTC |
+| `executive-intelligence` | 22 | 1 | 02:00:01 UTC |
+
+This confirms the issue was still active in production at the time of the query; it is not merely a historical incident. Counts can include non-cron callers and should not be interpreted as one failure per job. No request URLs, query strings, or credential values were selected or included in this aggregation.
