@@ -102,3 +102,20 @@ A new read-only aggregation of function-edge logs found **42 HTTP 401 responses*
 | `proposal-engine` | 2 | 11:15:01 UTC |
 
 This confirms the authentication incident remained active in the checked window. The query selected route, status, count, and timestamp only; counts are request-level and may include non-cron callers. This is not evidence that other routes were healthy, only that they did not appear in this grouped result for the selected window. Runtime-secret equality remains unverified. No production jobs, function secrets, or schedules were changed.
+
+
+### Deployed auth-contract inspection and URL-credential exposure — 17 October 2026
+
+Read-only inspection of deployed function source confirms the current handlers are not all using the same contract:
+
+- `auto-pilot` v60 reads `HEARTBEAT_SECRET` and accepts either `x-heartbeat-secret` or the legacy `?secret=` parameter; if that comparison fails, its fallback requires a valid service-role JWT.
+- `agent-scheduler` v51 checks `HEARTBEAT_SECRET` on `/agent-scheduler/tick`, accepts the same header-or-query form, and has service-role/admin JWT fallback. The tick route requires **POST**.
+- `executive-intelligence` v22 computes `CRON_SECRET || HEARTBEAT_SECRET` and currently validates **only** the `?secret=` query parameter; it does not accept the header. PR #168 adds header support and explicit deploy-workflow coverage for this function.
+
+The 401 log records include the complete query-string credential in the logged request URL. The credential itself is deliberately omitted from this document and from summaries. Treat the URL credential as **exposed**: prioritize coordinated rotation after a safe replacement caller/handler path is ready, and avoid creating additional query-string requests. Do not rotate it blindly while active jobs depend on it, because that could prolong an outage. The current tools do not expose a safe read-only comparison against each deployed function's runtime environment; therefore the exact expected runtime value remains unverified.
+
+The auth mismatch is now supported by both caller/Vault drift and the handlers' observed behavior, but the root cause of each individual 401 is not conclusively proven. Before cutover, verify the runtime contract using an authorized secret-management path, preserve each cron job's HTTP method/body/timeout/schedule, migrate in a small batch, and confirm both HTTP success and the intended durable business effect.
+
+### Separate Vercel check failure — 17 October 2026
+
+The commit status for PR #168 includes a failure from the separate Vercel project `gomax-order-app-2`. Deployment inspection identifies `STATIC_BUILD_NO_OUT_DIR`: the project is configured to expect a `dist` output directory, but the build did not produce it. The primary `fkaios-aura-blueprint1` Vercel check and the `fkaios-aura-blueprint1-lmjz` check succeeded for this commit. The separate project failure should be handled as its own project/build configuration issue; it is not evidence that the cron-auth tests failed.
