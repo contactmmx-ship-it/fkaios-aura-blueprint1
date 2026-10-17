@@ -1,0 +1,32 @@
+name: Test scheduled cron authentication
+
+on:
+  pull_request:
+    paths:
+      - "supabase/functions/_shared/cron-auth.ts"
+      - "supabase/functions/executive-intelligence/index_test.ts"
+      - ".github/workflows/test-cron-auth.yml"
+  push:
+    branches:
+      - main
+      - "fix/executive-intelligence-cron-auth"
+    paths:
+      - "supabase/functions/_shared/cron-auth.ts"
+      - "supabase/functions/executive-intelligence/index_test.ts"
+      - ".github/workflows/test-cron-auth.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  cron-auth-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Run cron authentication tests
+        run: deno test --no-check supabase/functions/executive-intelligence/index_test.ts
