@@ -7,6 +7,10 @@ on:
       - "supabase/functions/_shared/executive-planner.ts"
       - "supabase/functions/executive-intelligence/index_test.ts"
       - "supabase/functions/executive-intelligence/index.ts"
+      - "supabase/functions/proposal-engine/index.ts"
+      - "supabase/functions/auto-agents-engine/index.ts"
+      - "supabase/functions/staff-engine/index.ts"
+      - "supabase/functions/lead-discovery/index.ts"
       - ".github/workflows/test-cron-auth.yml"
   push:
     branches:
@@ -17,6 +21,10 @@ on:
       - "supabase/functions/_shared/executive-planner.ts"
       - "supabase/functions/executive-intelligence/index_test.ts"
       - "supabase/functions/executive-intelligence/index.ts"
+      - "supabase/functions/proposal-engine/index.ts"
+      - "supabase/functions/auto-agents-engine/index.ts"
+      - "supabase/functions/staff-engine/index.ts"
+      - "supabase/functions/lead-discovery/index.ts"
       - ".github/workflows/test-cron-auth.yml"
 
 permissions:
@@ -34,5 +42,16 @@ jobs:
           deno-version: v2.x
       - name: Type-check executive-intelligence handler
         run: deno check --node-modules-dir=auto supabase/functions/executive-intelligence/index.ts
+      - name: Type-check affected cron handlers
+        run: |
+          deno check --node-modules-dir=auto supabase/functions/proposal-engine/index.ts
+          deno check --node-modules-dir=auto supabase/functions/auto-agents-engine/index.ts
+          deno check --node-modules-dir=auto supabase/functions/staff-engine/index.ts
+          deno check --node-modules-dir=auto supabase/functions/lead-discovery/index.ts
+      - name: Assert header-first auth and URL hygiene
+        run: |
+          grep -F 'req.headers.get("x-heartbeat-secret") ?? new URL(req.url).searchParams.get("secret")' supabase/functions/proposal-engine/index.ts
+          ! grep -F 'staff-engine?secret=' supabase/functions/auto-agents-engine/index.ts
+          ! grep -F 'lead-discovery?secret=' supabase/functions/auto-agents-engine/index.ts
       - name: Run cron authentication tests
         run: deno test supabase/functions/executive-intelligence/index_test.ts
