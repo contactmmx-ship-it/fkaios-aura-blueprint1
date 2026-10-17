@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "supabase/functions/_shared/cron-auth.ts"
+      - "supabase/functions/_shared/executive-planner.ts"
       - "supabase/functions/executive-intelligence/index_test.ts"
       - "supabase/functions/executive-intelligence/index.ts"
       - ".github/workflows/test-cron-auth.yml"
