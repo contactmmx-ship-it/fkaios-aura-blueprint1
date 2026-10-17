@@ -87,3 +87,18 @@ A secret-safe, read-only comparison of the 16 active cron jobs that embed `secre
 ### Scheduled-auth incident remains active (17 October 2026)
 
 Recent read-only function-edge log aggregation observed 667 HTTP 401 responses across ten scheduled function routes, with the latest failures at approximately 09:15 UTC. The largest counts were `auto-pilot` (274), `agent-scheduler/tick` (270), `auto-agents-engine` (49), `enrichment` (42), and `proposal-engine` (24). These are request counts and may include non-cron callers; they are not unique job counts. Credential mismatch against Vault remains a strong hypothesis, not a proven runtime comparison. No production credentials, function configuration, or cron schedules were changed.
+
+
+### Fresh scheduled-auth log confirmation — 17 October 2026, 10:00–12:00 UTC
+
+A new read-only aggregation of function-edge logs found **42 HTTP 401 responses** across five scheduled function routes in this two-hour window:
+
+| Route | HTTP 401 responses | Latest observed |
+|---|---:|---|
+| `auto-pilot` | 17 | 11:20:00 UTC |
+| `agent-scheduler/tick` | 17 | 11:20:01 UTC |
+| `enrichment` | 3 | 11:05:00 UTC |
+| `auto-agents-engine` | 3 | 11:00:00 UTC |
+| `proposal-engine` | 2 | 11:15:01 UTC |
+
+This confirms the authentication incident remained active in the checked window. The query selected route, status, count, and timestamp only; counts are request-level and may include non-cron callers. This is not evidence that other routes were healthy, only that they did not appear in this grouped result for the selected window. Runtime-secret equality remains unverified. No production jobs, function secrets, or schedules were changed.
