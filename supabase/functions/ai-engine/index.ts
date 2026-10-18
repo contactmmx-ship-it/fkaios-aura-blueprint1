@@ -323,7 +323,11 @@ export function resultLacksLiveInfrastructureEvidence(task: { title?: unknown; d
       if (/\bfunction(s)?\b/.test(taskText)) requiredArrays.push("function_checks");
       if (/\bcron(s)?\b/.test(taskText)) requiredArrays.push("cron_checks");
       if (/\brls\b|row.level security/.test(taskText)) requiredArrays.push("rls_checks");
-      if (/\bscreen(s)?\b|\bui\b|route verification|console route/.test(taskText)) requiredArrays.push("ui_checks");
+      // Scope exclusions are common in audit requests: mentioning a UI
+      // route to explicitly exclude it must not make ui_checks mandatory.
+      // Only require UI evidence when the task positively includes that scope.
+      const explicitlyExcludesUi = /\b(?:does not|do not|not|exclude|excluding|outside)\b.{0,100}\b(?:ui|screens?|routes?)\b/.test(taskText);
+      if (/\bscreen(s)?\b|\bui\b|route verification|console route/.test(taskText) && !explicitlyExcludesUi) requiredArrays.push("ui_checks");
       if (obj.audit_scope_complete === true && requiredArrays.length > 0 && requiredArrays.every((key) => Array.isArray(obj[key]) && (obj[key] as unknown[]).length > 0)) return true;
       return Object.values(obj).some((item) => hasCompleteAudit(item, seenAudit));
     };
