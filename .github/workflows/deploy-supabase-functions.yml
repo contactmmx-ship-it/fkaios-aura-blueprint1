@@ -53,3 +53,6 @@ jobs:
           # Cron-auth repair: keep these endpoints gateway-JWT-disabled; handlers validate the shared secret.
           supabase functions deploy auto-pilot --no-verify-jwt --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy agent-scheduler --no-verify-jwt --project-ref "$SUPABASE_PROJECT_REF"
+          # Also deploy the handlers whose auth/caller code changed in this PR.
+          supabase functions deploy proposal-engine --no-verify-jwt --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy auto-agents-engine --no-verify-jwt --project-ref "$SUPABASE_PROJECT_REF"
