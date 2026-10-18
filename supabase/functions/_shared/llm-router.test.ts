@@ -518,30 +518,28 @@ Deno.test("Test 9b: end-to-end callLLM — all three providers fail, log records
 // Test 10: Default provider configuration — Anthropic, Gemini, OpenAI order
 // ---------------------------------------------------------------------------
 
-Deno.test("Test 10: getConfiguredDefaultProviders returns Anthropic, Gemini, OpenAI in that order when all keys are set", () => {
-  const savedAnthropic = Deno.env.get("ANTHROPIC_API_KEY");
-  const savedGemini = Deno.env.get("GEMINI_API_KEY");
-  const savedOpenAI = Deno.env.get("OPENAI_API_KEY");
-  try {
-    Deno.env.set("ANTHROPIC_API_KEY", "test-anthropic-key");
-    Deno.env.set("GEMINI_API_KEY", "test-gemini-key");
-    Deno.env.set("OPENAI_API_KEY", "test-openai-key");
-
-    const providers = getConfiguredDefaultProviders();
-
-    assert(providers.length === 3, `Expected 3 configured providers, got ${providers.length}`);
-    assert(
-      providers.map((p) => p.name).join(",") === "anthropic,gemini,openai",
-      `Expected order anthropic,gemini,openai — got ${providers.map((p) => p.name).join(",")}`,
-    );
-    assert(providers[0] === anthropicAdapter, "First provider should be the anthropicAdapter singleton");
-    assert(providers[1] === geminiAdapter, "Second provider should be the geminiAdapter singleton");
-    assert(providers[2] === openaiAdapter, "Third provider should be the openaiAdapter singleton");
-  } finally {
-    if (savedAnthropic === undefined) Deno.env.delete("ANTHROPIC_API_KEY"); else Deno.env.set("ANTHROPIC_API_KEY", savedAnthropic);
-    if (savedGemini === undefined) Deno.env.delete("GEMINI_API_KEY"); else Deno.env.set("GEMINI_API_KEY", savedGemini);
-    if (savedOpenAI === undefined) Deno.env.delete("OPENAI_API_KEY"); else Deno.env.set("OPENAI_API_KEY", savedOpenAI);
-  }
+Deno.test("Test 10: getConfiguredDefaultProviders returns Anthropic, Gemini, OpenAI in that order when all keys are set", async () => {
+  // This test covers key-based provider discovery, so explicitly opt into the
+  // paid-provider path instead of weakening the production free-first default.
+  await withEnv(
+    {
+      ANTHROPIC_API_KEY: "test-anthropic-key",
+      GEMINI_API_KEY: "test-gemini-key",
+      OPENAI_API_KEY: "test-openai-key",
+      PROVIDER_ALLOW_PAID_FALLBACK: "true",
+    },
+    () => {
+      const providers = getConfiguredDefaultProviders();
+      assert(providers.length === 3, `Expected 3 configured providers, got ${providers.length}`);
+      assert(
+        providers.map((p) => p.name).join(",") === "anthropic,gemini,openai",
+        `Expected order anthropic,gemini,openai — got ${providers.map((p) => p.name).join(",")}`,
+      );
+      assert(providers[0] === anthropicAdapter, "First provider should be the anthropicAdapter singleton");
+      assert(providers[1] === geminiAdapter, "Second provider should be the geminiAdapter singleton");
+      assert(providers[2] === openaiAdapter, "Third provider should be the openaiAdapter singleton");
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -750,7 +748,7 @@ Deno.test("Test 12b: Anthropic adapter omits tools entirely when no toolSchema i
 
 Deno.test("Test 13: PROVIDER_OPENAI_ENABLED=false removes openai from candidates even though its API key is configured", async () => {
   await withEnv(
-    { ANTHROPIC_API_KEY: "k1", GEMINI_API_KEY: undefined, OPENAI_API_KEY: "k2", PROVIDER_OPENAI_ENABLED: "false" },
+    { ANTHROPIC_API_KEY: "k1", GEMINI_API_KEY: undefined, OPENAI_API_KEY: "k2", PROVIDER_OPENAI_ENABLED: "false", PROVIDER_ALLOW_PAID_FALLBACK: "true" },
     () => {
       const providers = getConfiguredDefaultProviders();
       assert(providers.map((p) => p.name).join(",") === "anthropic", `Expected openai to be excluded by its kill switch, got ${providers.map((p) => p.name).join(",")}`);
@@ -758,26 +756,24 @@ Deno.test("Test 13: PROVIDER_OPENAI_ENABLED=false removes openai from candidates
   );
 });
 
-Deno.test("Test 10b: getConfiguredDefaultProviders omits providers with no configured key", () => {
-  const savedAnthropic = Deno.env.get("ANTHROPIC_API_KEY");
-  const savedGemini = Deno.env.get("GEMINI_API_KEY");
-  const savedOpenAI = Deno.env.get("OPENAI_API_KEY");
-  try {
-    Deno.env.set("ANTHROPIC_API_KEY", "test-anthropic-key");
-    Deno.env.delete("GEMINI_API_KEY");
-    Deno.env.set("OPENAI_API_KEY", "test-openai-key");
-
-    const providers = getConfiguredDefaultProviders();
-
-    assert(
-      providers.map((p) => p.name).join(",") === "anthropic,openai",
-      `Expected gemini to be skipped when unconfigured — got ${providers.map((p) => p.name).join(",")}`,
-    );
-  } finally {
-    if (savedAnthropic === undefined) Deno.env.delete("ANTHROPIC_API_KEY"); else Deno.env.set("ANTHROPIC_API_KEY", savedAnthropic);
-    if (savedGemini === undefined) Deno.env.delete("GEMINI_API_KEY"); else Deno.env.set("GEMINI_API_KEY", savedGemini);
-    if (savedOpenAI === undefined) Deno.env.delete("OPENAI_API_KEY"); else Deno.env.set("OPENAI_API_KEY", savedOpenAI);
-  }
+Deno.test("Test 10b: getConfiguredDefaultProviders omits providers with no configured key", async () => {
+  // Provider-discovery assertions explicitly opt in; spending-boundary behavior
+  // is covered independently by provider-policy regression tests.
+  await withEnv(
+    {
+      ANTHROPIC_API_KEY: "test-anthropic-key",
+      GEMINI_API_KEY: undefined,
+      OPENAI_API_KEY: "test-openai-key",
+      PROVIDER_ALLOW_PAID_FALLBACK: "true",
+    },
+    () => {
+      const providers = getConfiguredDefaultProviders();
+      assert(
+        providers.map((p) => p.name).join(",") === "anthropic,openai",
+        `Expected gemini to be skipped when unconfigured — got ${providers.map((p) => p.name).join(",")}`,
+      );
+    },
+  );
 });
 
 import { callLLMOnResources, parseStructuredOutput, structuredOutputInstruction } from "./llm-router.ts";
