@@ -102,6 +102,25 @@ t("infrastructure evidence gate: leaves unrelated tasks alone", () => {
   assert(gap === null, "Unrelated research tasks must not be blocked");
 });
 
+t("infrastructure evidence gate: explicit UI exclusions do not require UI evidence", () => {
+  const result = {
+    status: "success",
+    capability: "system.infrastructure_audit",
+    capability_result: {
+      audit_scope_complete: true,
+      table_checks: [{ total: 173 }],
+      function_checks: [{ total: 196 }],
+      cron_checks: [{ total: 27 }],
+      rls_checks: [{ policy_count: 261 }],
+    },
+  };
+  const gap = resultLacksLiveInfrastructureEvidence({
+    title: "Execute live database infrastructure audit: tables, SQL functions, cron and RLS",
+    description: "Audit the database catalog only. Do not claim that Console UI screens, Edge Function implementations, external CRM connections, or business outcomes were verified.",
+  }, result);
+  assert(gap === null, "Explicitly out-of-scope UI surfaces must not silently become required evidence");
+});
+
 t("infrastructure evidence gate: does not hijack CRM implementation tasks", () => {
   const gap = resultLacksLiveInfrastructureEvidence({
     title: "Consolidate and Validate Operational CRM Infrastructure",
