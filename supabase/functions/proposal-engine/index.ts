@@ -62,7 +62,7 @@ const EMIT = {
 
 Deno.serve(async (req) => {
   const started = Date.now();
-  const provided = new URL(req.url).searchParams.get("secret") ?? req.headers.get("x-heartbeat-secret");
+  const provided = req.headers.get("x-heartbeat-secret") ?? new URL(req.url).searchParams.get("secret");
   if (!SECRET) return j({ error: "HEARTBEAT_SECRET unset — failing closed" }, 503);
   if (provided !== SECRET) return j({ error: "unauthorized" }, 401);
 

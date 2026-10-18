@@ -1,0 +1,64 @@
+name: Test scheduled cron authentication
+
+on:
+  pull_request:
+    paths:
+      - "supabase/functions/_shared/cron-auth.ts"
+      - "supabase/functions/_shared/executive-planner.ts"
+      - "supabase/functions/executive-intelligence/index_test.ts"
+      - "supabase/functions/executive-intelligence/index.ts"
+      - "supabase/functions/proposal-engine/index.ts"
+      - "supabase/functions/auto-agents-engine/index.ts"
+      - "supabase/functions/staff-engine/index.ts"
+      - "supabase/functions/lead-discovery/index.ts"
+      - ".github/workflows/test-cron-auth.yml"
+  push:
+    branches:
+      - main
+      - "fix/executive-intelligence-cron-auth"
+    paths:
+      - "supabase/functions/_shared/cron-auth.ts"
+      - "supabase/functions/_shared/executive-planner.ts"
+      - "supabase/functions/executive-intelligence/index_test.ts"
+      - "supabase/functions/executive-intelligence/index.ts"
+      - "supabase/functions/proposal-engine/index.ts"
+      - "supabase/functions/auto-agents-engine/index.ts"
+      - "supabase/functions/staff-engine/index.ts"
+      - "supabase/functions/lead-discovery/index.ts"
+      - ".github/workflows/test-cron-auth.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  cron-auth-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check executive-intelligence handler
+        run: deno check --node-modules-dir=auto supabase/functions/executive-intelligence/index.ts
+      - name: Type-check affected cron handlers
+        run: |
+          cat > "$RUNNER_TEMP/deno-cron-check.json" <<'EOF'
+          {
+            "compilerOptions": {
+              "lib": ["deno.ns", "dom", "dom.iterable", "dom.asynciterable", "esnext"]
+            }
+          }
+          EOF
+          deno check --config "$RUNNER_TEMP/deno-cron-check.json" --node-modules-dir=auto supabase/functions/proposal-engine/index.ts
+          deno check --config "$RUNNER_TEMP/deno-cron-check.json" --node-modules-dir=auto supabase/functions/auto-agents-engine/index.ts
+          deno check --config "$RUNNER_TEMP/deno-cron-check.json" --node-modules-dir=auto supabase/functions/staff-engine/index.ts
+          deno check --config "$RUNNER_TEMP/deno-cron-check.json" --node-modules-dir=auto supabase/functions/lead-discovery/index.ts
+      - name: Assert header-first auth and URL hygiene
+        run: |
+          grep -F 'req.headers.get("x-heartbeat-secret") ?? new URL(req.url).searchParams.get("secret")' supabase/functions/proposal-engine/index.ts
+          ! grep -F 'staff-engine?secret=' supabase/functions/auto-agents-engine/index.ts
+          ! grep -F 'lead-discovery?secret=' supabase/functions/auto-agents-engine/index.ts
+      - name: Run cron authentication tests
+        run: deno test supabase/functions/executive-intelligence/index_test.ts

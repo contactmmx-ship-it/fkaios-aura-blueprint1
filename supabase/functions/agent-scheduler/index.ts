@@ -314,7 +314,7 @@ async function handleTick(cid: string): Promise<Response> {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 200, headers: corsHeaders });
   const cid = req.headers.get("X-Correlation-ID") || generateCorrelationId();
-  structuredLog("INFO", `Request received: ${req.method} ${req.url}`, {}, cid);
+  structuredLog("INFO", `Request received: ${req.method} ${new URL(req.url).pathname}`, {}, cid);
 
   try {
     const envError = verifyEnvSecrets({ SUPABASE_URL: supabaseUrl, SUPABASE_SERVICE_ROLE_KEY: supabaseServiceRoleKey });
