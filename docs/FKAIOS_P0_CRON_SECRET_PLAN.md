@@ -67,7 +67,7 @@ revoke all on function public.fkaios_cron_call(text, text, jsonb, integer) from 
 
 ### Step 3 — the one exception: executive-intelligence
 
-The deployed `executive-intelligence` v19 reads the secret only from the query string. After rotation its daily job returns 401 until the function is redeployed with header support. It is not on the CI deploy path, and the repo copy differs from the 131 kB deployed version, so it must be reconciled before it is redeployed. This is tracked as engineering work. The daily intelligence brief stops in the meantime, which is a safe failure.
+The deployed `executive-intelligence` v19 was previously observed reading the secret only from the query string. PR #168 added `executive-intelligence` to the CI deployment workflow and added header/legacy-query validation in repository source; the workflow subsequently deployed v23. This closes the former CI-path omission, but it does not by itself prove deployed-source parity or successful scheduled authentication. Verify the deployed handler behavior and daily job's HTTP result after the coordinated secret rotation before treating this job as recovered. Until then, the shared-secret incident remains open.
 
 ### Step 4 — verification (Claude)
 
@@ -86,5 +86,5 @@ This section supersedes any assumption that the existing inventory and source re
 - The proposal-engine handler now prefers the x-heartbeat-secret header and keeps query-string support only for compatibility.
 - auto-agents-engine internal calls to staff-engine and lead-discovery now send the credential only in the header; both downstream handlers support that header in repository source.
 - These repository changes are not production fixes until the reviewed deployment workflow succeeds and deployed function versions are verified.
-- GitHub migration-drift check was skipped because the configured token lacks the required migration-read permission. Production migration drift therefore remains unknown.
+- The GitHub migration-drift workflow failed at `List production migrations` because `SUPABASE_ACCESS_TOKEN` lacks `database_migrations_read`; its repository comparison was skipped, so the workflow provides no parity result. A separate read-only Supabase migration listing returned production history through `20261013143919` (`normalize_ten_brand_registry_recovery`) on 18 October 2026. This does not prove repository parity; fix the token's read permission or provide an approved read-only migration source, then rerun the comparison.
 - Do not rotate the shared credential or alter production cron commands until the deployment/auth contracts and a per-job rollback/verification sequence are ready. No production secrets or cron schedules were changed by this audit.
