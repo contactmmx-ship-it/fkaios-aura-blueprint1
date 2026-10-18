@@ -21,6 +21,10 @@ Deno.test("paid fallback only returns when operator explicitly opts in", () => {
   assertEquals(restrictProvidersForFreeTier(providers, ["groq"], true).map(p => p.name), ["anthropic", "gemini", "openai", "groq", "self_hosted"]);
 });
 
-Deno.test("without a free-tier marker, preserve the existing provider list", () => {
-  assertEquals(restrictProvidersForFreeTier(providers, [], false).map(p => p.name), ["anthropic", "gemini", "openai", "groq", "self_hosted"]);
+Deno.test("without a free-tier marker, only self-hosted inference remains eligible", () => {
+  assertEquals(restrictProvidersForFreeTier(providers, [], false).map(p => p.name), ["self_hosted"]);
+});
+
+Deno.test("without a free-tier marker and without self-hosted, no provider is silently enabled", () => {
+  assertEquals(restrictProvidersForFreeTier(providers.filter(p => p.name !== "self_hosted"), [], false), []);
 });

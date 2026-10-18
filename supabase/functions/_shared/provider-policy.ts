@@ -3,16 +3,18 @@ export interface NamedProvider {
 }
 
 /**
- * If the operator has explicitly marked one or more providers as free-tier,
- * restrict routing to those providers and self-hosted inference by default.
- * Paid fallback requires the explicit PROVIDER_ALLOW_PAID_FALLBACK=true opt-in.
+ * Enforce the no-spend default. Cloud providers are eligible only when the
+ * operator explicitly marks the configured plan as free-tier, or explicitly
+ * opts into paid fallback. With no free-tier markers, only self-hosted
+ * inference remains eligible. This prevents a missing env flag from silently
+ * enabling a billable provider.
  */
 export function restrictProvidersForFreeTier<T extends NamedProvider>(
   providers: readonly T[],
   explicitlyFree: readonly string[],
   allowPaidFallback: boolean,
 ): T[] {
-  if (explicitlyFree.length === 0 || allowPaidFallback) return [...providers];
+  if (allowPaidFallback) return [...providers];
   const free = new Set(explicitlyFree);
   return providers.filter((provider) => free.has(provider.name) || provider.name === "self_hosted");
 }
