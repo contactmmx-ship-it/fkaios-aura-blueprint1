@@ -24,10 +24,11 @@ SET search_path = ''
 AS $function$
 DECLARE
   v_secret text;
+  v_secret_count integer;
   v_headers jsonb;
   v_url text;
 BEGIN
-  IF p_path NOT IN (
+  IF p_path IS NULL OR p_path NOT IN (
     'agent-scheduler/tick',
     'auto-agents-engine',
     'auto-pilot',
@@ -42,23 +43,29 @@ BEGIN
     RAISE EXCEPTION 'Unsupported FKAIOS cron route';
   END IF;
 
-  IF p_method NOT IN ('GET', 'POST') THEN
+  IF p_method IS NULL OR p_method NOT IN ('GET', 'POST') THEN
     RAISE EXCEPTION 'Unsupported FKAIOS cron method';
   END IF;
 
-  IF p_timeout_ms < 1000 OR p_timeout_ms > 240000 THEN
+  IF p_timeout_ms IS NULL OR p_timeout_ms < 1000 OR p_timeout_ms > 240000 THEN
     RAISE EXCEPTION 'FKAIOS cron timeout is outside the permitted range';
+  END IF;
+
+  SELECT count(*)
+    INTO v_secret_count
+    FROM vault.decrypted_secrets
+   WHERE name = 'fkaios_cron_secret'
+     AND decrypted_secret IS NOT NULL
+     AND decrypted_secret <> '';
+
+  IF v_secret_count <> 1 THEN
+    RAISE EXCEPTION 'Vault secret fkaios_cron_secret must exist exactly once and be non-empty';
   END IF;
 
   SELECT decrypted_secret
     INTO v_secret
     FROM vault.decrypted_secrets
-   WHERE name = 'fkaios_cron_secret'
-   LIMIT 1;
-
-  IF v_secret IS NULL OR v_secret = '' THEN
-    RAISE EXCEPTION 'Vault secret fkaios_cron_secret is missing or empty';
-  END IF;
+   WHERE name = 'fkaios_cron_secret';
 
   v_url := 'https://nrlsqshkjuuwiovthrnb.supabase.co/functions/v1/' || p_path;
   v_headers := jsonb_build_object(
@@ -93,6 +100,7 @@ DECLARE
   v_expected integer := 16;
   v_found integer;
   v_query_secret_jobs integer;
+  v_vault_secret_count integer;
   v_spec record;
   v_job_id bigint;
   v_command text;
@@ -127,15 +135,16 @@ BEGIN
       v_expected, v_found, v_query_secret_jobs;
   END IF;
 
-  IF NOT EXISTS (
-    SELECT 1
-      FROM vault.decrypted_secrets
-     WHERE name = 'fkaios_cron_secret'
-       AND decrypted_secret IS NOT NULL
-       AND decrypted_secret <> ''
-  ) THEN
+  SELECT count(*)
+    INTO v_vault_secret_count
+    FROM vault.decrypted_secrets
+   WHERE name = 'fkaios_cron_secret'
+     AND decrypted_secret IS NOT NULL
+     AND decrypted_secret <> '';
+
+  IF v_vault_secret_count <> 1 THEN
     RAISE EXCEPTION
-      'FKAIOS cron cutover aborted: rotate Edge Function HEARTBEAT_SECRET and create Vault secret fkaios_cron_secret first';
+      'FKAIOS cron cutover aborted: rotate Edge Function secrets and create exactly one non-empty Vault secret fkaios_cron_secret first';
   END IF;
 
   FOR v_spec IN
