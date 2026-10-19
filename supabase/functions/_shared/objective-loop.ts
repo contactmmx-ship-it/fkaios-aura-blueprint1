@@ -42,7 +42,7 @@ type ObjectiveEvaluation = {
   verification?: Record<string, unknown>;
 };
 
-const MAX_REPLAN_ATTEMPTS = 5;
+const MAX_REPLAN_ATTEMPTS = 3;
 export const MAX_RECTIFICATION_ROUNDS = 2;
 
 function getSupabaseAdmin() {
@@ -588,10 +588,35 @@ async function markObjective(
   objectiveId: string,
   status: "completed" | "failed" | "awaiting_approval",
   summary: string,
-) {
+  verification: Record<string, unknown> = {},
+): Promise<{ status: "completed" | "failed" | "awaiting_approval"; summary: string; projectId?: string }> {
   const boundedSummary = summary.slice(0, 5000);
   let completionProjectId: string | null = null;
   let deliverable: string | undefined;
+
+  const callCompletionArbiter = async (
+    projectId: string | null,
+    preflightBlockReason: string | null,
+    output: string,
+  ): Promise<{ status: "completed" | "failed" | "awaiting_approval"; summary: string; projectId?: string }> => {
+    const { data, error } = await supabase.rpc("fkaios_objective_completion_arbiter", {
+      p_objective_id: objectiveId,
+      p_project_id: projectId,
+      p_summary: boundedSummary,
+      p_deliverable: output,
+      p_verification: verification,
+      p_preflight_block_reason: preflightBlockReason,
+    });
+    if (error) throw new Error(`Completion arbiter failed for objective ${objectiveId}: ${error.message}`);
+    const decision = (data ?? {}) as Record<string, unknown>;
+    const actual = decision.decision === "completed" ? "completed"
+      : decision.decision === "failed" ? "failed" : "awaiting_approval";
+    return {
+      status: actual,
+      summary: String(decision.summary ?? decision.reason ?? boundedSummary),
+      projectId: typeof decision.project_id === "string" ? decision.project_id : projectId ?? undefined,
+    };
+  };
 
   // Defense-in-depth: completion must be backed by a fully verified planning
   // pass. For live-product objectives, an earlier verified live artifact remains
@@ -603,7 +628,9 @@ async function markObjective(
       .like("request", `[objective:${objectiveId}]%`)
       .order("created_at", { ascending: false });
     if (projectError) throw new Error(`Completion gate could not load projects: ${projectError.message}`);
-    if (!projects?.length) throw new Error("Completion gate rejected objective: no execution project exists.");
+    if (!projects?.length) {
+      return await callCompletionArbiter(null, "no execution project exists", boundedSummary);
+    }
 
     const { data: allTasks, error: taskError } = await supabase
       .from("orchestration_tasks")
@@ -625,7 +652,9 @@ async function markObjective(
       String(objectiveRow?.raw_request ?? ""),
       (allTasks ?? []) as Record<string, unknown>[],
     );
-    if (inventoryGap) throw new Error(`Completion gate rejected objective: ${inventoryGap}`);
+    let preflightBlockReason: string | null = inventoryGap
+      ? `deterministic infrastructure inventory gate: ${inventoryGap}`
+      : null;
 
     for (const project of projects) {
       const projectTasks = (allTasks ?? []).filter((t) => String(t.project_id ?? "") === String(project.id));
@@ -645,24 +674,26 @@ async function markObjective(
       const latestProjectId = projects[0]?.id;
       const latestTasks = (allTasks ?? []).filter((t) => String(t.project_id ?? "") === String(latestProjectId));
       const gate = assessCurrentTaskSet(projects, latestTasks as TaskEvidenceRecord[]);
-      if (!gate.allVerified) throw new Error(`Completion gate rejected objective: ${gate.reason}`);
+      if (!gate.allVerified) preflightBlockReason = preflightBlockReason ?? gate.reason;
       completionProjectId = String(latestProjectId);
     }
 
     const completionTasks = ((allTasks ?? []) as Record<string, unknown>[]).filter((t) => String(t.project_id ?? "") === completionProjectId);
+    if (preflightBlockReason) {
+      return await callCompletionArbiter(completionProjectId, preflightBlockReason, boundedSummary);
+    }
     await recordCompletionEvidence(supabase, objectiveId, completionProjectId, completionTasks);
     // HTML products are previewed and downloaded as-is by the Console, so
     // they keep their own final_output; everything else gets the real work.
     const completionProject = (projects as Record<string, unknown>[]).find((p) => String(p.id) === completionProjectId);
     deliverable = completionProject?.output_type === "html"
-      ? undefined
+      ? String(completionProject.final_output ?? boundedSummary)
       : buildCurrentDeliverable(boundedSummary, completionTasks);
 
-    const { error: markProjectError } = await supabase
-      .from("orchestration_projects")
-      .update(projectUpdateForObjective(status, boundedSummary, deliverable))
-      .eq("id", completionProjectId);
-    if (markProjectError) throw new Error(`Failed updating completion project ${completionProjectId}: ${markProjectError.message}`);
+    // The arbiter is the only writer allowed to set the request, contract,
+    // project, and canonical phase to completed. It validates the persisted
+    // evidence and commits all four projections in one database transaction.
+    return await callCompletionArbiter(completionProjectId, null, deliverable ?? boundedSummary);
   }
 
   const { error } = await supabase
@@ -697,11 +728,11 @@ async function markObjective(
     .limit(1);
 
   if (projectReadError) {
-    throw new Error(`Failed loading project for completed objective ${objectiveId}: ${projectReadError.message}`);
+    throw new Error(`Failed loading project for objective ${objectiveId}: ${projectReadError.message}`);
   }
 
   const projectId = projects?.[0]?.id;
-  if (!projectId) return;
+  if (!projectId) return { status, summary: boundedSummary };
 
   const { error: projectUpdateError } = await supabase
     .from("orchestration_projects")
@@ -711,6 +742,7 @@ async function markObjective(
   if (projectUpdateError) {
     throw new Error(`Failed updating project ${projectId}: ${projectUpdateError.message}`);
   }
+  return { status, summary: boundedSummary, projectId: String(projectId) };
 }
 
 /**
