@@ -20,6 +20,7 @@ import { buildDefaultRouterConfig, callLLMOnResources, type ExecutionResource, t
 import { selectResources } from "./resource-selection.ts";
 import { markStepsVerified, recordLLMAttempts } from "./execution-evidence.ts";
 import { parseRef } from "./resource-identity.ts";
+import { backgroundEvaluationDeferralReason, MAX_BACKGROUND_EVALUATION_CALLS_PER_24H } from "./background-capacity.ts";
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -234,7 +235,38 @@ async function finish(db: Db, id: string, status: "passed" | "failed" | "cancell
   await db.rpc("fkaios_finish_capability_test", { p_id: id, p_owner: EXECUTOR, p_status: status, p_evidence: evidence, p_error: error ?? null });
 }
 
+async function backgroundCapabilityTestDeferral(db: Db): Promise<string | null> {
+  const { count: activeObjectives, error: objectiveError } = await db
+    .from("orchestrator_requests")
+    .select("id", { count: "exact", head: true })
+    .eq("requested_by", "founder-brain")
+    .eq("status", "processing");
+  if (objectiveError) return "Deferred: cannot verify objective priority; capability benchmarks fail closed.";
+
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { count: callsLast24Hours, error: evaluationError } = await db
+    .from("fkaios_execution_steps")
+    .select("id", { count: "exact", head: true })
+    .eq("step_kind", "evaluation")
+    .is("objective_id", null)
+    .gte("started_at", cutoff);
+  if (evaluationError) return "Deferred: cannot verify the background evaluation budget safely.";
+
+  return backgroundEvaluationDeferralReason({
+    isEvaluation: true,
+    hasObjective: false,
+    activeObjectiveCount: activeObjectives ?? 0,
+    callsLast24Hours: callsLast24Hours ?? 0,
+    dailyCap: MAX_BACKGROUND_EVALUATION_CALLS_PER_24H,
+  });
+}
+
 export async function runCapabilityTestStep(db: Db): Promise<Record<string, unknown>> {
+  // Benchmark/model-discovery tests are strictly lower priority than founder
+  // objectives. Do not lease or mutate the queue row while the gate is closed.
+  const deferral = await backgroundCapabilityTestDeferral(db);
+  if (deferral) return { deferred: true, reason: deferral, queue_untouched: true };
+
   const test = await acquireTest(db);
   if (!test) return { idle: true };
   const testId = String(test.id);
