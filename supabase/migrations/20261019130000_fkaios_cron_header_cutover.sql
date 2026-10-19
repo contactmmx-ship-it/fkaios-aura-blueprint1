@@ -1,7 +1,8 @@
 -- FKAIOS staged cron auth cutover.
 --
--- SAFETY GATE: do not apply until HEARTBEAT_SECRET has been rotated in the
--- Supabase Edge Function environment and the same NEW value has been stored
+-- SAFETY GATE: rotate HEARTBEAT_SECRET for all target Edge Functions. Also set
+-- CRON_SECRET to that same new value on executive-intelligence because its live
+-- handler resolves CRON_SECRET before HEARTBEAT_SECRET. Store the same NEW value
 -- in Vault as fkaios_cron_secret. The secret value is never embedded in this
 -- migration or in a cron command. All ten target handlers were verified to
 -- accept x-heartbeat-secret before preparing this cutover.
