@@ -61,6 +61,17 @@ begin
     return true;
   end if;
 
+  if p_target = 'failed' then
+    if v_phase = 'completed' then
+      v_version := public.fkaios_objective_state_apply(p_objective_id, v_version, 'verifying', '{}'::jsonb, p_reason || ' (arbiter correction)');
+      v_phase := 'verifying';
+    end if;
+    if v_phase <> 'failed' then
+      perform public.fkaios_objective_state_apply(p_objective_id, v_version, 'failed', coalesce(p_patch, '{}'::jsonb), p_reason);
+    end if;
+    return true;
+  end if;
+
   return false;
 end;
 $$;
@@ -74,7 +85,8 @@ create or replace function public.fkaios_objective_completion_arbiter(
   p_summary text,
   p_deliverable text,
   p_verification jsonb default '{}'::jsonb,
-  p_preflight_block_reason text default null
+  p_preflight_block_reason text default null,
+  p_decision text default 'completed'
 ) returns jsonb
 language plpgsql
 security definer
@@ -105,9 +117,13 @@ begin
     v_reason := left(trim(p_preflight_block_reason), 2000);
   end if;
 
-  -- A failed objective is terminal until the founder explicitly requests a rerun.
-  if v_request.status = 'failed' then
+  -- A failed objective cannot be completed again without the explicit rerun path.
+  if p_decision = 'completed' and v_request.status = 'failed' then
     return jsonb_build_object('decision', 'blocked', 'reason', 'objective is already failed; an explicit rerun is required', 'summary', 'BLOCKED: objective is already failed; an explicit rerun is required');
+  end if;
+
+  if p_decision not in ('completed', 'blocked', 'failed') then
+    return jsonb_build_object('decision', 'blocked', 'reason', 'unsupported terminal decision', 'summary', 'BLOCKED: unsupported terminal decision');
   end if;
 
   select * into v_project
@@ -129,6 +145,43 @@ begin
 
   if v_reason is null and not found then
     v_reason := 'objective contract is missing';
+  end if;
+
+  -- All terminal decisions share this transaction. Blocked/failed outcomes do
+  -- not need completion evidence, but they still update every projection once.
+  if p_decision in ('blocked', 'failed') then
+    perform set_config('fkaios.objective_completion_arbiter', 'on', true);
+    if p_decision = 'blocked' then
+      v_summary := left(case
+        when upper(trim(coalesce(p_summary, ''))) like 'BLOCKED:%' then trim(p_summary)
+        else 'BLOCKED: ' || coalesce(nullif(trim(p_summary), ''), 'Objective stopped without a more specific reason.')
+      end, 5000);
+    else
+      v_summary := left(coalesce(nullif(trim(p_summary), ''), 'Objective reached a terminal failure without details.'), 5000);
+    end if;
+
+    if v_project.id is not null then
+      update public.orchestration_projects
+      set status = 'failed', error_message = v_summary
+      where id = v_project.id;
+    end if;
+    update public.orchestrator_requests
+    set status = case when p_decision = 'blocked' then 'awaiting_approval' else 'failed' end,
+        result_summary = v_summary, action_taken = 'objective_loop'
+    where id = p_objective_id;
+    update public.objective_contracts set status = 'blocked', updated_at = now()
+    where objective_id = p_objective_id;
+
+    v_phase_ok := public.fkaios_objective_arbiter_set_phase(
+      p_objective_id, p_decision, v_summary,
+      jsonb_build_object('blocked_reason', case when p_decision = 'blocked' then v_summary else null end,
+                         'next_action', case when p_decision = 'blocked' then 'Resolve the named blocker, then explicitly rerun if needed.' else 'Review the failure evidence before explicitly rerunning.' end)
+    );
+    if not v_phase_ok then
+      update public.orchestrator_requests set status = 'failed' where id = p_objective_id;
+      return jsonb_build_object('decision', 'failed', 'reason', v_summary, 'summary', v_summary, 'project_id', p_project_id);
+    end if;
+    return jsonb_build_object('decision', p_decision, 'reason', v_summary, 'summary', v_summary, 'project_id', p_project_id);
   end if;
 
   v_output := coalesce(nullif(trim(p_deliverable), ''), nullif(trim(p_summary), ''));
@@ -187,6 +240,26 @@ begin
       and coalesce((e.observed_result->>'task_count')::integer, 0) = v_task_count
   ) then
     v_reason := 'deterministic completion-gate evidence is missing or does not match the persisted task set';
+  end if;
+
+  if v_reason is null and not exists (
+    select 1 from public.fkaios_verification_evidence e
+    where e.objective_id = p_objective_id
+      and e.project_id = p_project_id
+      and e.evidence_type = 'independent_objective_verification'
+      and e.status = 'passed'
+      and e.verified_at is not null
+      and e.observed_result->>'independence' in ('different_provider', 'different_model')
+      and e.observed_result->'deterministic'->>'ok' = 'true'
+      and jsonb_typeof(e.observed_result->'criteria') = 'array'
+      and jsonb_array_length(e.observed_result->'criteria') > 0
+      and not exists (
+        select 1
+        from jsonb_array_elements(e.observed_result->'criteria') c
+        where coalesce((c->>'met')::boolean, false) is false
+      )
+  ) then
+    v_reason := 'independent verification is missing, non-independent, or failed deterministic acceptance checks';
   end if;
 
   if v_reason is null then
@@ -256,8 +329,8 @@ begin
 end;
 $$;
 
-revoke all on function public.fkaios_objective_completion_arbiter(uuid, uuid, text, text, jsonb, text) from public, anon, authenticated;
-grant execute on function public.fkaios_objective_completion_arbiter(uuid, uuid, text, text, jsonb, text) to service_role;
+revoke all on function public.fkaios_objective_completion_arbiter(uuid, uuid, text, text, jsonb, text, text) from public, anon, authenticated;
+grant execute on function public.fkaios_objective_completion_arbiter(uuid, uuid, text, text, jsonb, text, text) to service_role;
 
 -- A direct request-table write can no longer mark an objective completed.
 create or replace function public.fkaios_guard_objective_completed_write()
@@ -267,7 +340,7 @@ set search_path = public, extensions, pg_temp
 as $$
 begin
   if new.status = 'completed'
-     and old.status is distinct from 'completed'
+     and (tg_op = 'INSERT' or old.status is distinct from 'completed')
      and current_setting('fkaios.objective_completion_arbiter', true) is distinct from 'on' then
     raise exception 'objective_completion_arbiter_required: all completed transitions must use fkaios_objective_completion_arbiter';
   end if;
@@ -277,7 +350,7 @@ $$;
 
 drop trigger if exists trg_fkaios_objective_completed_write on public.orchestrator_requests;
 create trigger trg_fkaios_objective_completed_write
-before update of status on public.orchestrator_requests
+before insert or update on public.orchestrator_requests
 for each row execute function public.fkaios_guard_objective_completed_write();
 
 -- The arbiter is the sole approved path for correcting a false terminal project.
@@ -373,7 +446,8 @@ begin
     'Terminal project submitted to the completion arbiter for full contract verification.',
     v_project.final_output,
     '{}'::jsonb,
-    null
+    null,
+    'completed'
   );
 end;
 $$;
