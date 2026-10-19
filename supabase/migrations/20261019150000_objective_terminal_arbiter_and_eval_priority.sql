@@ -220,14 +220,16 @@ begin
       update public.orchestration_projects
       set status = 'failed', error_message = v_summary
       where id = v_project.id;
-    elsif v_status = 'awaiting_approval' and v_project.status = 'complete' then
-      update public.orchestration_projects
-      set status = 'working',
-          error_message = 'Evidence audit reopened this project: ' || v_summary
-      where id = v_project.id;
     elsif v_status = 'awaiting_approval' then
+      -- A blocked objective must not leave an active/complete project behind.
+      -- Project status has no 'blocked' enum; close this execution pass as
+      -- failed with the exact blocker. The objective-level request and contract
+      -- remain blocked, and the same project/tasks can be resumed after the
+      -- missing capability or approval is supplied.
       update public.orchestration_projects
-      set error_message = v_summary
+      set status = 'failed',
+          error_message = 'BLOCKED: ' || v_summary,
+          draft_final_output = null
       where id = v_project.id
         and status <> 'failed';
     end if;
