@@ -270,12 +270,12 @@ export async function runCapabilityTestStep(db: Db): Promise<Record<string, unkn
   });
   if (!priorityGate.allowed) return { idle: true, reason: priorityGate.reason };
 
-  const { data: budget, error: budgetError } = await db.rpc(
+  const { data: backgroundBudget, error: budgetError } = await db.rpc(
     "fkaios_claim_background_eval_budget",
     { p_daily_limit: MAX_BACKGROUND_EVAL_TICKS_PER_DAY },
   );
   if (budgetError) return { deferred: "background_budget_check_failed_closed", error: budgetError.message };
-  const budgetDecision = (Array.isArray(budget) ? budget[0] : budget) as { allowed?: boolean; reason?: string } | null;
+  const budgetDecision = (Array.isArray(backgroundBudget) ? backgroundBudget[0] : backgroundBudget) as { allowed?: boolean; reason?: string } | null;
   if (!budgetDecision?.allowed) return { deferred: budgetDecision?.reason ?? "background_budget_denied" };
 
   const test = await acquireTest(db);
