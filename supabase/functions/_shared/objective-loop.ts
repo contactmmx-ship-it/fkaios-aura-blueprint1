@@ -1557,15 +1557,13 @@ export async function runObjectiveLoop(
       }
 
       if (state.projects.length >= MAX_REPLAN_ATTEMPTS) {
-        // A deliberate founder rerun starts a new bounded budget. Older projects
-        // remain immutable history but must not exhaust the new run immediately.
-        // Ordinary scheduler ticks keep the same timestamp and therefore cannot
-        // reset the budget without a deliberate rerun request.
+        // The objective has a lifetime cap of three planning passes. A scheduler
+        // tick or deliberate rerun cannot silently reset this automatic budget;
+        // a founder may explicitly revise the objective after reviewing the blocker.
         // Exhausting the automatic planning budget is not a founder decision.
         // Keep the objective terminal and truthful instead of putting routine
         // recovery into awaiting_approval, which makes the Founder manage the
-        // AI's retry loop. A deliberate founder rerun remains available through
-        // the existing rerun action after the concrete failure is reviewed.
+        // AI's retry loop. Further work requires a revised objective after review.
         await markObjective(
           supabase,
           String(objective.id),
