@@ -9,6 +9,7 @@
 
 import {
   callLLM,
+  isProviderCoolingDown,
   classifyLLMFailure,
   selectProvider,
   checkCostLimit,
@@ -895,4 +896,24 @@ Deno.test("non-Groq OpenAI-compatible requests retain their existing token field
   assert(body.max_tokens === 321, "Other compatible providers must keep the existing max_tokens field");
   assert(!("max_completion_tokens" in body), "Groq-specific token settings must not leak to other providers");
   assert(!("response_format" in body), "Unstructured requests must not force JSON mode");
+});
+
+// Regression tests for persisted provider cooldowns. A rate-limit failure is
+// stored with status="degraded", but its future unavailable_until must still
+// suppress routing until the cooldown expires.
+Deno.test("Unit: provider cooldown excludes degraded rate-limited providers", () => {
+  const now = Date.parse("2026-10-19T08:00:00.000Z");
+  assert(isProviderCoolingDown({ status: "degraded", unavailable_until: "2026-10-19T08:02:00.000Z" }, now), "degraded provider with a future cooldown must be excluded");
+});
+
+Deno.test("Unit: provider cooldown excludes unavailable providers until expiry", () => {
+  const now = Date.parse("2026-10-19T08:00:00.000Z");
+  assert(isProviderCoolingDown({ status: "unavailable", unavailable_until: "2026-10-19T08:02:00.000Z" }, now), "unavailable provider with a future cooldown must be excluded");
+  assert(!isProviderCoolingDown({ status: "unavailable", unavailable_until: "2026-10-19T07:59:59.000Z" }, now), "expired cooldown must not exclude provider");
+});
+
+Deno.test("Unit: provider cooldown ignores absent or invalid timestamps", () => {
+  const now = Date.parse("2026-10-19T08:00:00.000Z");
+  assert(!isProviderCoolingDown({ status: "degraded", unavailable_until: null }, now), "missing cooldown must not exclude provider");
+  assert(!isProviderCoolingDown({ status: "degraded", unavailable_until: "not-a-timestamp" }, now), "invalid cooldown must not exclude provider");
 });

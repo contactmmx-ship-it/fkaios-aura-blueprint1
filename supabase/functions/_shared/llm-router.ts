@@ -233,6 +233,16 @@ async function loadRuntimeProviderHealth(providers: ProviderName[]): Promise<Par
   } catch { return {}; }
 }
 
+/** Return true while a provider's persisted cooldown is still active, regardless of its health label. Rate limits are recorded as "degraded", so status alone must never bypass unavailable_until. */
+export function isProviderCoolingDown(
+  state: { status: string; unavailable_until: string | null },
+  nowMs = Date.now(),
+): boolean {
+  if (!state.unavailable_until) return false;
+  const untilMs = Date.parse(state.unavailable_until);
+  return Number.isFinite(untilMs) && untilMs > nowMs;
+}
+
 async function persistRuntimeProviderFailure(provider: ProviderName, failure: ClassifiedFailure): Promise<void> {
   const db = healthDb();
   if (!db) return;
@@ -1061,7 +1071,7 @@ export async function callLLM(request: LLMRequest, config: RouterConfig): Promis
   const runtimeHealth = await loadRuntimeProviderHealth(candidates);
   const excluded: ProviderName[] = [];
   for (const [provider, state] of Object.entries(runtimeHealth) as [ProviderName, {status:string; unavailable_until:string|null}][]) {
-    if (state.status === "unavailable" && state.unavailable_until && new Date(state.unavailable_until).getTime() > Date.now()) excluded.push(provider);
+    if (isProviderCoolingDown(state)) excluded.push(provider);
   }
   const attempts: CallAttempt[] = [];
   let tokenUsage: { input: number; output: number } | null = null;
