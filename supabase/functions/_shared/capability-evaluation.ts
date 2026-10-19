@@ -234,9 +234,52 @@ async function finish(db: Db, id: string, status: "passed" | "failed" | "cancell
   await db.rpc("fkaios_finish_capability_test", { p_id: id, p_owner: EXECUTOR, p_status: status, p_evidence: evidence, p_error: error ?? null });
 }
 
+export const MAX_BACKGROUND_EVAL_TICKS_PER_DAY = 5;
+
+export function backgroundEvaluationPriorityGate(input: {
+  activeObjectives: number;
+  queuedTests: number;
+}): { allowed: boolean; reason: string } {
+  if (input.activeObjectives > 0) {
+    return { allowed: false, reason: "objective_priority" };
+  }
+  if (input.queuedTests < 1) {
+    return { allowed: false, reason: "no_queued_tests" };
+  }
+  return { allowed: true, reason: "spare_capacity" };
+}
+
 export async function runCapabilityTestStep(db: Db): Promise<Record<string, unknown>> {
+  const { data: activeObjectives, error: objectiveError } = await db
+    .from("orchestrator_requests")
+    .select("id")
+    .in("status", ["submitted", "processing", "queued", "running", "in_progress"])
+    .limit(1);
+  if (objectiveError) return { deferred: "objective_priority_check_failed_closed", error: objectiveError.message };
+  if ((activeObjectives ?? []).length > 0) return { deferred: "objective_priority" };
+
+  const { data: queuedTests, error: queueError } = await db
+    .from("capability_test_queue")
+    .select("id")
+    .in("status", ["queued", "running"])
+    .limit(1);
+  if (queueError) return { deferred: "evaluation_queue_check_failed_closed", error: queueError.message };
+  const priorityGate = backgroundEvaluationPriorityGate({
+    activeObjectives: 0,
+    queuedTests: (queuedTests ?? []).length,
+  });
+  if (!priorityGate.allowed) return { idle: true, reason: priorityGate.reason };
+
+  const { data: budget, error: budgetError } = await db.rpc(
+    "fkaios_claim_background_eval_budget",
+    { p_daily_limit: MAX_BACKGROUND_EVAL_TICKS_PER_DAY },
+  );
+  if (budgetError) return { deferred: "background_budget_check_failed_closed", error: budgetError.message };
+  const budgetDecision = (Array.isArray(budget) ? budget[0] : budget) as { allowed?: boolean; reason?: string } | null;
+  if (!budgetDecision?.allowed) return { deferred: budgetDecision?.reason ?? "background_budget_denied" };
+
   const test = await acquireTest(db);
-  if (!test) return { idle: true };
+  if (!test) return { idle: true, reason: "no_claimable_test" };
   const testId = String(test.id);
   const { data: cand } = await db.from("capability_discovery_candidates").select("id,resource_key,provider,model").eq("id", test.candidate_id).maybeSingle();
   const candidate = cand ? resourceFromRef(String(cand.resource_key)) : null;
