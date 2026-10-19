@@ -43,6 +43,7 @@ import {
   type FailureCategory,
 } from "../_shared/llm-router.ts";
 import { selectResources, type SelectionDecision } from "../_shared/resource-selection.ts";
+import { backgroundEvaluationDeferralReason, MAX_BACKGROUND_EVALUATION_CALLS_PER_24H } from "../_shared/background-capacity.ts";
 import { recordLLMAttempts, type StepKind } from "../_shared/execution-evidence.ts";
 import { classifyTaskClass, toolRef, workerRef } from "../_shared/resource-identity.ts";
 import { callWithContinuation } from "../_shared/continuation.ts";
@@ -1756,7 +1757,17 @@ const MAX_RETRY_ATTEMPTS = 3;
 const FRESH_JOB_RESERVED_SLOTS = 5;
 const BACKLOG_JOB_SLOTS = 5;
 
+const OBJECTIVE_JOB_RESERVED_SLOTS = 5;
+
 async function fetchJobBatch(cid: string): Promise<AIJob[]> {
+  // Objective jobs get reserved slots before generic background work. Without
+  // this, an old benchmark backlog can fill both the fresh and retry windows.
+  const { data: objectiveJobs, error: objectiveError } = await supabase
+    .from("ai_jobs").select("*").eq("status", "pending")
+    .not("payload->>objective_id", "is", null)
+    .order("created_at", { ascending: true }).limit(OBJECTIVE_JOB_RESERVED_SLOTS);
+  if (objectiveError) throw new Error(`Failed to fetch priority objective jobs: ${objectiveError.message}`);
+
   const { data: freshJobs, error: freshError } = await supabase
     .from("ai_jobs").select("*").eq("status", "pending").eq("retry_count", 0)
     .order("created_at", { ascending: true }).limit(FRESH_JOB_RESERVED_SLOTS);
@@ -1767,11 +1778,54 @@ async function fetchJobBatch(cid: string): Promise<AIJob[]> {
   if (backlogError) throw new Error(`Failed to fetch backlog jobs: ${backlogError.message}`);
   const seen = new Set<string>();
   const combined: AIJob[] = [];
-  for (const job of [...(freshJobs ?? []), ...(backlogJobs ?? [])]) {
+  for (const job of [...(objectiveJobs ?? []), ...(freshJobs ?? []), ...(backlogJobs ?? [])]) {
     if (!seen.has(job.id)) { seen.add(job.id); combined.push(job); }
   }
-  structuredLog("INFO", "Fetched job batch", { fresh: freshJobs?.length ?? 0, backlog: backlogJobs?.length ?? 0 }, cid);
+  structuredLog("INFO", "Fetched job batch", {
+    objectivePriority: objectiveJobs?.length ?? 0,
+    fresh: freshJobs?.length ?? 0,
+    backlog: backlogJobs?.length ?? 0,
+  }, cid);
   return combined;
+}
+
+async function backgroundEvaluationDeferReason(job: AIJob): Promise<string | null> {
+  const payload = job.payload ?? {};
+  const objectiveId = typeof payload.objective_id === "string" && payload.objective_id.trim()
+    ? payload.objective_id.trim()
+    : null;
+  const taskClass = typeof payload.task_class === "string"
+    ? payload.task_class
+    : classifyTaskClass(String(payload.title ?? job.type), String(payload.description ?? ""));
+  if (taskClass !== "evaluation" || objectiveId) return null;
+
+  const { count: activeObjectives, error: objectiveError } = await supabase
+    .from("orchestrator_requests")
+    .select("id", { count: "exact", head: true })
+    .eq("requested_by", "founder-brain")
+    .eq("status", "processing");
+  if (objectiveError) {
+    return "Deferred: could not verify objective priority safely; background evaluation fails closed.";
+  }
+
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { count: callsLast24Hours, error: evaluationError } = await supabase
+    .from("fkaios_execution_steps")
+    .select("id", { count: "exact", head: true })
+    .eq("task_class", "evaluation")
+    .is("objective_id", null)
+    .gte("started_at", cutoff);
+  if (evaluationError) {
+    return "Deferred: could not verify the background evaluation budget safely.";
+  }
+
+  return backgroundEvaluationDeferralReason({
+    isEvaluation: true,
+    hasObjective: false,
+    activeObjectiveCount: activeObjectives ?? 0,
+    callsLast24Hours: callsLast24Hours ?? 0,
+    dailyCap: MAX_BACKGROUND_EVALUATION_CALLS_PER_24H,
+  });
 }
 
 async function startAgentRun(job: AIJob, cid: string): Promise<string | null> {
@@ -1851,6 +1905,16 @@ async function runJobs(cid: string) {
   const jobs: AIJob[] = await fetchJobBatch(cid);
   const results: Array<{ job_id: string; status: string; result?: Record<string, unknown>; error?: string }> = [];
   for (const job of jobs) {
+    const evaluationDeferral = await backgroundEvaluationDeferReason(job);
+    if (evaluationDeferral) {
+      structuredLog("INFO", "Background evaluation deferred to protect objective capacity", {
+        jobId: job.id, type: job.type, reason: evaluationDeferral,
+      }, cid);
+      // Leave it pending: this is capacity scheduling, not a job failure.
+      results.push({ job_id: job.id, status: "deferred", error: evaluationDeferral });
+      continue;
+    }
+
     // PHASE 0.1: these types cannot complete honestly via this generic runner
     // (see NO_PERSISTENCE_JOB_TYPES above) — reject before spending an LLM
     // call on a result that would just be discarded. Terminal, not retryable:
