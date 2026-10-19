@@ -15,6 +15,10 @@ begin
   end if;
 
   if tg_op = 'UPDATE' and old.status = 'complete' and new.status <> 'complete' then
+    if coalesce(current_setting('fkaios.objective_terminal_arbiter', true), '') = 'on'
+       and new.status in ('working', 'failed') then
+      return new;
+    end if;
     if new.status = 'working'
        and new.error_message ilike 'Evidence audit reopened this project:%' then
       return new;
