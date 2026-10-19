@@ -216,11 +216,16 @@ begin
       update public.orchestration_projects
       set status = 'failed', error_message = v_summary
       where id = v_project.id;
-    else
+    elsif v_status = 'awaiting_approval' and v_project.status = 'complete' then
+      update public.orchestration_projects
+      set status = 'working',
+          error_message = 'Evidence audit reopened this project: ' || v_summary
+      where id = v_project.id;
+    elsif v_status = 'awaiting_approval' then
       update public.orchestration_projects
       set error_message = v_summary
       where id = v_project.id
-        and status not in ('complete', 'failed');
+        and status <> 'failed';
     end if;
   end if;
 
@@ -288,3 +293,58 @@ grant execute on function public.fkaios_objective_terminal_transition(uuid, text
 
 comment on function public.fkaios_objective_terminal_transition(uuid, text, text, uuid, text) is
   'Single transactional terminal-state arbiter for objective request, contract, project and canonical state. Completion fails closed on missing deterministic evidence.';
+
+
+-- Background capability tests may consume model capacity only when no objective
+-- is actively executing. One budget unit permits one evaluator tick (at most
+-- one small paired batch); the hard daily cap prevents a repeat of the Oct 11-14
+-- benchmark storm. The table is private and only mutated through this RPC.
+create table if not exists public.fkaios_background_eval_budget (
+  budget_date date primary key,
+  claimed_units integer not null default 0 check (claimed_units >= 0),
+  updated_at timestamptz not null default now()
+);
+alter table public.fkaios_background_eval_budget enable row level security;
+revoke all on table public.fkaios_background_eval_budget from public, anon, authenticated;
+
+create or replace function public.fkaios_claim_background_eval_budget(p_daily_limit integer default 5)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions, pg_temp
+as $function$
+declare
+  v_units integer;
+begin
+  if p_daily_limit < 1 or p_daily_limit > 10 then
+    return jsonb_build_object('allowed', false, 'reason', 'invalid_daily_limit');
+  end if;
+
+  if exists (
+    select 1 from public.orchestrator_requests r
+    where r.status in ('submitted', 'processing', 'queued', 'running', 'in_progress')
+  ) then
+    return jsonb_build_object('allowed', false, 'reason', 'objective_priority');
+  end if;
+
+  insert into public.fkaios_background_eval_budget (budget_date, claimed_units)
+  values (current_date, 1)
+  on conflict (budget_date) do update
+    set claimed_units = public.fkaios_background_eval_budget.claimed_units + 1,
+        updated_at = now()
+    where public.fkaios_background_eval_budget.claimed_units < p_daily_limit
+  returning claimed_units into v_units;
+
+  if v_units is null then
+    return jsonb_build_object('allowed', false, 'reason', 'daily_background_eval_cap', 'daily_limit', p_daily_limit);
+  end if;
+
+  return jsonb_build_object('allowed', true, 'claimed_units', v_units, 'daily_limit', p_daily_limit);
+end;
+$function$;
+
+revoke all on function public.fkaios_claim_background_eval_budget(integer) from public, anon, authenticated;
+grant execute on function public.fkaios_claim_background_eval_budget(integer) to service_role;
+
+comment on table public.fkaios_background_eval_budget is
+  'Daily unit budget for background capability evaluation; objectives have priority and background tests are capped at five ticks per day.';
