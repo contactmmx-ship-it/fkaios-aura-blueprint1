@@ -5,7 +5,7 @@ import { allocateProjectWork, createRectificationTask, resumeTaskFromCheckpoint,
 import { contractCriteria, isIndependentVerificationLevel, isRecoverableOutputBlocker, verifyObjective } from "./objective-verifier.ts";
 import { readObjectiveState, syncObjectiveState } from "./objective-state.ts";
 import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, type TaskEvidenceRecord } from "./fact-grounding.ts";
-import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP, projectUpdateForObjective } from "./objective-rerun.ts";
+import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP } from "./objective-rerun.ts";
 import { classifyObjective, completionContract, planContractMismatch, projectOutputType, measuredProductCapabilityEvidence, hasMeasuredProductBuild, hasMeasuredProductVerification, hasVerifiedLiveProductEvidence } from "./objective-contract.ts";
 import { objectiveDeadline, objectiveDeadlineMinutes, objectiveRunStartedAt, projectsCreatedSince } from "./objective-deadline.ts";
 import { hasSubstantiveTaskOutput } from "./task-output.ts";
@@ -42,7 +42,7 @@ type ObjectiveEvaluation = {
   verification?: Record<string, unknown>;
 };
 
-const MAX_REPLAN_ATTEMPTS = 5;
+const MAX_REPLAN_ATTEMPTS = 3;
 export const MAX_RECTIFICATION_ROUNDS = 2;
 
 function getSupabaseAdmin() {
@@ -658,58 +658,33 @@ async function markObjective(
       ? undefined
       : buildCurrentDeliverable(boundedSummary, completionTasks);
 
-    const { error: markProjectError } = await supabase
-      .from("orchestration_projects")
-      .update(projectUpdateForObjective(status, boundedSummary, deliverable))
-      .eq("id", completionProjectId);
-    if (markProjectError) throw new Error(`Failed updating completion project ${completionProjectId}: ${markProjectError.message}`);
   }
 
-  const { error } = await supabase
-    .from("orchestrator_requests")
-    .update({
-      status,
-      result_summary: boundedSummary,
-      action_taken: "objective_loop",
-    })
-    .eq("id", objectiveId);
-
-  const contractStatus = status === "completed" ? "verified" : status === "awaiting_approval" ? "blocked" : status === "failed" ? "blocked" : "executing";
-  await supabase.from("objective_contracts").update({
-    status: contractStatus,
-    updated_at: new Date().toISOString(),
-  }).eq("objective_id", objectiveId);
-
-  if (error) {
-    throw new Error(`Failed updating objective ${objectiveId}: ${error.message}`);
+  const { data: terminalResult, error: terminalError } = await supabase.rpc(
+    "fkaios_objective_terminal_transition",
+    {
+      p_objective_id: objectiveId,
+      p_status: status,
+      p_summary: boundedSummary,
+      p_project_id: completionProjectId,
+      p_deliverable: deliverable ?? null,
+    },
+  );
+  if (terminalError) {
+    throw new Error(`Objective terminal arbiter failed for ${objectiveId}: ${terminalError.message}`);
   }
 
-  // Project projection: the Command Center reads orchestration_projects for
-  // execution state and final output. Keep it in sync with the authoritative
-  // objective decision above. Without this, an objective could be COMPLETED
-  // in orchestrator_requests while its project remained "working", leaving
-  // the Console with no final result to display.
-  const { data: projects, error: projectReadError } = await supabase
-    .from("orchestration_projects")
-    .select("id")
-    .like("request", `[objective:${objectiveId}]%`)
-    .order("created_at", { ascending: false })
-    .limit(1);
-
-  if (projectReadError) {
-    throw new Error(`Failed loading project for completed objective ${objectiveId}: ${projectReadError.message}`);
+  const terminal = terminalResult as {
+    ok?: boolean;
+    status?: string;
+    reason?: string | null;
+    summary?: string;
+  } | null;
+  if (!terminal?.ok) {
+    throw new Error(`Objective terminal arbiter rejected ${objectiveId}: ${terminal?.reason ?? "unknown reason"}`);
   }
-
-  const projectId = projects?.[0]?.id;
-  if (!projectId) return;
-
-  const { error: projectUpdateError } = await supabase
-    .from("orchestration_projects")
-    .update(projectUpdateForObjective(status, boundedSummary, String(projectId) === completionProjectId ? deliverable : undefined))
-    .eq("id", projectId);
-
-  if (projectUpdateError) {
-    throw new Error(`Failed updating project ${projectId}: ${projectUpdateError.message}`);
+  if (status === "completed" && terminal.status !== "completed") {
+    throw new Error(`Objective completion blocked by arbiter: ${terminal.summary ?? terminal.reason ?? "deterministic gate failed"}`);
   }
 }
 
@@ -1480,7 +1455,6 @@ export async function runObjectiveLoop(
           "completed",
           evaluation.reason || "Objective achieved.",
         );
-        await syncObjectiveState(supabase, { id: String(objective.id), status: "completed", raw_request: String(objective.raw_request ?? "") }, { phase: "completed", reason: evaluation.reason, patch: { verification: evaluation.verification ?? {}, next_action: null, blocked_reason: null } });
 
         results.push({
           objectiveId: String(objective.id),
@@ -1501,7 +1475,6 @@ export async function runObjectiveLoop(
           "awaiting_approval",
           evaluation.reason || evaluation.next_action,
         );
-        await syncObjectiveState(supabase, { id: String(objective.id), status: "awaiting_approval", raw_request: String(objective.raw_request ?? "") }, { phase: "blocked", reason: evaluation.reason, patch: { verification: evaluation.verification ?? {}, blocked_reason: evaluation.reason, next_action: evaluation.next_action } });
 
         results.push({
           objectiveId: String(objective.id),
@@ -1558,11 +1531,6 @@ export async function runObjectiveLoop(
         const summary = deadlineSummary + " Current work was reconciled, but the original objective remains unverified. " +
           (evaluation.reason || evaluation.next_action || "No independently verified completion evidence was available.");
         await markObjective(supabase, String(objective.id), "failed", summary);
-        await syncObjectiveState(
-          supabase,
-          { id: String(objective.id), status: "failed", raw_request: String(objective.raw_request ?? "") },
-          { phase: "failed", reason: summary, patch: { deadline_minutes: budgetMinutes, elapsed_minutes: deadline.elapsedMinutes, next_action: "Review persisted task outputs and evidence; explicitly rerun only after correcting the concrete blocker." } },
-        );
         results.push({ objectiveId: String(objective.id), action: "failed", projectId: latestProjectId, summary });
         continue;
       }
@@ -1589,7 +1557,7 @@ export async function runObjectiveLoop(
       }
 
       const projectsThisRun = projectsCreatedSince(state.projects, deadlineStart);
-      if (projectsThisRun >= MAX_REPLAN_ATTEMPTS) {
+      if (state.projects.length >= MAX_REPLAN_ATTEMPTS) {
         // A deliberate founder rerun starts a new bounded budget. Older projects
         // remain immutable history but must not exhaust the new run immediately.
         // Ordinary scheduler ticks keep the same timestamp and therefore cannot
@@ -1603,13 +1571,13 @@ export async function runObjectiveLoop(
           supabase,
           String(objective.id),
           "failed",
-          `Automatic planning budget exhausted after ${projectsThisRun} projects in this run (${state.projects.length} total historical projects) without reaching achieved/blocked/failed. No further automatic replanning will occur. Last evaluator reason: ${evaluation.reason || evaluation.next_action || "none given"}.`,
+          `Automatic planning budget exhausted after ${state.projects.length} total projects (limit ${MAX_REPLAN_ATTEMPTS}) without reaching achieved/blocked/failed. No further automatic replanning will occur. Last evaluator reason: ${evaluation.reason || evaluation.next_action || "none given"}.`,
         );
         results.push({
           objectiveId: String(objective.id),
           action: "blocked",
           projectId: state.projects[0]?.id ? String(state.projects[0].id) : null,
-          summary: `Escalated after ${projectsThisRun} replan attempts in this run (${state.projects.length} total historical projects) without convergence — needs human review.`,
+          summary: `Escalated after ${state.projects.length} total projects (limit ${MAX_REPLAN_ATTEMPTS}) without convergence — needs human review.`,
         });
         continue;
       }
