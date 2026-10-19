@@ -73,7 +73,8 @@ create or replace function public.fkaios_objective_completion_arbiter(
   p_project_id uuid,
   p_summary text,
   p_deliverable text,
-  p_verification jsonb default '{}'::jsonb
+  p_verification jsonb default '{}'::jsonb,
+  p_preflight_block_reason text default null
 ) returns jsonb
 language plpgsql
 security definer
@@ -100,6 +101,10 @@ begin
     return jsonb_build_object('decision', 'blocked', 'reason', 'objective request not found', 'summary', 'BLOCKED: objective request not found');
   end if;
 
+  if nullif(trim(p_preflight_block_reason), '') is not null then
+    v_reason := left(trim(p_preflight_block_reason), 2000);
+  end if;
+
   -- A failed objective is terminal until the founder explicitly requests a rerun.
   if v_request.status = 'failed' then
     return jsonb_build_object('decision', 'blocked', 'reason', 'objective is already failed; an explicit rerun is required', 'summary', 'BLOCKED: objective is already failed; an explicit rerun is required');
@@ -111,7 +116,7 @@ begin
     and request like '[objective:' || p_objective_id::text || ']%'
   for update;
 
-  if not found then
+  if not found and v_reason is null then
     v_reason := 'completion project is missing or does not belong to this objective';
   end if;
 
@@ -251,8 +256,8 @@ begin
 end;
 $$;
 
-revoke all on function public.fkaios_objective_completion_arbiter(uuid, uuid, text, text, jsonb) from public, anon, authenticated;
-grant execute on function public.fkaios_objective_completion_arbiter(uuid, uuid, text, text, jsonb) to service_role;
+revoke all on function public.fkaios_objective_completion_arbiter(uuid, uuid, text, text, jsonb, text) from public, anon, authenticated;
+grant execute on function public.fkaios_objective_completion_arbiter(uuid, uuid, text, text, jsonb, text) to service_role;
 
 -- A direct request-table write can no longer mark an objective completed.
 create or replace function public.fkaios_guard_objective_completed_write()
@@ -367,7 +372,8 @@ begin
     v_project.id,
     'Terminal project submitted to the completion arbiter for full contract verification.',
     v_project.final_output,
-    '{}'::jsonb
+    '{}'::jsonb,
+    null
   );
 end;
 $$;
