@@ -1812,7 +1812,7 @@ async function backgroundEvaluationDeferReason(job: AIJob): Promise<string | nul
   const { count: callsLast24Hours, error: evaluationError } = await supabase
     .from("fkaios_execution_steps")
     .select("id", { count: "exact", head: true })
-    .eq("task_class", "evaluation")
+    .or("step_kind.eq.evaluation,task_class.eq.evaluation")
     .is("objective_id", null)
     .gte("started_at", cutoff);
   if (evaluationError) {
