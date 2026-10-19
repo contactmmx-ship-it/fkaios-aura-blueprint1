@@ -1506,21 +1506,22 @@ export async function runObjectiveLoop(
       );
 
       if (evaluation.achieved) {
-        await markObjective(
+        const completion = await markObjective(
           supabase,
           String(objective.id),
           "completed",
           evaluation.reason || "Objective achieved.",
+          evaluation.verification ?? {},
         );
-        await syncObjectiveState(supabase, { id: String(objective.id), status: "completed", raw_request: String(objective.raw_request ?? "") }, { phase: "completed", reason: evaluation.reason, patch: { verification: evaluation.verification ?? {}, next_action: null, blocked_reason: null } });
 
+        // The SQL arbiter owns the atomic terminal write, including the
+        // canonical phase. A failed deterministic gate becomes BLOCKED rather
+        // than being overwritten by this loop's earlier model verdict.
         results.push({
           objectiveId: String(objective.id),
-          action: "completed",
-          projectId: state.projects[0]?.id
-            ? String(state.projects[0].id)
-            : null,
-          summary: evaluation.reason || "Objective achieved.",
+          action: completion.status === "completed" ? "completed" : completion.status === "failed" ? "failed" : "blocked",
+          projectId: completion.projectId ?? (state.projects[0]?.id ? String(state.projects[0].id) : null),
+          summary: completion.summary || evaluation.reason || "Objective completion decision recorded.",
         });
 
         continue;
