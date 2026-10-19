@@ -147,7 +147,7 @@ begin
       v_reason := 'missing_persisted_deliverable';
     else
       select count(*),
-             count(*) filter (where t.status not in ('done', 'approved') or length(trim(coalesce(t.output, ''))) = 0)
+             count(*) filter (where t.status not in ('done', 'approved', 'completed', 'verified') or length(trim(coalesce(t.output, ''))) = 0)
       into v_task_count, v_bad_task_count
       from public.orchestration_tasks t
       where t.project_id = v_project.id;
