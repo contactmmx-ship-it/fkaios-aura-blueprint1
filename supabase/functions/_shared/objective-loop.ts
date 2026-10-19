@@ -7,7 +7,7 @@ import { readObjectiveState, syncObjectiveState } from "./objective-state.ts";
 import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, type TaskEvidenceRecord } from "./fact-grounding.ts";
 import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP } from "./objective-rerun.ts";
 import { classifyObjective, completionContract, planContractMismatch, projectOutputType, measuredProductCapabilityEvidence, hasMeasuredProductBuild, hasMeasuredProductVerification, hasVerifiedLiveProductEvidence } from "./objective-contract.ts";
-import { objectiveDeadline, objectiveDeadlineMinutes, objectiveRunStartedAt, projectsCreatedSince } from "./objective-deadline.ts";
+import { objectiveDeadline, objectiveDeadlineMinutes, objectiveRunStartedAt } from "./objective-deadline.ts";
 import { hasSubstantiveTaskOutput } from "./task-output.ts";
 
 type ObjectiveLoopResult = {
@@ -1556,7 +1556,6 @@ export async function runObjectiveLoop(
         }
       }
 
-      const projectsThisRun = projectsCreatedSince(state.projects, deadlineStart);
       if (state.projects.length >= MAX_REPLAN_ATTEMPTS) {
         // A deliberate founder rerun starts a new bounded budget. Older projects
         // remain immutable history but must not exhaust the new run immediately.
