@@ -6,6 +6,7 @@ import {
   renderContinuityHandoff,
   validateContinuityPacket,
   checkpointContinuityPacket,
+  packetFromObjectiveSnapshot,
 } from "./ai-continuity.ts";
 
 function assert(condition: boolean, message = "assertion failed"): void {
@@ -103,4 +104,42 @@ Deno.test("checkpoint cannot silently advance a completed task", () => {
     threw = true;
   }
   assert(threw);
+});
+
+Deno.test("canonical FKAIOS objective snapshot exports resumable handoff state", () => {
+  const packet = packetFromObjectiveSnapshot({
+    objectiveId: "objective-abc",
+    objective: "Build AI continuity across tools",
+    phase: "executing",
+    stateVersion: 7,
+    executor: "fkaios-worker",
+    patch: {
+      success_criteria: ["Second executor resumes without restating objective"],
+      completed_work: [{ task_id: "step-1", title: "Define packet schema" }],
+      remaining_work: [{ task_id: "step-2", title: "Connect second executor", status: "pending" }],
+      plan: [{ task_id: "step-1", title: "Define packet schema", status: "done" }],
+      failures: [],
+      artifacts: [{ name: "continuity packet", kind: "file", reference: "supabase/functions/_shared/ai-continuity.ts", verified: true }],
+      understanding: { constraints: ["Do not claim live provider connectivity without evidence"] },
+    },
+  });
+  assert(packet.taskId === "objective-abc");
+  assert(packet.objective === "Build AI continuity across tools");
+  assert(packet.acceptanceCriteria[0].includes("Second executor"));
+  assert(packet.completedWork[0].includes("Define packet schema"));
+  assert(packet.pendingActions[0].includes("Connect second executor"));
+  assert(packet.nextAction.includes("Connect second executor"));
+  assert(packet.relevantContext.some((x) => x.includes("state version: 7")));
+  assert(packet.artifacts[0].verified);
+});
+
+Deno.test("canonical completed objective exports completed status", () => {
+  const packet = packetFromObjectiveSnapshot({
+    objectiveId: "objective-done",
+    objective: "Verified sample objective",
+    phase: "completed",
+    stateVersion: 9,
+    patch: {},
+  });
+  assert(packet.status === "completed");
 });
