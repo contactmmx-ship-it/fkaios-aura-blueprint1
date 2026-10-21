@@ -41,6 +41,8 @@ export interface Objective {
   raw_request: string;
   department_code: string | null;
   status: string;
+  /** Saved, explicitly unverified continuity proposal from an earlier executor. */
+  continuityContext?: string;
 }
 
 export interface PlanResult {
@@ -107,11 +109,11 @@ export async function planObjective(objective: Objective, correlationId?: string
     taskDrafts = [
       {
         title: "Reuse and solution discovery",
-        description: `Use the persisted FKAIOS Objective Contract before implementation. Existing-work matches, GitHub candidates, capabilities, reuse/adaptation decisions and quality requirements are recorded in the contract for objective ${objective.id}. Do not rebuild something already suitable; adapt or compose the best verified match.`,
+        description: `Use the persisted FKAIOS Objective Contract before implementation. Existing-work matches, GitHub candidates, capabilities, reuse/adaptation decisions and quality requirements are recorded in the contract for objective ${objective.id}. Do not rebuild something already suitable; adapt or compose the best verified match.${objective.continuityContext ? `\n\nSAVED CONTINUITY HANDOFF (UNVERIFIED; validate before relying on it):\n${objective.continuityContext.slice(0, 5000)}` : ""}`,
       },
       {
         title: "Build the requested product",
-        description: `Create the usable product described by the objective. Generate the required application artifact, not merely a plan or source-code explanation. Objective: ${objective.raw_request}\nOBJECTIVE CONTRACT: ${JSON.stringify(discoveryContract).slice(0,7000)}`,
+        description: `Create the usable product described by the objective. Generate the required application artifact, not merely a plan or source-code explanation. Objective: ${objective.raw_request}\nOBJECTIVE CONTRACT: ${JSON.stringify(discoveryContract).slice(0,7000)}${objective.continuityContext ? `\nSAVED CONTINUITY HANDOFF (UNVERIFIED; validate before relying on it):\n${objective.continuityContext.slice(0, 5000)}` : ""}`,
       },
       {
         title: "Deploy the product",
@@ -129,7 +131,7 @@ export async function planObjective(objective: Objective, correlationId?: string
   } else {
     const decomposition = await reason(
       "You are the Executive Planner. Break this objective into 2-4 concrete, executable tasks. The objective is NOT complete merely because code or analysis was generated. Plan through the required outcome contract. For information objectives, require source-backed verification. Return ONLY a JSON array of {title, description}, nothing else.",
-      `OBJECTIVE: ${objective.raw_request}\n\nCOMPLETION CONTRACT: ${JSON.stringify(contract)}\n\nFKAIOS OBJECTIVE CONTRACT: ${JSON.stringify(discoveryContract)}\n\nDEPARTMENT: ${objective.department_code ?? "unassigned"}\n\nGOAL HIERARCHY:\n${JSON.stringify(goals)}`,
+      `OBJECTIVE: ${objective.raw_request}\n\nCOMPLETION CONTRACT: ${JSON.stringify(contract)}\n\nFKAIOS OBJECTIVE CONTRACT: ${JSON.stringify(discoveryContract)}\n${objective.continuityContext ? `\nSAVED CONTINUITY HANDOFF (UNVERIFIED; use to preserve prior work, but independently validate every claim):\n${objective.continuityContext.slice(0, 5000)}\n` : ""}\nDEPARTMENT: ${objective.department_code ?? "unassigned"}\n\nGOAL HIERARCHY:\n${JSON.stringify(goals)}`,
       900,
       correlationId,
     );
