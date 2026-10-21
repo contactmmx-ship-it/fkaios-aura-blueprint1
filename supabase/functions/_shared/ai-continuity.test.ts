@@ -1,5 +1,5 @@
 /// <reference lib="deno.ns" />
-import { loadObjectiveContinuityPacket } from "./objective-continuity.ts";
+import { loadObjectiveContinuityPacket, readSavedObjectiveContinuityPacket, saveObjectiveContinuityPacket } from "./objective-continuity.ts";
 import {
   createContinuityPacket,
   exportContinuityPacket,
@@ -187,4 +187,65 @@ Deno.test("persisted canonical objective row can be loaded as a handoff packet",
   assert(packet.relevantContext.some((x) => x.includes("state version: 12")));
   assert(packet.completedWork[0].includes("Create packet schema"));
   assert(packet.pendingActions[0].includes("Run second-executor test"));
+});
+
+Deno.test("handoff packet persists and can be restored after a tool switch", async () => {
+  const packet = sample();
+  let saved: Record<string, unknown> | null = null;
+  const db = {
+    from(table: string) {
+      assert(table === "fkaios_ai_continuity_packets");
+      return {
+        upsert: async (row: Record<string, unknown>, options: Record<string, unknown>) => {
+          assert(options.onConflict === "objective_id");
+          saved = row;
+          return { error: null };
+        },
+        select(columns: string) {
+          assert(columns === "packet,source_state_version,updated_at");
+          return {
+            eq(column: string, value: string) {
+              assert(column === "objective_id");
+              assert(value === packet.taskId);
+              return {
+                maybeSingle: async () => ({
+                  data: saved ? {
+                    packet: saved.packet,
+                    source_state_version: saved.source_state_version,
+                    updated_at: saved.updated_at,
+                  } : null,
+                  error: null,
+                }),
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+  await saveObjectiveContinuityPacket(db, packet, 12);
+  const restored = await readSavedObjectiveContinuityPacket(db, packet.taskId);
+  assert(restored !== null);
+  if (!restored) return;
+  assert(restored.packet.taskId === packet.taskId);
+  assert(restored.packet.objective === packet.objective);
+  assert(restored.packet.nextAction === packet.nextAction);
+  assert(restored.sourceStateVersion === 12);
+});
+
+Deno.test("saved packet reader returns null when no checkpoint exists", async () => {
+  const db = {
+    from() {
+      return {
+        select() {
+          return {
+            eq() {
+              return { maybeSingle: async () => ({ data: null, error: null }) };
+            },
+          };
+        },
+      };
+    },
+  };
+  assert(await readSavedObjectiveContinuityPacket(db, "not-saved") === null);
 });
