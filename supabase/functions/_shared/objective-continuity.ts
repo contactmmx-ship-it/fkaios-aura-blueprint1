@@ -110,12 +110,17 @@ export async function persistContinuityProposal(
   if (!saved) throw new Error("Cannot persist continuation without a saved checkpoint.");
   const content = proposal.content.trim();
   if (!content) throw new Error("Cannot persist an empty continuation proposal.");
+  const proposalPrefix = "UNVERIFIED CONTINUATION PROPOSAL (";
+  const retainedContext = saved.packet.relevantContext
+    .filter((item) => !item.startsWith(proposalPrefix))
+    .slice(-29);
   const packet: ContinuityPacket = {
     ...saved.packet,
     updatedAt: new Date().toISOString(),
+    // Keep only the newest proposal to prevent unbounded context growth.
     // Deliberately keep lastVerifiedCheckpoint and completedWork unchanged.
     relevantContext: [
-      ...saved.packet.relevantContext,
+      ...retainedContext,
       `UNVERIFIED CONTINUATION PROPOSAL (${proposal.provider ?? "unknown provider"}${proposal.model ? "/" + proposal.model : ""}):\n${content}`,
     ],
     nextAction: "Execute the proposed next action using an authorized tool, capture its output, and independently verify the result before advancing the checkpoint.",
