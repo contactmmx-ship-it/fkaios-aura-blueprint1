@@ -4,6 +4,7 @@
  * competing task database or claim that a provider was dispatched.
  */
 import { packetFromObjectiveSnapshot, validateContinuityPacket, type ContinuityPacket } from "./ai-continuity.ts";
+import { syncObjectiveState, type Phase } from "./objective-state.ts";
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -48,7 +49,7 @@ export async function loadObjectiveContinuityPacket(
     stateVersion,
     patch: row,
     updatedAt: typeof row.updated_at === "string" ? row.updated_at : undefined,
-  }, options);
+  }, { ...options, nextAction: options.nextAction ?? (typeof row.next_action === "string" ? row.next_action : undefined) });
 }
 
 
@@ -91,4 +92,39 @@ export async function readSavedObjectiveContinuityPacket(
     sourceStateVersion: Number.isInteger(data.source_state_version) ? data.source_state_version : null,
     updatedAt: typeof data.updated_at === "string" ? data.updated_at : null,
   };
+}
+
+
+export type ObjectiveStateSyncInput = { id: string; status: string; raw_request?: string };
+export type ObjectiveStateSyncOverride = { phase?: Phase; reason?: string; patch?: Record<string, unknown> };
+export type ContinuityAwareSyncResult = { ok: boolean; phase?: Phase; error?: string; continuityError?: string };
+
+/**
+ * Sync canonical state, then persist a portable checkpoint from that same
+ * state. Continuity persistence failures are surfaced separately so callers
+ * can log/monitor them without pretending the handoff was saved.
+ */
+export async function syncObjectiveStateWithContinuity(
+  db: Db,
+  objective: ObjectiveStateSyncInput,
+  override?: ObjectiveStateSyncOverride,
+): Promise<ContinuityAwareSyncResult> {
+  const stateResult = await syncObjectiveState(db, objective, override);
+  if (!stateResult.ok) return stateResult;
+  try {
+    const packet = await loadObjectiveContinuityPacket(
+      db,
+      objective.id,
+      objective.raw_request ?? objective.id,
+      { nextAction: typeof override?.patch?.next_action === "string" ? override.patch.next_action : undefined },
+    );
+    if (!packet) return { ...stateResult, continuityError: "Canonical objective state was not found after sync." };
+    const version = Number((await db.from("fkaios_objective_state").select("state_version").eq("objective_id", objective.id).maybeSingle()).data?.state_version);
+    await saveObjectiveContinuityPacket(db, packet, Number.isInteger(version) && version >= 0 ? version : undefined);
+    return stateResult;
+  } catch (err) {
+    const continuityError = err instanceof Error ? err.message : String(err);
+    console.error("[fkaios-continuity] Failed to persist objective checkpoint", { objectiveId: objective.id, error: continuityError });
+    return { ...stateResult, continuityError };
+  }
 }
