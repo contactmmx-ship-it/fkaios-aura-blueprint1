@@ -128,6 +128,57 @@ export function importContinuityPacket(serialized: string): PacketValidation {
   }
 }
 
+
+export interface ContinuityCheckpointUpdate {
+  /** A concise description of the checkpoint that has actually been verified. */
+  verifiedCheckpoint: string;
+  completedWork?: string[];
+  decisions?: string[];
+  relevantContext?: string[];
+  artifacts?: ContinuityArtifact[];
+  pendingActions?: string[];
+  nextAction: string;
+  blockers?: string[];
+  status?: Exclude<ContinuityStatus, "completed">;
+  executor: string;
+  suggestedExecutor?: string;
+}
+
+/**
+ * Advance a packet after work has happened. The caller must only put work in
+ * completedWork/verifiedCheckpoint after checking evidence. This is a pure
+ * update; persistence must be provided by the task store.
+ */
+export function checkpointContinuityPacket(
+  current: ContinuityPacket,
+  update: ContinuityCheckpointUpdate,
+): ContinuityPacket {
+  const checked = validateContinuityPacket(current);
+  if (!checked.valid) throw new Error(`Cannot checkpoint invalid packet: ${checked.errors.join(" ")}`);
+  if (!nonEmptyString(update.verifiedCheckpoint)) throw new Error("verifiedCheckpoint is required.");
+  if (!nonEmptyString(update.nextAction)) throw new Error("nextAction is required.");
+  if (!nonEmptyString(update.executor)) throw new Error("executor is required.");
+  if (current.status === "completed") throw new Error("Completed task packets cannot be advanced; reopen through verification workflow.");
+  const next: ContinuityPacket = {
+    ...current,
+    status: update.status ?? "in_progress",
+    updatedAt: new Date().toISOString(),
+    lastVerifiedCheckpoint: update.verifiedCheckpoint,
+    completedWork: [...current.completedWork, ...(update.completedWork ?? [])],
+    decisions: [...current.decisions, ...(update.decisions ?? [])],
+    relevantContext: [...current.relevantContext, ...(update.relevantContext ?? [])],
+    artifacts: [...current.artifacts, ...(update.artifacts ?? [])],
+    pendingActions: [...(update.pendingActions ?? [])],
+    nextAction: update.nextAction,
+    blockers: [...(update.blockers ?? [])],
+    previousExecutor: update.executor,
+    suggestedExecutor: update.suggestedExecutor,
+  };
+  const result = validateContinuityPacket(next);
+  if (!result.valid) throw new Error(`Checkpoint produced invalid packet: ${result.errors.join(" ")}`);
+  return next;
+}
+
 /** Produce an explicit continuation prompt; it does not claim that tools are connected. */
 export function renderContinuityHandoff(packet: ContinuityPacket): string {
   const checked = validateContinuityPacket(packet);
