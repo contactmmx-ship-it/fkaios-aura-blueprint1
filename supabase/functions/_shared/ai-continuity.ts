@@ -129,6 +129,85 @@ export function importContinuityPacket(serialized: string): PacketValidation {
 }
 
 
+
+export interface CanonicalObjectiveSnapshot {
+  objectiveId: string;
+  objective: string;
+  phase: string;
+  stateVersion: number;
+  patch: Record<string, unknown>;
+  updatedAt?: string;
+  executor?: string;
+}
+
+/** Map FKAIOS's canonical objective snapshot into a portable handoff packet. */
+export function packetFromObjectiveSnapshot(
+  snapshot: CanonicalObjectiveSnapshot,
+  options: {
+    acceptanceCriteria?: string[];
+    relevantContext?: string[];
+    constraints?: string[];
+    nextAction?: string;
+    suggestedExecutor?: string;
+  } = {},
+): ContinuityPacket {
+  if (!nonEmptyString(snapshot.objectiveId)) throw new Error("objectiveId is required.");
+  if (!nonEmptyString(snapshot.objective)) throw new Error("objective is required.");
+  if (!Number.isInteger(snapshot.stateVersion) || snapshot.stateVersion < 0) throw new Error("stateVersion must be a non-negative integer.");
+
+  const patch = snapshot.patch ?? {};
+  const strings = (value: unknown): string[] => Array.isArray(value)
+    ? value.map((item) => typeof item === "string" ? item : item && typeof item === "object"
+      ? String((item as Record<string, unknown>).title ?? (item as Record<string, unknown>).task_id ?? JSON.stringify(item))
+      : String(item))
+    : [];
+  const completedWork = strings(patch.completed_work);
+  const remainingWork = strings(patch.remaining_work);
+  const failures = strings(patch.failures);
+  const artifacts: ContinuityArtifact[] = Array.isArray(patch.artifacts)
+    ? (patch.artifacts as Array<Record<string, unknown>>).filter((a) => a && typeof a === "object").map((a, index) => ({
+      name: String(a.name ?? a.kind ?? `artifact-${index + 1}`),
+      kind: a.kind === "url" ? "url" as const : a.kind === "commit" ? "commit" as const : "other" as const,
+      reference: String(a.reference ?? a.url ?? a.project_id ?? a.name ?? `objective:${snapshot.objectiveId}`),
+      verified: a.verified === true,
+    }))
+    : [];
+  const phase = snapshot.phase;
+  const status: ContinuityStatus = phase === "completed" ? "completed"
+    : phase === "blocked" || phase === "failed" ? "blocked"
+    : phase === "verifying" ? "ready_for_verification"
+    : "in_progress";
+  const nextAction = options.nextAction
+    ?? remainingWork[0]
+    ?? (status === "completed" ? "Reopen only if verification evidence needs repair." : "Inspect canonical objective state and select the next unfinished action.");
+  const checkpoint = `Canonical FKAIOS objective state version ${snapshot.stateVersion}; phase=${phase}.`;
+  const blockers = failures.length ? failures : phase === "blocked" || phase === "failed" ? [`Canonical objective phase is ${phase}; inspect recorded error and approval state.`] : [];
+
+  return createContinuityPacket({
+    taskId: snapshot.objectiveId,
+    objective: snapshot.objective,
+    acceptanceCriteria: options.acceptanceCriteria ?? strings(patch.success_criteria),
+    status,
+    lastVerifiedCheckpoint: checkpoint,
+    completedWork,
+    decisions: [],
+    relevantContext: [
+      `FKAIOS canonical objective state version: ${snapshot.stateVersion}`,
+      `FKAIOS phase: ${phase}`,
+      ...strings(patch.plan).map((x) => `Plan: ${x}`),
+      ...(options.relevantContext ?? []),
+    ],
+    artifacts,
+    pendingActions: remainingWork,
+    nextAction,
+    constraints: options.constraints ?? strings((patch.understanding as Record<string, unknown> | undefined)?.constraints),
+    blockers,
+    previousExecutor: snapshot.executor,
+    suggestedExecutor: options.suggestedExecutor,
+    updatedAt: snapshot.updatedAt,
+  });
+}
+
 export interface ContinuityCheckpointUpdate {
   /** A concise description of the checkpoint that has actually been verified. */
   verifiedCheckpoint: string;
