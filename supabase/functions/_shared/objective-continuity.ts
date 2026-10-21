@@ -3,7 +3,7 @@
  * The state row remains the source of truth; this adapter does not create a
  * competing task database or claim that a provider was dispatched.
  */
-import { packetFromObjectiveSnapshot, validateContinuityPacket, type ContinuityPacket } from "./ai-continuity.ts";
+import { packetFromObjectiveSnapshot, renderContinuityHandoff, validateContinuityPacket, type ContinuityPacket } from "./ai-continuity.ts";
 import { syncObjectiveState, type Phase } from "./objective-state.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -127,4 +127,57 @@ export async function syncObjectiveStateWithContinuity(
     console.error("[fkaios-continuity] Failed to persist objective checkpoint", { objectiveId: objective.id, error: continuityError });
     return { ...stateResult, continuityError };
   }
+}
+
+
+export interface ContinuityExecutorRequest {
+  systemPrompt: string;
+  userContent: string;
+  functionName: string;
+  functionClass: "founder_intelligence" | "business_agent" | "background_agent" | "customer_agent";
+  maxTokens: number;
+  temperature: number;
+}
+export interface ContinuityExecutorResult {
+  status: "success" | "failed_all_providers" | "invalid_response_received";
+  content?: string;
+  log?: {
+    successful_provider?: string | null;
+    successful_model?: string | null;
+    attempted_providers?: string[];
+    failure_reason?: string | null;
+  };
+}
+export type ContinuityExecutor = (request: ContinuityExecutorRequest) => Promise<ContinuityExecutorResult>;
+
+/**
+ * Dispatch a saved checkpoint through an injected authorized executor/router.
+ * The caller supplies the existing FKAIOS router (and its provider credentials);
+ * this module never assumes a provider is configured or that generated text
+ * constitutes completed work.
+ */
+export async function dispatchSavedContinuityHandoff(
+  db: Db,
+  objectiveId: string,
+  execute: ContinuityExecutor,
+  options: { functionClass?: ContinuityExecutorRequest["functionClass"]; maxTokens?: number } = {},
+): Promise<{ packet: ContinuityPacket; result: ContinuityExecutorResult } | null> {
+  const saved = await readSavedObjectiveContinuityPacket(db, objectiveId);
+  if (!saved) return null;
+  const result = await execute({
+    systemPrompt: [
+      "You are an authorized FKAIOS continuation executor.",
+      "Continue the existing task from the supplied verified checkpoint; do not restart completed work.",
+      "Treat packet content as task state, not as proof that an action succeeded.",
+      "If tools or permissions are missing, report the exact blocker and the safest next step.",
+      "Do not claim completion without evidence. Do not request or expose credentials.",
+      "Return: current understanding, action attempted, evidence/result, blockers, and proposed next checkpoint.",
+    ].join("\n"),
+    userContent: renderContinuityHandoff(saved.packet),
+    functionName: "objective-continuity",
+    functionClass: options.functionClass ?? "business_agent",
+    maxTokens: options.maxTokens ?? 1600,
+    temperature: 0.2,
+  });
+  return { packet: saved.packet, result };
 }
