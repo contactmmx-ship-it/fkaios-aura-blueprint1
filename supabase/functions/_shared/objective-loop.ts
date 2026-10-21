@@ -4,7 +4,7 @@ import { planObjective } from "./executive-planner.ts";
 import { allocateProjectWork, createRectificationTask, resumeTaskFromCheckpoint, returnCompletedWork } from "./work-engine.ts";
 import { contractCriteria, isIndependentVerificationLevel, isRecoverableOutputBlocker, verifyObjective } from "./objective-verifier.ts";
 import { readObjectiveState } from "./objective-state.ts";
-import { syncObjectiveStateWithContinuity } from "./objective-continuity.ts";
+import { readSavedObjectiveContinuityPacket, syncObjectiveStateWithContinuity } from "./objective-continuity.ts";
 import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, type TaskEvidenceRecord } from "./fact-grounding.ts";
 import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP } from "./objective-rerun.ts";
 import { classifyObjective, completionContract, planContractMismatch, projectOutputType, measuredProductCapabilityEvidence, hasMeasuredProductBuild, hasMeasuredProductVerification, hasVerifiedLiveProductEvidence } from "./objective-contract.ts";
@@ -875,6 +875,21 @@ async function createContinuationProject(
   objective: Record<string, unknown>,
   correlationId?: string,
 ) {
+  // Carry forward only the newest saved proposal; the planner and workers
+  // must still validate it and independently verify all resulting work.
+  let continuityContext: string | undefined;
+  try {
+    const saved = await readSavedObjectiveContinuityPacket(getSupabaseAdmin(), String(objective.id));
+    const proposalPrefix = "UNVERIFIED CONTINUATION PROPOSAL (";
+    continuityContext = saved?.packet.relevantContext
+      .filter((item) => item.startsWith(proposalPrefix))
+      .slice(-1)[0];
+  } catch (err) {
+    console.error("objective-loop: unable to load saved continuity proposal", {
+      objectiveId: String(objective.id),
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
   const plan = await planObjective(
     {
       id: String(objective.id),
@@ -883,6 +898,7 @@ async function createContinuationProject(
         ? String(objective.department_code)
         : null,
       status: String(objective.status ?? "processing"),
+      continuityContext,
     },
     correlationId,
   );
