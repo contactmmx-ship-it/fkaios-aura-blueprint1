@@ -343,7 +343,7 @@ export default function ObjectiveCommand({ onNavigate }: { onNavigate?: (page: s
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
   const [rerunningId, setRerunningId] = useState<string | null>(null);
   const [resumingId, setResumingId] = useState<string | null>(null);
-  const [continuityResult, setContinuityResult] = useState<{ objectiveId: string; continuation: string; checkpoint: string; nextAction: string; provider: string | null; model: string | null } | null>(null);
+  const [continuityResult, setContinuityResult] = useState<{ objectiveId: string; continuation: string; checkpoint: string; nextAction: string; provider: string | null; model: string | null; executionQueued: boolean; executionMessage: string } | null>(null);
 
   const load = useCallback(async (refreshOnly = false) => {
     setLoading(true);
@@ -396,6 +396,8 @@ export default function ObjectiveCommand({ onNavigate }: { onNavigate?: (page: s
         nextAction: String(data.nextAction ?? ''),
         provider: data.executor?.provider ?? null,
         model: data.executor?.model ?? null,
+        executionQueued: data.executionQueued === true,
+        executionMessage: String(data.executionMessage ?? 'No execution was queued.'),
       });
       await load(true);
     } catch (e) {
@@ -479,7 +481,11 @@ export default function ObjectiveCommand({ onNavigate }: { onNavigate?: (page: s
           </div>
           <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs space-y-1"><p className="text-slate-500">Last verified checkpoint</p><p className="text-slate-200">{continuityResult.checkpoint}</p><p className="text-slate-500 pt-2">Next action</p><p className="text-slate-200">{continuityResult.nextAction}</p></div>
           <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs leading-5 text-slate-200">{continuityResult.continuation}</pre>
-          <p className="text-[10px] text-amber-300">This proposal is saved for continuity, but no external action is claimed as executed. FKAIOS must run the action through an authorized tool and verify the result.</p>
+          <div className={`rounded-lg border p-3 text-xs ${continuityResult.executionQueued ? 'border-emerald-900 bg-emerald-950/20 text-emerald-200' : 'border-amber-900 bg-amber-950/20 text-amber-200'}`}>
+            <p className="font-semibold">{continuityResult.executionQueued ? 'Execution queued in FKAIOS' : 'Proposal saved; no new execution pass queued'}</p>
+            <p className="mt-1">{continuityResult.executionMessage}</p>
+          </div>
+          <p className="text-[10px] text-amber-300">The proposal remains unverified. If queued, FKAIOS passes it to the normal objective planner; task execution and independent verification are still required before completion.</p>
         </section>
       )}
       {objectives && objectives.length === 0 && <p className="text-xs text-slate-500">No objectives yet.</p>}
