@@ -155,8 +155,23 @@ export async function syncObjectiveStateWithContinuity(
       { nextAction: typeof override?.patch?.next_action === "string" ? override.patch.next_action : undefined },
     );
     if (!packet) return { ...stateResult, continuityError: "Canonical objective state was not found after sync." };
+    // Canonical objective sync must not erase the latest unverified proposal
+    // before the rerun planner has consumed it.
+    const priorPacket = await readSavedObjectiveContinuityPacket(db, objective.id);
+    const proposalPrefix = "UNVERIFIED CONTINUATION PROPOSAL (";
+    const priorProposal = priorPacket?.packet.relevantContext.filter((item) => item.startsWith(proposalPrefix)).slice(-1)[0];
+    const mergedPacket: ContinuityPacket = priorProposal
+      ? {
+          ...packet,
+          relevantContext: [
+            ...packet.relevantContext.filter((item) => !item.startsWith(proposalPrefix)).slice(-29),
+            priorProposal,
+          ],
+          previousExecutor: priorPacket?.packet.previousExecutor ?? packet.previousExecutor,
+        }
+      : packet;
     const version = Number((await db.from("fkaios_objective_state").select("state_version").eq("objective_id", objective.id).maybeSingle()).data?.state_version);
-    await saveObjectiveContinuityPacket(db, packet, Number.isInteger(version) && version >= 0 ? version : undefined);
+    await saveObjectiveContinuityPacket(db, mergedPacket, Number.isInteger(version) && version >= 0 ? version : undefined);
     return stateResult;
   } catch (err) {
     const continuityError = err instanceof Error ? err.message : String(err);
