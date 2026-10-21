@@ -1,4 +1,5 @@
 /// <reference lib="deno.ns" />
+import { loadObjectiveContinuityPacket } from "./objective-continuity.ts";
 import {
   createContinuityPacket,
   exportContinuityPacket,
@@ -142,4 +143,48 @@ Deno.test("canonical completed objective exports completed status", () => {
     patch: {},
   });
   assert(packet.status === "completed");
+});
+
+Deno.test("persisted canonical objective row can be loaded as a handoff packet", async () => {
+  const row = {
+    objective_id: "objective-persisted",
+    objective: "Connect AI tools with shared task state",
+    phase: "executing",
+    state_version: 12,
+    updated_at: "2026-10-21T16:00:00.000Z",
+    success_criteria: ["Receiving executor continues the task"],
+    completed_work: [{ task_id: "a", title: "Create packet schema" }],
+    remaining_work: [{ task_id: "b", title: "Run second-executor test", status: "pending" }],
+    failures: [],
+    artifacts: [],
+    understanding: { constraints: ["Do not claim untested provider integration"] },
+  };
+  const db = {
+    from(table: string) {
+      assert(table === "fkaios_objective_state");
+      return {
+        select(columns: string) {
+          assert(columns === "*");
+          return {
+            eq(column: string, value: string) {
+              assert(column === "objective_id");
+              assert(value === "objective-persisted");
+              return { maybeSingle: async () => ({ data: row, error: null }) };
+            },
+          };
+        },
+      };
+    },
+  };
+  const packet = await loadObjectiveContinuityPacket(
+    db,
+    "objective-persisted",
+    "fallback objective",
+  );
+  assert(packet !== null);
+  if (!packet) return;
+  assert(packet.objective === "Connect AI tools with shared task state");
+  assert(packet.relevantContext.some((x) => x.includes("state version: 12")));
+  assert(packet.completedWork[0].includes("Create packet schema"));
+  assert(packet.pendingActions[0].includes("Run second-executor test"));
 });
