@@ -5,6 +5,7 @@ import {
   importContinuityPacket,
   renderContinuityHandoff,
   validateContinuityPacket,
+  checkpointContinuityPacket,
 } from "./ai-continuity.ts";
 
 function assert(condition: boolean, message = "assertion failed"): void {
@@ -61,6 +62,42 @@ Deno.test("packet cannot be exported with missing next action", () => {
     createContinuityPacket({
       ...sample(),
       nextAction: "",
+    });
+  } catch {
+    threw = true;
+  }
+  assert(threw);
+});
+
+Deno.test("checkpoint update preserves objective and advances exact next action", () => {
+  const original = sample();
+  const advanced = checkpointContinuityPacket(original, {
+    verifiedCheckpoint: "Integration test executed and passed.",
+    completedWork: ["Ran onboarding integration test successfully"],
+    pendingActions: ["Perform final independent review"],
+    nextAction: "Perform final independent review of onboarding flow.",
+    executor: "coding-agent-B",
+    status: "ready_for_verification",
+  });
+  assert(advanced.taskId === original.taskId);
+  assert(advanced.objective === original.objective);
+  assert(advanced.completedWork.length === original.completedWork.length + 1);
+  assert(advanced.lastVerifiedCheckpoint === "Integration test executed and passed.");
+  assert(advanced.nextAction === "Perform final independent review of onboarding flow.");
+  assert(advanced.previousExecutor === "coding-agent-B");
+  assert(advanced.status === "ready_for_verification");
+});
+
+Deno.test("checkpoint cannot silently advance a completed task", () => {
+  let threw = false;
+  try {
+    checkpointContinuityPacket(createContinuityPacket({
+      ...sample(),
+      status: "completed",
+    }), {
+      verifiedCheckpoint: "Should not advance",
+      nextAction: "Continue anyway",
+      executor: "coding-agent-B",
     });
   } catch {
     threw = true;
