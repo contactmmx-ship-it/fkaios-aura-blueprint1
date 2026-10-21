@@ -95,6 +95,37 @@ export async function readSavedObjectiveContinuityPacket(
 }
 
 
+
+/**
+ * Persist a provider's continuation as an UNVERIFIED proposal on the existing
+ * checkpoint. This preserves the last verified checkpoint and never treats
+ * generated prose as completed work.
+ */
+export async function persistContinuityProposal(
+  db: Db,
+  objectiveId: string,
+  proposal: { content: string; provider?: string | null; model?: string | null },
+): Promise<{ packet: ContinuityPacket; sourceStateVersion: number | null }> {
+  const saved = await readSavedObjectiveContinuityPacket(db, objectiveId);
+  if (!saved) throw new Error("Cannot persist continuation without a saved checkpoint.");
+  const content = proposal.content.trim();
+  if (!content) throw new Error("Cannot persist an empty continuation proposal.");
+  const packet: ContinuityPacket = {
+    ...saved.packet,
+    updatedAt: new Date().toISOString(),
+    // Deliberately keep lastVerifiedCheckpoint and completedWork unchanged.
+    relevantContext: [
+      ...saved.packet.relevantContext,
+      `UNVERIFIED CONTINUATION PROPOSAL (${proposal.provider ?? "unknown provider"}${proposal.model ? "/" + proposal.model : ""}):\n${content}`,
+    ],
+    nextAction: "Execute the proposed next action using an authorized tool, capture its output, and independently verify the result before advancing the checkpoint.",
+    previousExecutor: proposal.provider ?? saved.packet.previousExecutor,
+    status: "in_progress",
+  };
+  await saveObjectiveContinuityPacket(db, packet, saved.sourceStateVersion ?? undefined);
+  return { packet, sourceStateVersion: saved.sourceStateVersion };
+}
+
 export type ObjectiveStateSyncInput = { id: string; status: string; raw_request?: string };
 export type ObjectiveStateSyncOverride = { phase?: Phase; reason?: string; patch?: Record<string, unknown> };
 export type ContinuityAwareSyncResult = { ok: boolean; phase?: Phase; error?: string; continuityError?: string };
