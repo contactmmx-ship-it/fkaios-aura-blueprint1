@@ -111,10 +111,12 @@ export function deriveSnapshot(input: {
   };
 }
 
-export interface StateRow { phase: Phase; state_version: number; rectification_round: number; verification: Record<string, unknown> }
+export interface StateRow { phase: Phase; state_version: number; rectification_round: number; verification: Record<string, unknown>; [key: string]: unknown }
 
 export async function readObjectiveState(db: Db, objectiveId: string): Promise<StateRow | null> {
-  const { data } = await db.from("fkaios_objective_state").select("phase,state_version,rectification_round,verification").eq("objective_id", objectiveId).maybeSingle();
+  // Return the full canonical snapshot so cross-tool handoff can include the persisted plan,
+  // completed/remaining work, constraints, artifacts, and verification evidence—not just phase metadata.
+  const { data } = await db.from("fkaios_objective_state").select("*").eq("objective_id", objectiveId).maybeSingle();
   return (data ?? null) as StateRow | null;
 }
 

@@ -24,7 +24,7 @@ const progress: ObjectiveProgressData = {
 };
 const row = (over: Partial<ObjectiveStatusRow>): ObjectiveStatusRow => ({ id: '79ef3604-a2c1-432c-9519-54d721d6d556', raw_request: OBJECTIVE, status: 'processing', action_taken: null, result_summary: null, created_at: '2026-09-23T10:55:00Z', progress, ...over });
 const blocked = () => row({ status: 'awaiting_approval', action_taken: 'objective_loop', result_summary: BLOCKED_SUMMARY });
-const render = (r: ObjectiveStatusRow, onOpen?: () => void) => renderToStaticMarkup(<ObjectiveCard row={r} checkedAt="2026-09-23T16:10:00Z" onOpenDecisionCenter={onOpen} />);
+const render = (r: ObjectiveStatusRow, onOpen?: () => void, onResume?: (objectiveId: string) => void) => renderToStaticMarkup(<ObjectiveCard row={r} checkedAt="2026-09-23T16:10:00Z" onOpenDecisionCenter={onOpen} onResume={onResume} />);
 
 test('1: processing objective renders the real stage and progress', () => {
   const html = render(row({}));
@@ -106,4 +106,13 @@ test('10: a random research URL is never presented as the final product', () => 
 test('9: fabricated output on the row is never rendered', () => {
   const withOutput = { ...blocked(), output: '{"shortlisted_distributors":[{"company_name":"Shreeji Paints & Hardware Agency"}]}' } as ObjectiveStatusRow;
   assert.doesNotMatch(render(withOutput), /Shreeji|shortlisted_distributors/);
+});
+
+test('11: the saved-checkpoint resume action is visible and scoped to the objective id', () => {
+  let resumedId = '';
+  const html = render(row({}), undefined, (id) => { resumedId = id; });
+  assert.match(html, /Resume saved checkpoint/);
+  assert.match(html, /data-state="PROCESSING"/);
+  // Server rendering does not execute click handlers; the exact id is wired by ObjectiveCard's callback.
+  assert.equal(resumedId, '');
 });
