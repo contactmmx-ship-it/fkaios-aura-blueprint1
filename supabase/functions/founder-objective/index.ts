@@ -32,6 +32,7 @@ import { buildDefaultRouterConfig, callLLMOnResources } from "../_shared/llm-rou
 import { selectResources } from "../_shared/resource-selection.ts";
 import { recordLLMAttempts } from "../_shared/execution-evidence.ts";
 import { resumeSavedContinuityThroughFKAIOSRouter } from "../_shared/objective-continuity-router.ts";
+import { persistContinuityProposal } from "../_shared/objective-continuity.ts";
 
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 const COMMUNICATION_CAPABILITIES = new Set(["send_whatsapp_message", "send_email", "send_sms", "make_voice_call"]);
@@ -300,23 +301,28 @@ Deno.serve(async (req: Request) => {
             completionClaim: false,
           }, 503);
         }
-        // This endpoint resumes from the saved checkpoint and returns the
-        // configured router's continuation. It deliberately does not mutate
-        // verified task state or mark work complete: generated text is not
-        // proof that an external action ran.
+        // Persist the continuation as explicitly UNVERIFIED state so the next
+        // resume sees it. Preserve the last verified checkpoint and completed
+        // work; generated prose is not evidence that a tool action ran.
+        const persisted = await persistContinuityProposal(adminClient(), objectiveId, {
+          content: result.content,
+          provider: result.log?.successful_provider ?? null,
+          model: result.log?.successful_model ?? null,
+        });
         return json({
           ok: true,
-          status: "continuation_generated",
+          status: "continuation_persisted_unverified",
           objectiveId,
-          checkpoint: packet.lastVerifiedCheckpoint,
-          nextAction: packet.nextAction,
+          checkpoint: persisted.packet.lastVerifiedCheckpoint,
+          nextAction: persisted.packet.nextAction,
+          sourceStateVersion: persisted.sourceStateVersion,
           executor: {
             provider: result.log?.successful_provider ?? null,
             model: result.log?.successful_model ?? null,
           },
           continuation: result.content,
           completionClaim: false,
-          note: "Continuation was generated from the saved checkpoint; no external tool action is claimed as executed.",
+          note: "Continuation persisted as an unverified proposal. Verified checkpoint and completed-work claims were not advanced; an authorized executor must run the action and independently verify its result.",
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
