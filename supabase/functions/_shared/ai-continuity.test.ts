@@ -1,5 +1,5 @@
 /// <reference lib="deno.ns" />
-import { loadObjectiveContinuityPacket, readSavedObjectiveContinuityPacket, saveObjectiveContinuityPacket } from "./objective-continuity.ts";
+import { loadObjectiveContinuityPacket, readSavedObjectiveContinuityPacket, saveObjectiveContinuityPacket, dispatchSavedContinuityHandoff } from "./objective-continuity.ts";
 import {
   createContinuityPacket,
   exportContinuityPacket,
@@ -248,4 +248,38 @@ Deno.test("saved packet reader returns null when no checkpoint exists", async ()
     },
   };
   assert(await readSavedObjectiveContinuityPacket(db, "not-saved") === null);
+});
+
+Deno.test("saved handoff dispatches exact checkpoint to an authorized executor", async () => {
+  const packet = sample();
+  let received: Record<string, unknown> | null = null;
+  const db = {
+    from() {
+      return {
+        select() {
+          return {
+            eq() {
+              return {
+                maybeSingle: async () => ({
+                  data: { packet, source_state_version: 5, updated_at: "2026-10-21T16:00:00.000Z" },
+                  error: null,
+                }),
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+  const dispatched = await dispatchSavedContinuityHandoff(db, packet.taskId, async (request) => {
+    received = request as unknown as Record<string, unknown>;
+    return { status: "success", content: "I will run the integration test next." };
+  });
+  assert(dispatched !== null);
+  if (!dispatched) return;
+  assert(received !== null);
+  assert(String(received?.userContent).includes(packet.nextAction));
+  assert(String(received?.systemPrompt).includes("Do not claim completion"));
+  assert(dispatched.result.status === "success");
+  assert(dispatched.packet.taskId === packet.taskId);
 });
