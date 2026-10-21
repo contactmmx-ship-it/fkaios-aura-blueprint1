@@ -7,8 +7,6 @@ on:
       - "supabase/functions/_shared/ai-continuity.test.ts"
       - "supabase/functions/_shared/objective-continuity.ts"
       - "supabase/functions/_shared/objective-state.ts"
-      - "supabase/functions/_shared/objective-continuity.ts"
-      - "supabase/functions/_shared/objective-state.ts"
       - "supabase/functions/_shared/objective-verifier.ts"
       - "supabase/functions/_shared/escalation-dedupe.ts"
       - "supabase/functions/_shared/escalation-dedupe.test.ts"
@@ -49,6 +47,8 @@ on:
     paths:
       - "supabase/functions/_shared/ai-continuity.ts"
       - "supabase/functions/_shared/ai-continuity.test.ts"
+      - "supabase/functions/_shared/objective-continuity.ts"
+      - "supabase/functions/_shared/objective-state.ts"
       - "supabase/functions/_shared/objective-verifier.ts"
       - "supabase/functions/_shared/escalation-dedupe.ts"
       - "supabase/functions/_shared/escalation-dedupe.test.ts"
