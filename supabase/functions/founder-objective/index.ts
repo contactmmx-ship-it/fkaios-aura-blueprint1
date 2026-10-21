@@ -309,9 +309,15 @@ Deno.serve(async (req: Request) => {
           provider: result.log?.successful_provider ?? null,
           model: result.log?.successful_model ?? null,
         });
+        // If this objective is blocked/failed, enqueue the existing objective
+        // loop's real rerun. Its planner now receives the saved proposal as
+        // unverified context and creates normal executable work. For an
+        // already-processing objective, preserve the proposal but don't force
+        // a second concurrent planning pass.
+        const rerun = await requestRerun(objectiveId);
         return json({
           ok: true,
-          status: "continuation_persisted_unverified",
+          status: rerun.ok ? "continuation_persisted_and_rerun_queued" : "continuation_persisted_unverified",
           objectiveId,
           checkpoint: persisted.packet.lastVerifiedCheckpoint,
           nextAction: persisted.packet.nextAction,
@@ -321,8 +327,12 @@ Deno.serve(async (req: Request) => {
             model: result.log?.successful_model ?? null,
           },
           continuation: result.content,
+          executionQueued: rerun.ok,
+          executionMessage: rerun.ok
+            ? "Saved proposal was passed to the existing objective loop for a new executable planning pass."
+            : rerun.error ?? "Proposal saved; existing objective loop was not queued.",
           completionClaim: false,
-          note: "Continuation persisted as an unverified proposal. Verified checkpoint and completed-work claims were not advanced; an authorized executor must run the action and independently verify its result.",
+          note: "Continuation is persisted as an unverified proposal. Verified checkpoint and completed-work claims were not advanced. When queued, the existing objective planner receives the proposal and normal task execution/verification gates still apply.",
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
