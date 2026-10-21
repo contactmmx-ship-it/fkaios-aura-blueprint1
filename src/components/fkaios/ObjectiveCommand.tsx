@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Target, Loader2, Send, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Ban } from 'lucide-react';
+import { Target, Loader2, Send, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Ban, PlayCircle } from 'lucide-react';
 import { deriveObjectiveView, shouldPoll, STAGES, type ObjectiveState, type ObjectiveStatusRow } from '@/lib/objective-view';
 
 // Objective Command — the Founder's front door into the EXISTING objective
@@ -117,7 +117,7 @@ function formatTime(iso: string | null): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toLocaleString();
 }
 
-export function ObjectiveCard({ row, checkedAt, onOpenDecisionCenter, onRerun, rerunning }: { row: ObjectiveStatusRow; checkedAt?: string | null; onOpenDecisionCenter?: () => void; onRerun?: (objectiveId: string) => void; rerunning?: boolean }) {
+export function ObjectiveCard({ row, checkedAt, onOpenDecisionCenter, onRerun, rerunning, onResume, resuming }: { row: ObjectiveStatusRow; checkedAt?: string | null; onOpenDecisionCenter?: () => void; onRerun?: (objectiveId: string) => void; rerunning?: boolean; onResume?: (objectiveId: string) => void; resuming?: boolean }) {
   const view = deriveObjectiveView(row);
   const label = view.state.replace('_', ' ');
   return (
@@ -298,7 +298,18 @@ export function ObjectiveCard({ row, checkedAt, onOpenDecisionCenter, onRerun, r
           </div>
         )}
       </dl>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        {onResume && (
+          <button
+            onClick={() => onResume(row.id)}
+            disabled={resuming}
+            className="flex items-center gap-1.5 text-xs text-violet-300 hover:text-violet-200 border border-violet-900 rounded-lg px-3 py-1.5 disabled:opacity-50"
+            title="Resume from the last saved FKAIOS continuity checkpoint"
+          >
+            {resuming ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PlayCircle className="w-3.5 h-3.5" />}
+            {resuming ? 'Resuming…' : 'Resume saved checkpoint'}
+          </button>
+        )}
         {view.opensDecisionCenter && onOpenDecisionCenter && (
           <button onClick={onOpenDecisionCenter} className="text-xs text-amber-300 hover:text-amber-200 underline underline-offset-2">Open Decision Center</button>
         )}
@@ -331,6 +342,8 @@ export default function ObjectiveCommand({ onNavigate }: { onNavigate?: (page: s
   const [loading, setLoading] = useState(false);
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
   const [rerunningId, setRerunningId] = useState<string | null>(null);
+  const [resumingId, setResumingId] = useState<string | null>(null);
+  const [continuityResult, setContinuityResult] = useState<{ objectiveId: string; continuation: string; checkpoint: string; nextAction: string; provider: string | null; model: string | null } | null>(null);
 
   const load = useCallback(async (refreshOnly = false) => {
     setLoading(true);
@@ -363,6 +376,32 @@ export default function ObjectiveCommand({ onNavigate }: { onNavigate?: (page: s
       setStatusError(e instanceof Error ? e.message : 'Re-run request failed');
     } finally {
       setRerunningId(null);
+    }
+  };
+
+  const resume = async (objectiveId: string) => {
+    setResumingId(objectiveId);
+    setStatusError(null);
+    setContinuityResult(null);
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke('founder-objective', {
+        body: { action: 'continuity_resume', objectiveId },
+      });
+      if (fnError) { setStatusError(await readFunctionError(fnError)); return; }
+      if (!data?.ok) { setStatusError(data?.error || 'FKAIOS could not resume this checkpoint.'); return; }
+      setContinuityResult({
+        objectiveId,
+        continuation: String(data.continuation ?? ''),
+        checkpoint: String(data.checkpoint ?? ''),
+        nextAction: String(data.nextAction ?? ''),
+        provider: data.executor?.provider ?? null,
+        model: data.executor?.model ?? null,
+      });
+      await load(true);
+    } catch (e) {
+      setStatusError(e instanceof Error ? e.message : 'Continuity resume request failed');
+    } finally {
+      setResumingId(null);
     }
   };
 
@@ -431,6 +470,18 @@ export default function ObjectiveCommand({ onNavigate }: { onNavigate?: (page: s
         </button>
       </div>
       {statusError && <div className="bg-red-950/40 border border-red-900 rounded-xl px-4 py-3 text-xs text-red-300">Could not read objective status: {statusError}</div>}
+      {continuityResult && (
+        <section className="rounded-xl border border-violet-900/70 bg-violet-950/20 p-4 space-y-3" data-continuity-resume-result="true">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.18em] text-violet-300 font-semibold">Saved checkpoint resumed</p>
+            <h3 className="text-sm font-semibold text-white mt-1">Continuation proposal — not yet verified</h3>
+            <p className="text-[10px] text-slate-400 mt-1">Executor: {continuityResult.provider ?? 'unknown'}{continuityResult.model ? ` · ${continuityResult.model}` : ''} · Objective {continuityResult.objectiveId}</p>
+          </div>
+          <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs space-y-1"><p className="text-slate-500">Last verified checkpoint</p><p className="text-slate-200">{continuityResult.checkpoint}</p><p className="text-slate-500 pt-2">Next action</p><p className="text-slate-200">{continuityResult.nextAction}</p></div>
+          <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs leading-5 text-slate-200">{continuityResult.continuation}</pre>
+          <p className="text-[10px] text-amber-300">This proposal is saved for continuity, but no external action is claimed as executed. FKAIOS must run the action through an authorized tool and verify the result.</p>
+        </section>
+      )}
       {objectives && objectives.length === 0 && <p className="text-xs text-slate-500">No objectives yet.</p>}
       {(objectives ?? []).map((row) => (
         <ObjectiveCard
@@ -440,6 +491,8 @@ export default function ObjectiveCommand({ onNavigate }: { onNavigate?: (page: s
           onOpenDecisionCenter={onNavigate ? () => onNavigate('decision-center') : undefined}
           onRerun={rerun}
           rerunning={rerunningId === row.id}
+          onResume={resume}
+          resuming={resumingId === row.id}
         />
       ))}
       {anyProcessing && <p className="text-[11px] text-slate-500">Updates automatically. The objective loop runs every 15 minutes: it plans the work, creates tasks and jobs, and verifies the result against evidence.</p>}
