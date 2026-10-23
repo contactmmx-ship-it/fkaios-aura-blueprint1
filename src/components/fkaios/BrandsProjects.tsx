@@ -172,7 +172,6 @@ export default function BrandsProjects() {
     <div className="space-y-4">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
-          <h1 className="text-lg font-bold text-white">Brands &amp; Projects</h1>
           <p className="text-xs text-slate-500">
             {rows.filter(r => r.type === 'project').length} projects · {brands.length - 1} brands · every chat, file and next step in one place
           </p>
