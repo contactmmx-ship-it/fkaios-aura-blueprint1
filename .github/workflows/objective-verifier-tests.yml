@@ -3,6 +3,11 @@ name: FKAIOS objective verifier regression tests
 on:
   pull_request:
     paths:
+      - "supabase/functions/_shared/ai-continuity.ts"
+      - "supabase/functions/_shared/ai-continuity.test.ts"
+      - "supabase/functions/_shared/objective-continuity.ts"
+      - "supabase/functions/_shared/objective-continuity-router.ts"
+      - "supabase/functions/_shared/objective-state.ts"
       - "supabase/functions/_shared/objective-verifier.ts"
       - "supabase/functions/_shared/escalation-dedupe.ts"
       - "supabase/functions/_shared/escalation-dedupe.test.ts"
@@ -29,6 +34,7 @@ on:
       - "supabase/functions/_shared/work-engine.test.ts"
       - "supabase/functions/_shared/company-os.ts"
       - "supabase/functions/_shared/company-os.test.ts"
+      - "supabase/functions/founder-objective/index.ts"
       - "supabase/functions/ai-engine/index.ts"
       - "supabase/functions/builder-engine/index.ts"
       - "supabase/functions/_shared/product-delivery.ts"
@@ -41,6 +47,11 @@ on:
     branches:
       - main
     paths:
+      - "supabase/functions/_shared/ai-continuity.ts"
+      - "supabase/functions/_shared/ai-continuity.test.ts"
+      - "supabase/functions/_shared/objective-continuity.ts"
+      - "supabase/functions/_shared/objective-continuity-router.ts"
+      - "supabase/functions/_shared/objective-state.ts"
       - "supabase/functions/_shared/objective-verifier.ts"
       - "supabase/functions/_shared/escalation-dedupe.ts"
       - "supabase/functions/_shared/escalation-dedupe.test.ts"
@@ -64,6 +75,7 @@ on:
       - "supabase/functions/_shared/work-engine.test.ts"
       - "supabase/functions/_shared/company-os.ts"
       - "supabase/functions/_shared/company-os.test.ts"
+      - "supabase/functions/founder-objective/index.ts"
       - "supabase/functions/ai-engine/index.ts"
       - "supabase/functions/builder-engine/index.ts"
       - "supabase/functions/_shared/product-delivery.ts"
@@ -89,6 +101,8 @@ jobs:
         uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
         with:
           deno-version: v2.9.7
+      - name: Run AI continuity packet regression tests
+        run: deno test --no-check --allow-env supabase/functions/_shared/ai-continuity.test.ts
       - name: Run generated product integrity regression test
         run: deno test --no-check --allow-read src/app/product/\[id\]/route.test.ts
       - name: Run blocked-work escalation dedupe regression tests

@@ -31,6 +31,8 @@ import { reuseBlueprint } from "../_shared/blueprint-reuse.ts";
 import { buildDefaultRouterConfig, callLLMOnResources } from "../_shared/llm-router.ts";
 import { selectResources } from "../_shared/resource-selection.ts";
 import { recordLLMAttempts } from "../_shared/execution-evidence.ts";
+import { resumeSavedContinuityThroughFKAIOSRouter } from "../_shared/objective-continuity-router.ts";
+import { persistContinuityProposal } from "../_shared/objective-continuity.ts";
 
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 const COMMUNICATION_CAPABILITIES = new Set(["send_whatsapp_message", "send_email", "send_sms", "make_voice_call"]);
@@ -268,6 +270,76 @@ Deno.serve(async (req: Request) => {
 
     let body: { objective?: unknown; action?: unknown; objectiveId?: unknown };
     try { body = await req.json(); } catch { return json({ ok: false, error: "Body must be JSON" }, 400); }
+
+    if (body.action === "continuity_resume") {
+      if (typeof body.objectiveId !== "string" || !body.objectiveId.trim()) {
+        return json({ ok: false, error: "objectiveId required" }, 400);
+      }
+      const objectiveId = body.objectiveId.trim();
+      try {
+        const resumed = await resumeSavedContinuityThroughFKAIOSRouter(adminClient(), objectiveId, {
+          functionClass: "business_agent",
+          maxTokens: 1800,
+        });
+        if (!resumed) {
+          return json({
+            ok: false,
+            error: "No saved continuity packet exists for this objective. The continuity migration must be applied and a checkpoint saved before resume.",
+            objectiveId,
+          }, 404);
+        }
+        const { packet, result } = resumed;
+        if (result.status !== "success" || !result.content) {
+          return json({
+            ok: false,
+            status: result.status,
+            objectiveId,
+            checkpoint: packet.lastVerifiedCheckpoint,
+            nextAction: packet.nextAction,
+            providerAttempts: result.log?.attempted_providers ?? [],
+            error: result.log?.failure_reason ?? "No configured provider returned a continuation.",
+            completionClaim: false,
+          }, 503);
+        }
+        // Persist the continuation as explicitly UNVERIFIED state so the next
+        // resume sees it. Preserve the last verified checkpoint and completed
+        // work; generated prose is not evidence that a tool action ran.
+        const persisted = await persistContinuityProposal(adminClient(), objectiveId, {
+          content: result.content,
+          provider: result.log?.successful_provider ?? null,
+          model: result.log?.successful_model ?? null,
+        });
+        // If this objective is blocked/failed, enqueue the existing objective
+        // loop's real rerun. Its planner now receives the saved proposal as
+        // unverified context and creates normal executable work. For an
+        // already-processing objective, preserve the proposal but don't force
+        // a second concurrent planning pass.
+        const rerun = await requestRerun(objectiveId);
+        return json({
+          ok: true,
+          status: rerun.ok ? "continuation_persisted_and_rerun_queued" : "continuation_persisted_unverified",
+          objectiveId,
+          checkpoint: persisted.packet.lastVerifiedCheckpoint,
+          nextAction: persisted.packet.nextAction,
+          sourceStateVersion: persisted.sourceStateVersion,
+          executor: {
+            provider: result.log?.successful_provider ?? null,
+            model: result.log?.successful_model ?? null,
+          },
+          continuation: result.content,
+          executionQueued: rerun.ok,
+          executionMessage: rerun.ok
+            ? "Saved proposal was passed to the existing objective loop for a new executable planning pass."
+            : rerun.error ?? "Proposal saved; existing objective loop was not queued.",
+          completionClaim: false,
+          note: "Continuation is persisted as an unverified proposal. Verified checkpoint and completed-work claims were not advanced. When queued, the existing objective planner receives the proposal and normal task execution/verification gates still apply.",
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(JSON.stringify({ level: "ERROR", source: "founder-objective:continuity_resume", correlationId, objectiveId, error: message }));
+        return json({ ok: false, error: message, objectiveId }, 503);
+      }
+    }
 
     if (body.action === "status" || body.action === "refresh") {
       const objectiveId = typeof body.objectiveId === "string" ? body.objectiveId : null;

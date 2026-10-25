@@ -3,7 +3,8 @@ import { reason } from "./founder-brain.ts";
 import { planObjective } from "./executive-planner.ts";
 import { allocateProjectWork, createRectificationTask, resumeTaskFromCheckpoint, returnCompletedWork } from "./work-engine.ts";
 import { contractCriteria, isIndependentVerificationLevel, isRecoverableOutputBlocker, verifyObjective } from "./objective-verifier.ts";
-import { readObjectiveState, syncObjectiveState } from "./objective-state.ts";
+import { readObjectiveState } from "./objective-state.ts";
+import { readSavedObjectiveContinuityPacket, syncObjectiveStateWithContinuity } from "./objective-continuity.ts";
 import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, type TaskEvidenceRecord } from "./fact-grounding.ts";
 import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP } from "./objective-rerun.ts";
 import { classifyObjective, completionContract, planContractMismatch, projectOutputType, measuredProductCapabilityEvidence, hasMeasuredProductBuild, hasMeasuredProductVerification, hasVerifiedLiveProductEvidence } from "./objective-contract.ts";
@@ -749,7 +750,7 @@ export async function recheckGateBlockedObjectives(
       // This is a new correction cycle, not a request to repeat the exhausted
       // planning loop. Reset the per-objective rectification budget so the
       // existing report can be rebuilt and independently verified again.
-      await syncObjectiveState(
+      await syncObjectiveStateWithContinuity(
         supabase,
         { id, status: "processing" },
         {
@@ -800,7 +801,7 @@ export async function recheckGateBlockedObjectives(
       .eq("id", id)
       .eq("status", "completed");
     if (reopenError) throw new Error(`Failed reopening ${id} for evidence repair: ${reopenError.message}`);
-    await syncObjectiveState(
+    await syncObjectiveStateWithContinuity(
       supabase,
       { id, status: "processing" },
       {
@@ -874,6 +875,21 @@ async function createContinuationProject(
   objective: Record<string, unknown>,
   correlationId?: string,
 ) {
+  // Carry forward only the newest saved proposal; the planner and workers
+  // must still validate it and independently verify all resulting work.
+  let continuityContext: string | undefined;
+  try {
+    const saved = await readSavedObjectiveContinuityPacket(getSupabaseAdmin(), String(objective.id));
+    const proposalPrefix = "UNVERIFIED CONTINUATION PROPOSAL (";
+    continuityContext = saved?.packet.relevantContext
+      .filter((item) => item.startsWith(proposalPrefix))
+      .slice(-1)[0];
+  } catch (err) {
+    console.error("objective-loop: unable to load saved continuity proposal", {
+      objectiveId: String(objective.id),
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
   const plan = await planObjective(
     {
       id: String(objective.id),
@@ -882,6 +898,7 @@ async function createContinuationProject(
         ? String(objective.department_code)
         : null,
       status: String(objective.status ?? "processing"),
+      continuityContext,
     },
     correlationId,
   );
@@ -1021,7 +1038,7 @@ export async function runObjectiveLoop(
           .maybeSingle();
         if (resumeError) throw new Error(resumeError.message);
         if (resumed) {
-          const stateSync = await syncObjectiveState(
+          const stateSync = await syncObjectiveStateWithContinuity(
             supabase,
             { id: String(resumed.id), status: "processing", raw_request: String(resumed.raw_request ?? "") },
             { phase: "verifying", reason: "Reconciled stale request status from its linked, unexpired approved Founder Brain decision; re-enter verification before further execution." },
@@ -1139,7 +1156,7 @@ export async function runObjectiveLoop(
           results.push({ objectiveId: String(objective.id), action: "no_action", summary: `Stale plan retired but replanning failed: ${continuation.error ?? "unknown"}. Will retry next run.` });
           continue;
         }
-        await syncObjectiveState(supabase, { id: String(objective.id), status: "processing", raw_request: String(objective.raw_request ?? "") }, { phase: "planning", reason: reasonText.slice(0, 500), patch: { rectification_round: 0, next_action: "Execute the new plan." } });
+        await syncObjectiveStateWithContinuity(supabase, { id: String(objective.id), status: "processing", raw_request: String(objective.raw_request ?? "") }, { phase: "planning", reason: reasonText.slice(0, 500), patch: { rectification_round: 0, next_action: "Execute the new plan." } });
         results.push({ objectiveId: String(objective.id), action: "replan", projectId: continuation.projectId, tasksCreated: continuation.tasksCreated, summary: reasonText });
         continue;
       }
@@ -1407,7 +1424,7 @@ export async function runObjectiveLoop(
        * after the previous task has returned verified evidence.
        */
       if (activeTasks.length > 0) {
-        await syncObjectiveState(supabase, { id: String(objective.id), status: "processing", raw_request: String(objective.raw_request ?? "") });
+        await syncObjectiveStateWithContinuity(supabase, { id: String(objective.id), status: "processing", raw_request: String(objective.raw_request ?? "") });
         results.push({
           objectiveId: String(objective.id),
           action: "continue_execution",
@@ -1536,7 +1553,7 @@ export async function runObjectiveLoop(
       }
 
       if (evaluation.verifierUnavailable) {
-        await syncObjectiveState(supabase, { id: String(objective.id), status: "processing", raw_request: String(objective.raw_request ?? "") }, { phase: "verifying", reason: evaluation.reason, patch: { next_action: evaluation.next_action } });
+        await syncObjectiveStateWithContinuity(supabase, { id: String(objective.id), status: "processing", raw_request: String(objective.raw_request ?? "") }, { phase: "verifying", reason: evaluation.reason, patch: { next_action: evaluation.next_action } });
         results.push({ objectiveId: String(objective.id), action: "no_action", projectId: latestProjectId, summary: `Verification pending: ${evaluation.reason}` });
         continue;
       }
@@ -1550,7 +1567,7 @@ export async function runObjectiveLoop(
         if (round <= MAX_RECTIFICATION_ROUNDS) {
           await createRectificationTask({ projectId: evaluation.rectify.projectId, objectiveId: String(objective.id), round, issues: evaluation.rectify.issues, failedCriteria: evaluation.rectify.failedCriteria, deliverable: evaluation.rectify.deliverable, producerRefs: evaluation.rectify.producerRefs });
           const allocation = await allocateProjectWork(evaluation.rectify.projectId);
-          await syncObjectiveState(supabase, { id: String(objective.id), status: "processing", raw_request: String(objective.raw_request ?? "") }, { phase: "rectifying", reason: evaluation.reason, patch: { rectification_round: round, verification: evaluation.verification ?? {}, next_action: evaluation.next_action } });
+          await syncObjectiveStateWithContinuity(supabase, { id: String(objective.id), status: "processing", raw_request: String(objective.raw_request ?? "") }, { phase: "rectifying", reason: evaluation.reason, patch: { rectification_round: round, verification: evaluation.verification ?? {}, next_action: evaluation.next_action } });
           results.push({ objectiveId: String(objective.id), action: "continue_execution", projectId: evaluation.rectify.projectId, tasksCreated: allocation.allocated, summary: `Verification rejected the deliverable; rectification round ${round}/${MAX_RECTIFICATION_ROUNDS} started.` });
           continue;
         }
@@ -1616,7 +1633,7 @@ export async function runObjectiveLoop(
         continue;
       }
 
-      await syncObjectiveState(supabase, { id: String(objective.id), status: "processing", raw_request: String(objective.raw_request ?? "") }, { phase: "planning", reason: `replan: ${evaluation.reason}`.slice(0, 500), patch: { rectification_round: 0, verification: evaluation.verification ?? {}, next_action: "Execute the new plan." } });
+      await syncObjectiveStateWithContinuity(supabase, { id: String(objective.id), status: "processing", raw_request: String(objective.raw_request ?? "") }, { phase: "planning", reason: `replan: ${evaluation.reason}`.slice(0, 500), patch: { rectification_round: 0, verification: evaluation.verification ?? {}, next_action: "Execute the new plan." } });
       results.push({
         objectiveId: String(objective.id),
         action: "replan",
