@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { classifyObjective, planContractMismatch, projectOutputType, hasMeasuredProductBuild, hasMeasuredProductVerification, hasVerifiedLiveProductEvidence } from "./objective-contract.ts";
+import { baselineObjectiveContract, classifyObjective, planContractMismatch, projectOutputType, hasMeasuredProductBuild, hasMeasuredProductVerification, hasVerifiedLiveProductEvidence } from "./objective-contract.ts";
 
 // The objective text submitted from the Console on 9 Oct 2026 (20cbf892).
 const KIDS_DPS = `**Objective: Prepare a verified Kids DPS preschool franchise opportunity and 90-day action plan for India.**
@@ -136,4 +136,24 @@ Deno.test("artifact-ready output is not treated as a live product", () => {
   };
   assertEquals(hasMeasuredProductBuild([artifact]), false);
   assertEquals(hasVerifiedLiveProductEvidence([artifact, measuredVerifyTask()]), false);
+});
+
+
+Deno.test("baseline objective contract persists acceptance and evidence requirements", () => {
+  const objective = "Reply exactly: FKAIOS FREE PROVIDER ROUTING TEST — OK. Do not perform actions, call tools, change data, or create anything else.";
+  const contract = baselineObjectiveContract(objective, "low");
+  assertEquals(contract.objective_type, "business_execution");
+  assertEquals(contract.status, "draft");
+  assertEquals(contract.requirements, [objective]);
+  assertEquals(contract.deliverables, [objective]);
+  assertEquals(contract.acceptance_criteria.length, contract.evidence_requirements.length + 1);
+  assertEquals(contract.evidence_requirements.length > 0, true);
+  assertEquals(contract.founder_approval_required, false);
+});
+
+Deno.test("baseline objective contract requires founder approval for high and critical risk", () => {
+  const objective = "Send a customer message after approval";
+  assertEquals(baselineObjectiveContract(objective, "high").founder_approval_required, true);
+  assertEquals(baselineObjectiveContract(objective, "critical").founder_approval_required, true);
+  assertEquals(baselineObjectiveContract(objective, "medium").founder_approval_required, false);
 });

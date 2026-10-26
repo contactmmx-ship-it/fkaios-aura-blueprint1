@@ -39,6 +39,25 @@ export function completionContract(raw: string): CompletionContract {
   return { objectiveType, label: "Executed business outcome", requiresUsableOutcome: true, requiresLiveArtifact: false, requiredEvidence: ["action evidence", "outcome verification"] };
 }
 
+
+export function baselineObjectiveContract(objective: string, riskLevel: string) {
+  const baseline = completionContract(objective);
+  return {
+    objective_type: baseline.objectiveType,
+    intent: { goal: objective, source: "founder-objective", contract_version: 1 },
+    requirements: [objective],
+    acceptance_criteria: [
+      { criterion: "Requested outcome is delivered", description: objective },
+      ...baseline.requiredEvidence.map((item) => ({ criterion: item, description: `Persist verifiable evidence for: ${item}` })),
+    ],
+    quality_benchmark: { standard: "Evidence-backed; do not claim unobserved actions or results" },
+    discovery: {}, solution_plan: {}, continuity: {}, status: "draft", risk_level: riskLevel,
+    constraints: ["Do not claim actions or results without persisted evidence"],
+    deliverables: [objective], evidence_requirements: baseline.requiredEvidence,
+    founder_approval_required: ["high", "critical"].includes(String(riskLevel).toLowerCase()), version: 1,
+  };
+}
+
 // orchestration_projects.output_type for each objective type (the planner
 // writes it; the objective loop reads it back to detect a stale plan).
 export function projectOutputType(objectiveType: ObjectiveType): string {
