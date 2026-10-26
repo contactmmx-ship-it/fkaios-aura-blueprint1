@@ -22,7 +22,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { assessRisk, createTask, routeToDepartment } from "../_shared/founder-brain.ts";
 import { summarizeObjectiveProgress } from "../_shared/objective-progress.ts";
 import { canRerun, FOUNDER_OBJECTIVE_CLASSIFICATION, rerunUpdate } from "../_shared/objective-rerun.ts";
-import { completionContract } from "../_shared/objective-contract.ts";
+import { baselineObjectiveContract } from "../_shared/objective-contract.ts";
 import { runObjectiveLoop } from "../_shared/objective-loop.ts";
 import { base64ToBytes, bytesToBase64, synthesize, transcribe } from "../_shared/speech.ts";
 import { voiceTurn } from "../_shared/voice.ts";
@@ -409,17 +409,8 @@ Deno.serve(async (req: Request) => {
       return json({ ok: false, error: "Objective recorded, but its completion contract could not be verified", objectiveId: row.id, correlationId }, 500);
     }
     if (!existingContract) {
-      const baseline = completionContract(objective);
-      const { error: contractError } = await admin.from("objective_contracts").insert({
-        objective_id: row.id, objective_type: baseline.objectiveType,
-        intent: { goal: objective, source: "founder-objective", contract_version: 1 },
-        requirements: [objective],
-        acceptance_criteria: [{ criterion: "Requested outcome is delivered", description: objective }, ...baseline.requiredEvidence.map((item) => ({ criterion: item, description: `Persist verifiable evidence for: ${item}` }))],
-        quality_benchmark: { standard: "Evidence-backed; do not claim unobserved actions or results" },
-        discovery: {}, solution_plan: {}, continuity: {}, status: "draft", risk_level: riskLevel,
-        constraints: ["Do not claim actions or results without persisted evidence"], deliverables: [objective],
-        evidence_requirements: baseline.requiredEvidence, founder_approval_required: ["high", "critical"].includes(String(riskLevel).toLowerCase()), version: 1,
-      });
+      const baseline = baselineObjectiveContract(objective, String(riskLevel));
+      const { error: contractError } = await admin.from("objective_contracts").insert({ objective_id: row.id, ...baseline });
       if (contractError) {
         console.error(JSON.stringify({ level: "ERROR", message: "objective contract creation failed", source: "founder-objective", correlationId, objectiveId: row.id, error: contractError.message }));
         return json({ ok: false, error: "Objective recorded, but its completion contract could not be created", objectiveId: row.id, correlationId }, 500);
