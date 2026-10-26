@@ -48,10 +48,12 @@ const PLACEHOLDER = /\[(insert|todo|tbd|placeholder|your)\b[^\]]{0,60}\]|lorem i
 const REFUSAL = /\b(as an ai( language model)?|i (cannot|can't|am unable to) (access|browse|provide)|i don't have access to)\b/i;
 const LEAKED_ERROR = /"(error|status)"\s*:\s*"(no_data_source|error|failed)"|no_data_source/i;
 
-export function deterministicChecks(deliverable: string): { ok: boolean; problems: string[] } {
+export function deterministicChecks(deliverable: string, objective = ""): { ok: boolean; problems: string[] } {
   const problems: string[] = [];
   const text = deliverable.trim();
-  if (text.length < 40) problems.push("deliverable is empty or trivially short");
+  const exactReply = objective.match(/\bReply exactly:\s*([\s\S]*?)(?:\s+Do not perform actions, call tools, change data, or create anything else\.?\s*)$/i) ?? objective.match(/\bReply exactly:\s*([\s\S]+)$/i);
+  const exactMatch = !!exactReply && !!exactReply[1]?.trim() && text === exactReply[1].trim();
+  if (text.length < 40 && !exactMatch) problems.push("deliverable is empty or trivially short");
   if (PLACEHOLDER.test(text)) problems.push("deliverable contains placeholder text");
   if (REFUSAL.test(text)) problems.push("deliverable contains a model refusal or capability disclaimer instead of the work");
   if (LEAKED_ERROR.test(text)) problems.push("deliverable contains a leaked error/no-data marker");
@@ -278,7 +280,7 @@ export async function verifyObjective(db: Db, input: {
   producerRefs: string[];
   producingTaskIds: string[];
 }): Promise<Verdict> {
-  const baseChecks = deterministicChecks(input.deliverable);
+  const baseChecks = deterministicChecks(input.deliverable, input.objective);
   const competitorChecks = kidsDpsCompetitorChecks(input.objective, input.criteria, input.deliverable);
   const deterministic = {
     ok: baseChecks.ok && competitorChecks.ok,
