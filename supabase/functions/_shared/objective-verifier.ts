@@ -51,7 +51,7 @@ const LEAKED_ERROR = /"(error|status)"\s*:\s*"(no_data_source|error|failed)"|no_
 export function deterministicChecks(deliverable: string, objective = ""): { ok: boolean; problems: string[] } {
   const problems: string[] = [];
   const text = deliverable.trim();
-  const exactReply = objective.match(/\bReply exactly:\s*([\s\S]*?)(?:\s+Do not perform actions, call tools, change data, or create anything else\.?\s*)?$/i);
+  const exactReply = objective.match(/\bReply exactly:\s*([\s\S]*?)(?:\s+Do not perform actions, call tools, change data, or create anything else\.?\s*)$/i) ?? objective.match(/\bReply exactly:\s*([\s\S]+)$/i);
   const exactMatch = !!exactReply && !!exactReply[1]?.trim() && text === exactReply[1].trim();
   if (text.length < 40 && !exactMatch) problems.push("deliverable is empty or trivially short");
   if (PLACEHOLDER.test(text)) problems.push("deliverable contains placeholder text");
