@@ -91,3 +91,39 @@ Deno.test("explicit hard exclusion still blocks the local model", () => {
   assertEquals(decision.resources.length, 0);
   assertEquals(decision.skipped[0]?.reason, "excluded by caller");
 });
+
+
+Deno.test("runtime no-spend allowlist hard-excludes paid and unknown-tier resources despite active routing policy", () => {
+  const catalog = [
+    { resource_ref: "model:gemini:flash", provider: "gemini", model: "flash", lifecycle_state: "adopted", access_state: "configured", health_status: "available", unavailable_until: null, free_tier: true, cost_in_per_mtok: 0, context_window: 1000 },
+    { resource_ref: "model:anthropic:haiku", provider: "anthropic", model: "haiku", lifecycle_state: "adopted", access_state: "configured", health_status: "available", unavailable_until: null, free_tier: false, cost_in_per_mtok: 1, context_window: 1000 },
+    { resource_ref: "model:openrouter:free", provider: "openrouter", model: "free", lifecycle_state: "adopted", access_state: "configured", health_status: "available", unavailable_until: null, free_tier: null, cost_in_per_mtok: null, context_window: 1000 },
+  ];
+  const decision = rankResources({
+    taskClass: "planning",
+    catalog,
+    policy: { id: "active-policy", task_class: "planning", version: 9, resource_refs: catalog.map((entry) => entry.resource_ref) },
+    performance: [],
+    configuredProviders: ["gemini", "anthropic", "openrouter"],
+    allowedProviders: ["gemini"],
+    unavailableProviders: [],
+  });
+  assertEquals(decision.resources.map((resource) => resource.provider), ["gemini"]);
+  assertEquals(decision.skipped.filter((entry) => entry.reason.includes("no-spend allowlist")).length, 2);
+});
+
+Deno.test("no-spend allowlist may explicitly permit local inference only", () => {
+  const decision = rankResources({
+    taskClass: "planning",
+    catalog: [
+      { resource_ref: "model:self_hosted:qwen", provider: "self_hosted", model: "qwen", lifecycle_state: "candidate", access_state: "configured", health_status: "unknown", unavailable_until: null, free_tier: true, cost_in_per_mtok: 0, context_window: null },
+      { resource_ref: "model:gemini:flash", provider: "gemini", model: "flash", lifecycle_state: "adopted", access_state: "configured", health_status: "available", unavailable_until: null, free_tier: true, cost_in_per_mtok: 0, context_window: 1000 },
+    ],
+    policy: null,
+    performance: [],
+    configuredProviders: ["self_hosted", "gemini"],
+    allowedProviders: ["self_hosted"],
+    unavailableProviders: [],
+  });
+  assertEquals(decision.resources.map((resource) => resource.provider), ["self_hosted"]);
+});

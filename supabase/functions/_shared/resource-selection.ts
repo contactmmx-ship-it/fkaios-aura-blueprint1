@@ -10,6 +10,7 @@
 
 import type { ExecutionResource, ProviderName } from "./llm-router.ts";
 import { parseRef } from "./resource-identity.ts";
+import { restrictProvidersForFreeTier } from "./provider-policy.ts";
 
 export interface CatalogEntry {
   resource_ref: string;
@@ -103,6 +104,8 @@ export function rankResources(input: {
   performance: PerformanceEntry[];
   configuredProviders: string[];
   unavailableProviders: string[];
+  /** Hard allowlist supplied by the runtime spend policy. When present, every other provider is ineligible. */
+  allowedProviders?: string[];
   options?: SelectionOptions;
   now?: Date;
 }): SelectionDecision {
@@ -137,6 +140,7 @@ export function rankResources(input: {
     if (exclude.has(ref)) { skipped.push({ ref, reason: "excluded by caller" }); continue; }
     if (entry.lifecycle_state === "retired") { skipped.push({ ref, reason: "retired" }); continue; }
     if (policyRank < 0 && !allowed.has(entry.lifecycle_state)) { skipped.push({ ref, reason: `lifecycle ${entry.lifecycle_state} not allowed for ${purpose}` }); continue; }
+    if (input.allowedProviders && !input.allowedProviders.includes(entry.provider)) { skipped.push({ ref, reason: `provider ${entry.provider} excluded by no-spend allowlist` }); continue; }
     if (!input.configuredProviders.includes(entry.provider)) { skipped.push({ ref, reason: `provider ${entry.provider} not configured` }); continue; }
     if (entry.access_state === "no_credential") { skipped.push({ ref, reason: "no credential" }); continue; }
     // Unavailable resources/providers go last instead of being dropped: if
@@ -203,12 +207,21 @@ export async function selectResources(db: Db, taskClass: string, options: Select
   const catalog = ((catalogRes.data ?? []) as CatalogEntry[]).slice();
   const localModel = configuredLocalModelEntry();
   if (localModel && !catalog.some((entry) => entry.resource_ref === localModel.resource_ref)) catalog.push(localModel);
+  const env = (key: string) => Deno.env.get(key);
+  const configuredProviders = configuredProviderNames(env);
+  const explicitlyFreeProviders = ["gemini", "openrouter", "groq", "mistral", "huggingface"]
+    .filter((provider) => env(`PROVIDER_${provider.toUpperCase()}_FREE_TIER`) === "true");
+  const allowPaidFallback = env("PROVIDER_ALLOW_PAID_FALLBACK") === "true";
+  const allowedProviders = restrictProvidersForFreeTier(
+    configuredProviders.map((name) => ({ name })), explicitlyFreeProviders, allowPaidFallback,
+  ).map((provider) => provider.name);
   return rankResources({
     taskClass,
     catalog,
     policy: (policyRes.data ?? null) as RoutingPolicy | null,
     performance: (perfRes.data ?? []) as PerformanceEntry[],
-    configuredProviders: configuredProviderNames(),
+    configuredProviders,
+    allowedProviders,
     unavailableProviders,
     options,
     now,
