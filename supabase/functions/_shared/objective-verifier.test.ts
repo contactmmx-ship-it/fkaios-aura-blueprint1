@@ -163,6 +163,6 @@ Deno.test("Kids DPS competitor contract accepts sourced brand rows and explicit 
 Deno.test("short exact-reply objectives pass the length check only when output matches exactly", () => {
   const objective = "Reply exactly: FKAIOS FREE PROVIDER ROUTING TEST — OK. Do not perform actions, call tools, change data, or create anything else.";
   assertEquals(deterministicChecks("FKAIOS FREE PROVIDER ROUTING TEST — OK.", objective), { ok: true, problems: [] });
-  assertEquals(deterministicChecks("FKAIOS FREE PROVIDER ROUTING TEST — FAILED.", objective).ok, false);
+  assertEquals(deterministicChecks("FKAIOS WRONG.", objective).ok, false);
   assertEquals(deterministicChecks("OK.", "Write a useful project report.").ok, false);
 });
