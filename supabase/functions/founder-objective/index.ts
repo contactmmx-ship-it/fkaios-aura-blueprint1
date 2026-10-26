@@ -22,6 +22,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { assessRisk, createTask, routeToDepartment } from "../_shared/founder-brain.ts";
 import { summarizeObjectiveProgress } from "../_shared/objective-progress.ts";
 import { canRerun, FOUNDER_OBJECTIVE_CLASSIFICATION, rerunUpdate } from "../_shared/objective-rerun.ts";
+import { completionContract } from "../_shared/objective-contract.ts";
 import { runObjectiveLoop } from "../_shared/objective-loop.ts";
 import { base64ToBytes, bytesToBase64, synthesize, transcribe } from "../_shared/speech.ts";
 import { voiceTurn } from "../_shared/voice.ts";
@@ -399,6 +400,31 @@ Deno.serve(async (req: Request) => {
     const { error: markError } = await adminClient().from("orchestrator_requests")
       .update({ classification: FOUNDER_OBJECTIVE_CLASSIFICATION }).eq("id", row.id);
     if (markError) console.error(JSON.stringify({ level: "WARN", message: "could not mark founder objective", source: "founder-objective", correlationId, objectiveId: row.id, error: markError.message }));
+
+    // Persist a baseline completion contract at submission time. Never overwrite a richer contract created by planning.
+    const admin = adminClient();
+    const { data: existingContract, error: contractReadError } = await admin.from("objective_contracts").select("id").eq("objective_id", row.id).maybeSingle();
+    if (contractReadError) {
+      console.error(JSON.stringify({ level: "ERROR", message: "objective contract lookup failed", source: "founder-objective", correlationId, objectiveId: row.id, error: contractReadError.message }));
+      return json({ ok: false, error: "Objective recorded, but its completion contract could not be verified", objectiveId: row.id, correlationId }, 500);
+    }
+    if (!existingContract) {
+      const baseline = completionContract(objective);
+      const { error: contractError } = await admin.from("objective_contracts").insert({
+        objective_id: row.id, objective_type: baseline.objectiveType,
+        intent: { goal: objective, source: "founder-objective", contract_version: 1 },
+        requirements: [objective],
+        acceptance_criteria: [{ criterion: "Requested outcome is delivered", description: objective }, ...baseline.requiredEvidence.map((item) => ({ criterion: item, description: `Persist verifiable evidence for: ${item}` }))],
+        quality_benchmark: { standard: "Evidence-backed; do not claim unobserved actions or results" },
+        discovery: {}, solution_plan: {}, continuity: {}, status: "draft", risk_level: riskLevel,
+        constraints: ["Do not claim actions or results without persisted evidence"], deliverables: [objective],
+        evidence_requirements: baseline.requiredEvidence, founder_approval_required: ["high", "critical"].includes(String(riskLevel).toLowerCase()), version: 1,
+      });
+      if (contractError) {
+        console.error(JSON.stringify({ level: "ERROR", message: "objective contract creation failed", source: "founder-objective", correlationId, objectiveId: row.id, error: contractError.message }));
+        return json({ ok: false, error: "Objective recorded, but its completion contract could not be created", objectiveId: row.id, correlationId }, 500);
+      }
+    }
 
     console.log(JSON.stringify({ level: "INFO", message: "objective submitted", source: "founder-objective", correlationId, objectiveId: row.id, status: row.status, riskLevel, departmentCode, submittedBy: user.id }));
     return json({
