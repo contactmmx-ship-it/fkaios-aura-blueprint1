@@ -37,6 +37,8 @@ jobs:
 
       - name: Deploy changed FKAIOS functions
         run: |
+          # Brain Chat historical recall source is maintained in GitHub.
+          supabase functions deploy brain-engine --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy ai-engine --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy founder-brain-tick --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy founder-objective --project-ref "$SUPABASE_PROJECT_REF"
