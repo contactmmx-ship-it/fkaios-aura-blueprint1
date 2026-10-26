@@ -917,3 +917,56 @@ Deno.test("Unit: provider cooldown ignores absent or invalid timestamps", () => 
   assert(!isProviderCoolingDown({ status: "degraded", unavailable_until: null }, now), "missing cooldown must not exclude provider");
   assert(!isProviderCoolingDown({ status: "degraded", unavailable_until: "not-a-timestamp" }, now), "invalid cooldown must not exclude provider");
 });
+
+
+// ---------------------------------------------------------------------------
+// Free-provider routing guard — deterministic configuration-only tests.
+// These tests never call an external provider and use placeholder credentials.
+// ---------------------------------------------------------------------------
+
+Deno.test("free-tier routing: explicitly free Gemini is eligible while paid providers are excluded by default", async () => {
+  await withEnv({
+    ANTHROPIC_API_KEY: "test-placeholder",
+    GEMINI_API_KEY: "test-placeholder",
+    OPENAI_API_KEY: "test-placeholder",
+    OPENROUTER_API_KEY: undefined,
+    GROQ_API_KEY: undefined,
+    MISTRAL_API_KEY: undefined,
+    HUGGINGFACE_API_KEY: undefined,
+    SELF_HOSTED_LLM_BASE_URL: undefined,
+    PROVIDER_ANTHROPIC_ENABLED: "true",
+    PROVIDER_GEMINI_ENABLED: "true",
+    PROVIDER_OPENAI_ENABLED: "true",
+    PROVIDER_GEMINI_FREE_TIER: "true",
+    PROVIDER_OPENROUTER_FREE_TIER: undefined,
+    PROVIDER_GROQ_FREE_TIER: undefined,
+    PROVIDER_MISTRAL_FREE_TIER: undefined,
+    PROVIDER_HUGGINGFACE_FREE_TIER: undefined,
+    PROVIDER_ALLOW_PAID_FALLBACK: undefined,
+  }, () => {
+    const names = getConfiguredDefaultProviders().map((provider) => provider.name);
+    assert(names.includes("gemini"), "explicitly marked Gemini should remain eligible");
+    assert(!names.includes("anthropic"), "Anthropic must not be used as an unapproved paid fallback");
+    assert(!names.includes("openai"), "OpenAI must not be used as an unapproved paid fallback");
+  });
+});
+
+Deno.test("free-tier routing: a free-tier marker alone does not enable a disabled provider", async () => {
+  await withEnv({
+    GEMINI_API_KEY: "test-placeholder",
+    PROVIDER_GEMINI_ENABLED: "false",
+    PROVIDER_GEMINI_FREE_TIER: "true",
+    PROVIDER_ALLOW_PAID_FALLBACK: undefined,
+    ANTHROPIC_API_KEY: undefined,
+    OPENAI_API_KEY: undefined,
+    OPENROUTER_API_KEY: undefined,
+    GROQ_API_KEY: undefined,
+    MISTRAL_API_KEY: undefined,
+    HUGGINGFACE_API_KEY: undefined,
+    SELF_HOSTED_LLM_BASE_URL: undefined,
+  }, () => {
+    const names = getConfiguredDefaultProviders().map((provider) => provider.name);
+    assert(!names.includes("gemini"), "explicit provider disable must take precedence over free-tier marker");
+    assert(names.length === 0, `Expected no configured providers, got ${names.join(", ")}`);
+  });
+});
