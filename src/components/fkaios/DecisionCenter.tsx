@@ -167,7 +167,25 @@ export function useDecisionItems() {
 }
 
 export async function decideItem(item: DecisionItem, decision: 'approved' | 'rejected') {
-  if (item.source === 'request') return; // read-only source, the UI never calls decideItem for these
+  if (item.source === 'request') {
+    // Record the founder's decision against this exact pending request.
+    // Approval releases it to the existing processor; it does not execute it
+    // in the browser. Rejection stops the request.
+    const nextStatus = decision === 'approved' ? 'processing' : 'failed';
+    const actionTaken = decision === 'approved'
+      ? 'Founder approved via Decision Center'
+      : 'Founder rejected via Decision Center';
+    const { data, error } = await supabase
+      .from('orchestrator_requests')
+      .update({ status: nextStatus, action_taken: actionTaken })
+      .eq('id', item.id)
+      .eq('status', 'awaiting_approval')
+      .select('id')
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error('This request is no longer awaiting approval. Refresh the Decision Center and review its current status.');
+    return;
+  }
 
   if (item.source === 'approvals') {
     const decidedAt = new Date().toISOString();
