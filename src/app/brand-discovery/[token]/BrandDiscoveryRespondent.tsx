@@ -11,6 +11,8 @@ type Question = {
   required?: boolean;
   help_text?: string;
   options?: Array<{ value: string; label: string }>;
+  selection_mode?: "single" | "multiple";
+  max_selections?: number;
   optional_explanation?: boolean;
   explanation_prompt?: string;
 };
@@ -34,21 +36,22 @@ type ApiResult = {
   submitted?: boolean;
 };
 
-function parseChoiceAnswer(raw: string): { choice: string; explanation: string } {
+function parseChoiceAnswer(raw: string): { choices: string[]; explanation: string } {
   try {
     const value = JSON.parse(raw);
-    if (value && typeof value === "object") return {
-      choice: typeof value.choice === "string" ? value.choice : "",
-      explanation: typeof value.explanation === "string" ? value.explanation : "",
-    };
+    if (value && typeof value === "object") {
+      const choices = Array.isArray(value.choices) ? value.choices.filter((v: unknown) => typeof v === "string") :
+        typeof value.choice === "string" ? [value.choice] : [];
+      return { choices, explanation: typeof value.explanation === "string" ? value.explanation : "" };
+    }
   } catch { /* legacy/plain-text answer */ }
-  return { choice: "", explanation: "" };
+  return { choices: [], explanation: "" };
 }
-function encodeChoiceAnswer(choice: string, explanation: string) {
-  return JSON.stringify({ choice, explanation });
+function encodeChoiceAnswer(choices: string[], explanation: string) {
+  return JSON.stringify({ choices, explanation });
 }
 function hasAnswer(question: Question, raw: string) {
-  return question.type === "multiple_choice" ? parseChoiceAnswer(raw).choice.trim().length > 0 : raw.trim().length > 0;
+  return question.type === "multiple_choice" ? parseChoiceAnswer(raw).choices.length > 0 : raw.trim().length > 0;
 }
 
 const endpoint = () => `${supabaseUrl.replace(/\/$/, "")}/functions/v1/brand-discovery-respondent`;
@@ -261,16 +264,28 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
           {question.help_text && <p className="mt-4 text-sm leading-6 text-slate-400">{question.help_text}</p>}
           <div className="mt-7">
             {question.type === "multiple_choice" ? <div className="space-y-3">
-              {(!question.options || question.options.length === 0) ? <p role="alert" className="rounded-xl border border-amber-300/20 bg-amber-300/5 p-4 text-sm text-amber-100">This multiple-choice question has no reviewed options yet. Please contact Franchise Kart rather than guessing an answer.</p> : question.options.map((option) => {
-                const selected = parseChoiceAnswer(currentAnswer).choice === option.value;
+              <p className="text-xs text-slate-400">{question.selection_mode === "multiple" ? (question.max_selections ? `Select up to ${question.max_selections}.` : "Select all that apply.") : "Select one."}</p>
+              {(!question.options || question.options.length === 0) ? <p role="alert" className="rounded-xl border border-amber-300/20 bg-amber-300/5 p-4 text-sm text-amber-100">This choice question has no reviewed options yet. Please contact Franchise Kart rather than guessing an answer.</p> : question.options.map((option) => {
+                const parsed = parseChoiceAnswer(currentAnswer);
+                const selected = parsed.choices.includes(option.value);
+                const inputType = question.selection_mode === "multiple" ? "checkbox" : "radio";
+                const changeChoice = () => setAnswers((a) => {
+                  const previous = parseChoiceAnswer(a[question.id] ?? "");
+                  let choices = previous.choices;
+                  if (question.selection_mode === "multiple") {
+                    choices = selected ? choices.filter((v) => v !== option.value) : [...choices, option.value];
+                    if (question.max_selections && choices.length > question.max_selections) return a;
+                  } else choices = [option.value];
+                  return { ...a, [question.id]: encodeChoiceAnswer(choices, previous.explanation) };
+                });
                 return <label key={option.value} className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-4 transition ${selected ? "border-cyan-300 bg-cyan-300/10" : "border-white/15 bg-slate-950/50 hover:bg-white/5"}`}>
-                  <input type="radio" name={question.id} value={option.value} checked={selected} onChange={() => setAnswers((a) => ({ ...a, [question.id]: encodeChoiceAnswer(option.value, parseChoiceAnswer(a[question.id] ?? "").explanation) }))} className="mt-1 accent-cyan-300" />
+                  <input type={inputType} name={question.id} value={option.value} checked={selected} onChange={changeChoice} className="mt-1 accent-cyan-300" />
                   <span>{option.label}</span>
                 </label>;
               })}
               {question.optional_explanation && <div className="pt-2">
                 <label htmlFor={`explanation-${question.id}`} className="mb-2 block text-sm text-slate-300">{question.explanation_prompt ?? "Optional explanation (if you wish)"}</label>
-                <textarea id={`explanation-${question.id}`} value={parseChoiceAnswer(currentAnswer).explanation} onChange={(e) => setAnswers((a) => ({ ...a, [question.id]: encodeChoiceAnswer(parseChoiceAnswer(a[question.id] ?? "").choice, e.target.value) }))} rows={3} placeholder="Add context if helpful…" className="w-full resize-y rounded-2xl border border-white/15 bg-slate-950/70 px-4 py-3 text-base leading-7 outline-none transition focus:border-cyan-300 focus:ring-2 focus:ring-cyan-300/20" />
+                <textarea id={`explanation-${question.id}`} value={parseChoiceAnswer(currentAnswer).explanation} onChange={(e) => setAnswers((a) => { const previous = parseChoiceAnswer(a[question.id] ?? ""); return { ...a, [question.id]: encodeChoiceAnswer(previous.choices, e.target.value) }; })} rows={3} placeholder="Add context if helpful…" className="w-full resize-y rounded-2xl border border-white/15 bg-slate-950/70 px-4 py-3 text-base leading-7 outline-none transition focus:border-cyan-300 focus:ring-2 focus:ring-cyan-300/20" />
               </div>}
             </div> : question.type === "text" ? <input value={currentAnswer} onChange={(e) => setAnswers((a) => ({ ...a, [question.id]: e.target.value }))} placeholder="Type your answer here…" className="w-full rounded-2xl border border-white/15 bg-slate-950/70 px-4 py-4 text-base outline-none transition focus:border-cyan-300 focus:ring-2 focus:ring-cyan-300/20" /> :
               <textarea value={currentAnswer} onChange={(e) => setAnswers((a) => ({ ...a, [question.id]: e.target.value }))} rows={question.type === "long_text" ? 6 : 5} placeholder={question.type === "repeatable_list" ? "Add one item per line…" : question.type === "file_or_text" ? "Paste the document link or describe the information here. File upload is not enabled yet." : "Type your answer here…"} className="w-full resize-y rounded-2xl border border-white/15 bg-slate-950/70 px-4 py-4 text-base leading-7 outline-none transition focus:border-cyan-300 focus:ring-2 focus:ring-cyan-300/20" />}
