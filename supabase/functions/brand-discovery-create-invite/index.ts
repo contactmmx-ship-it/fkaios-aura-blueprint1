@@ -56,9 +56,38 @@ Deno.serve(async (req: Request) => {
   }).select("id,brand_name,respondent_name,respondent_email,status,resume_token_expires_at").single();
   if (insertError || !session) return reply(500, { error: "invite_creation_failed" });
 
-  // The token is returned once to the authenticated FK operator. Email delivery is intentionally
-  // not attempted until a reviewed mail provider and sending policy are configured.
-  return reply(201, { session, resume_token: token,
-    email_delivery: "not_configured",
-    warning: "Store/share this link securely. The raw token cannot be retrieved again." });
+  // Invitation delivery is opt-in by environment configuration. Without all required
+  // settings, no email is sent and the authenticated operator receives the one-time token.
+  let emailDelivery = "not_configured";
+  const mailKey = Deno.env.get("RESEND_API_KEY");
+  const mailFrom = Deno.env.get("BRAND_DISCOVERY_EMAIL_FROM");
+  const publicOrigin = Deno.env.get("BRAND_DISCOVERY_PUBLIC_ORIGIN") ?? allowedOrigin;
+  if (mailKey && mailFrom && publicOrigin && session.respondent_email) {
+    try {
+      const link = `${publicOrigin.replace(/\/$/, "")}/brand-discovery/${token}`;
+      const brand = session.brand_name.replace(/[<>]/g, "");
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${mailKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from: mailFrom,
+          to: [session.respondent_email],
+          subject: `Your ${brand} business discovery questionnaire`,
+          html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;line-height:1.6"><h2>Your guided business discovery is ready</h2><p>Hello ${String(session.respondent_name ?? "").replace(/[<>]/g, "")},</p><p>Franchise Kart invites you to complete the discovery questionnaire for <strong>${brand}</strong>.</p><p>It is designed to be completed independently, one question at a time. Your progress is saved, so you can return using the same secure link.</p><p><a href="${link}" style="display:inline-block;padding:12px 18px;background:#0e7490;color:white;text-decoration:none;border-radius:8px">Start questionnaire</a></p><p>Keep this link private. It provides access to your questionnaire.</p><p>Regards,<br>Franchise Kart</p></div>`,
+        }),
+      });
+      emailDelivery = response.ok ? "sent" : "failed";
+    } catch {
+      emailDelivery = "failed";
+    }
+  }
+  return reply(201, {
+    session,
+    resume_token: token,
+    resume_url: publicOrigin ? `${publicOrigin.replace(/\/$/, "")}/brand-discovery/${token}` : null,
+    email_delivery: emailDelivery,
+    warning: emailDelivery === "sent"
+      ? "Invitation email was accepted by the configured provider. The raw token is returned once; handle it securely."
+      : "No invitation email was confirmed. Configure the approved mail provider or share the one-time secure link manually.",
+  });
 });
