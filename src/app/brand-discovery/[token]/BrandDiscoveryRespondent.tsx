@@ -69,6 +69,8 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
   const [intro, setIntro] = useState(true);
   const [submitted, setSubmitted] = useState(false);
   const [readyForAutosave, setReadyForAutosave] = useState(false);
+  const [resumed, setResumed] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState("");
 
   const api = useCallback(async (action: string, extra: Record<string, unknown> = {}): Promise<ApiResult> => {
     const url = endpoint();
@@ -114,6 +116,7 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
         setQuestionIndex(Math.min(Math.max(s.current_question ?? 0, 0), Math.max(savedSection.questions.length - 1, 0)));
         setSubmitted(s.status === "submitted");
         setIntro(!(Object.keys(restored).length > 0));
+        setResumed(Object.keys(restored).length > 0 && s.status !== "submitted");
         setReadyForAutosave(true);
       } catch (e) {
         if (alive) setError(e instanceof Error ? e.message : "Unable to open this questionnaire.");
@@ -217,6 +220,52 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
     }
   };
 
+  const repeatCurrentQuestion = () => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window) || !question) {
+      setVoiceStatus("Voice playback is not supported in this browser.");
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const text = intro
+      ? `${section?.title ?? "Next section"}. ${section?.intro ?? "This section helps us understand this part of your business and why it matters for the transformation plan."}`
+      : question.prompt;
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "hi-IN";
+    utterance.rate = 0.92;
+    window.speechSynthesis.speak(utterance);
+    setVoiceStatus("Reading aloud. Use your browser/device volume controls.");
+  };
+
+  const listenForVoiceCommand = () => {
+    const browser = window as Window & {
+      SpeechRecognition?: new () => any;
+      webkitSpeechRecognition?: new () => any;
+    };
+    const Recognition = browser.SpeechRecognition ?? browser.webkitSpeechRecognition;
+    if (!Recognition) {
+      setVoiceStatus("Voice commands are not supported in this browser. You can use the on-screen controls.");
+      return;
+    }
+    const recognition = new Recognition();
+    recognition.lang = "hi-IN";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    setVoiceStatus("Listening. Say: repeat, previous, next, or stop.");
+    recognition.onresult = (event: any) => {
+      const transcript = String(event.results?.[0]?.[0]?.transcript ?? "").toLowerCase();
+      if (/repeat|again|dobara|phir se|suniye|sunao/.test(transcript)) repeatCurrentQuestion();
+      else if (/previous|back|pichla|peeche|wapas|पिछला|पीछे/.test(transcript)) void goBack();
+      else if (/next|continue|agla|aage|आगे|अगला/.test(transcript)) void goNext();
+      else if (/stop|band|रुको|बंद/.test(transcript)) {
+        window.speechSynthesis?.cancel();
+        setVoiceStatus("Voice playback stopped.");
+      } else setVoiceStatus(`I heard “${transcript}”. Please use the on-screen controls or try again.`);
+    };
+    recognition.onerror = () => setVoiceStatus("I couldn't hear that clearly. Please try again or use the on-screen controls.");
+    recognition.onend = () => {};
+    recognition.start();
+  };
+
   const submit = async () => {
     if (!question || !section) return;
     if (question.required !== false && !hasAnswer(question, currentAnswer)) {
@@ -249,6 +298,12 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
         <div><p className="text-xs font-bold uppercase tracking-[0.25em] text-cyan-300">Franchise Kart · Guided Discovery</p><h1 className="mt-2 text-2xl font-semibold sm:text-3xl">{session?.brand_name ?? "Business"} Discovery</h1></div>
         <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-right"><p className="text-xs text-slate-400">Your progress</p><p className="text-xl font-semibold">{progress}%</p></div>
       </header>
+      {resumed && <div className="mb-4 rounded-xl border border-cyan-300/20 bg-cyan-300/5 px-4 py-3 text-sm text-cyan-100" role="status">Welcome back. Your saved answers and last position have been restored.</div>}
+      <div className="mb-4 flex flex-wrap gap-2">
+        <button type="button" onClick={repeatCurrentQuestion} className="rounded-lg border border-white/15 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">🔊 Read aloud</button>
+        <button type="button" onClick={listenForVoiceCommand} className="rounded-lg border border-cyan-300/30 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-300/10">🎙 Voice command</button>
+        {voiceStatus && <span className="self-center text-xs text-slate-400" aria-live="polite">{voiceStatus}</span>}
+      </div>
       <div className="mb-6 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300 transition-all duration-500" style={{ width: `${progress}%` }} /></div>
       <div className="mb-5 flex items-center justify-between text-sm text-slate-400"><span>Section {sectionIndex + 1} of {sections.length}</span><span>Question {questionIndex + 1} of {section.questions.length}</span></div>
       <section className="rounded-3xl border border-white/10 bg-slate-900/80 p-6 shadow-2xl shadow-cyan-950/20 sm:p-10">
@@ -256,7 +311,7 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
           <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-cyan-300/10 text-3xl">✦</div>
           <p className="mt-6 text-sm font-semibold uppercase tracking-[0.2em] text-cyan-300">A small step toward clarity</p>
           <h2 className="mt-3 text-3xl font-semibold">{section.title}</h2>
-          <p className="mx-auto mt-4 max-w-xl leading-7 text-slate-300">We’ll take this one question at a time. Share what you know; estimates are fine when exact figures aren’t available. Your progress is saved as you move through the questionnaire.</p>
+          <p className="mx-auto mt-4 max-w-xl leading-7 text-slate-300">{section.intro ?? "We’ll take this one question at a time. Share what you know; estimates are fine when exact figures aren’t available. Your progress is saved as you move through the questionnaire."}</p><p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-400">{section.why_it_matters ?? "Your answers help Franchise Kart understand the current reality before making recommendations. We will distinguish what you report from information that still needs evidence or verification."}</p>
           <button onClick={() => { setIntro(false); setError(""); }} className="mt-8 rounded-xl bg-cyan-300 px-7 py-3 font-semibold text-slate-950 transition hover:bg-cyan-200">Let’s begin <span aria-hidden="true">→</span></button>
         </div> : <>
           <p className="text-sm font-medium text-cyan-300">{section.title}</p>
