@@ -15,6 +15,15 @@ This is a status record for the feature branch and PR #191. It is not production
 
 The current report generator is deliberately conservative. It records answers as owner-reported and not independently verified, identifies unanswered required questions, and marks documents as not provided/verified unless a separate review proves otherwise. It does not claim that it has diagnosed the business, verified financials, or built a final brand-specific transformation plan. It uses no external AI API.
 
+## Validation results from the implementation pass
+
+- Frontend validation workflow: **PASS** — TypeScript check and Next.js production build succeeded on this branch.
+- Edge Function validation workflow: **PASS** — invite, respondent, and new private-report Edge Functions passed Deno type-check.
+- Canonical questionnaire validation workflow: **FAIL BY DESIGN** — strict validator rejects the non-canonical 234-question / 16-section / 14-item checklist draft.
+- Supabase migration workflow: **BLOCKED** — required GitHub Actions secrets are absent; the workflow stopped before linking or applying any migration.
+- Vercel deployment status: **FAILURE DUE TO BUILD-RATE QUOTA** — this does not establish a source build failure. No deployment was made by this pass.
+- End-to-end security, email delivery and actual respondent journey: **NOT TESTED** in a non-production environment.
+
 ## Hard blockers to real completion
 
 1. **Canonical Raahat source is still unavailable in the repository.** The only encoded questionnaire is a clearly labelled 234-question replacement draft with 16 sections and 14 checklist items. It is not the required 95-question / 17-part / 16-checklist original. The fail-closed validator must continue to fail until the verbatim original is reconciled.
