@@ -1,5 +1,6 @@
 "use client";
 
+import { supabaseKey, supabaseUrl } from "@/lib/supabase";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Question = {
@@ -30,10 +31,7 @@ type ApiResult = {
   submitted?: boolean;
 };
 
-const endpoint = () => {
-  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  return base ? `${base.replace(/\/$/, "")}/functions/v1/brand-discovery-respondent` : "";
-};
+const endpoint = () => `${supabaseUrl.replace(/\/$/, "")}/functions/v1/brand-discovery-respondent`;
 
 export default function BrandDiscoveryRespondent({ token }: { token: string }) {
   const [session, setSession] = useState<Session | null>(null);
@@ -54,7 +52,7 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
     if (!url) throw new Error("This questionnaire link is not configured yet. Please contact Franchise Kart.");
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
       cache: "no-store",
       body: JSON.stringify({ action, token, ...extra }),
     });
