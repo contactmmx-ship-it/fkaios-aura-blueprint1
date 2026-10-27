@@ -47,6 +47,7 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
   const [notice, setNotice] = useState("");
   const [intro, setIntro] = useState(true);
   const [submitted, setSubmitted] = useState(false);
+  const [readyForAutosave, setReadyForAutosave] = useState(false);
 
   const api = useCallback(async (action: string, extra: Record<string, unknown> = {}): Promise<ApiResult> => {
     const url = endpoint();
@@ -92,6 +93,7 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
         setQuestionIndex(Math.min(Math.max(s.current_question ?? 0, 0), Math.max(savedSection.questions.length - 1, 0)));
         setSubmitted(s.status === "submitted");
         setIntro(!(Object.keys(restored).length > 0));
+        setReadyForAutosave(true);
       } catch (e) {
         if (alive) setError(e instanceof Error ? e.message : "Unable to open this questionnaire.");
       } finally {
@@ -108,6 +110,26 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
   const answeredCount = flatQuestions.filter((q) => (answers[q.id] ?? "").trim().length > 0).length;
   const progress = flatQuestions.length ? Math.round((answeredCount / flatQuestions.length) * 100) : 0;
   const currentAnswer = question ? answers[question.id] ?? "" : "";
+
+  useEffect(() => {
+    if (!readyForAutosave || loading || submitted || !question || !section || answers[question.id] === undefined) return;
+    const timer = window.setTimeout(async () => {
+      try {
+        await api("save", {
+          question_id: question.id,
+          section_id: section.id,
+          answer: answers[question.id],
+          current_section: sectionIndex,
+          current_question: questionIndex,
+        });
+        setNotice("Auto-saved securely.");
+        setError("");
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Auto-save failed. Please use Save progress before leaving.");
+      }
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [answers, api, loading, question, questionIndex, readyForAutosave, section, sectionIndex, submitted]);
 
   const saveCurrent = useCallback(async (targetSection: number, targetQuestion: number) => {
     if (!question || !section) return;
