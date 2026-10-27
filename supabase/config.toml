@@ -5,3 +5,7 @@ project_id = "nrlsqshkjuuwiovthrnb"
 # only for this public-link endpoint; all other functions keep the default.
 [functions.brand-discovery-respondent]
 verify_jwt = false
+
+# Internal staff endpoint: requires a valid Supabase user JWT and server-side email allowlist.
+[functions.brand-discovery-private-report]
+verify_jwt = true
