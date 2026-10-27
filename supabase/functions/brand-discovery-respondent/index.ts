@@ -18,6 +18,39 @@ async function hashToken(token: string) {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
   return Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, "0")).join("");
 }
+async function sendCompletionEmails(session: any): Promise<{ owner: string; fk: string }> {
+  const apiKey = Deno.env.get("RESEND_API_KEY");
+  const from = Deno.env.get("BRAND_DISCOVERY_EMAIL_FROM");
+  const fkEmail = Deno.env.get("FK_BRAND_DISCOVERY_REPORT_EMAIL");
+  if (!apiKey || !from || !session.respondent_email || !fkEmail) {
+    return { owner: "not_configured", fk: "not_configured" };
+  }
+  const send = async (to: string, subject: string, html: string) => {
+    try {
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ from, to: [to], subject, html }),
+      });
+      return response.ok ? "sent" : "failed";
+    } catch {
+      return "failed";
+    }
+  };
+  const brand = String(session.brand_name ?? "your business").replace(/[<>]/g, "");
+  const owner = await send(
+    session.respondent_email,
+    `Questionnaire completed — ${brand}`,
+    `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;line-height:1.6"><h2>Thank you for completing your discovery questionnaire.</h2><p>Your responses for <strong>${brand}</strong> have been received successfully.</p><p>The Franchise Kart team will review the information and contact you about next steps.</p><p>This email confirms receipt only; it does not represent a business diagnosis or approval.</p><p>Regards,<br>Franchise Kart</p></div>`
+  );
+  const fk = await send(
+    fkEmail,
+    `Private Brand Discovery submission received — ${brand}`,
+    `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;line-height:1.6"><h2>New completed brand discovery</h2><p><strong>Brand:</strong> ${brand}</p><p><strong>Respondent:</strong> ${String(session.respondent_name ?? "Not supplied").replace(/[<>]/g, "")}</p><p><strong>Submission ID:</strong> ${String(session.id)}</p><p>This is a notification only. Open the authorised Franchise Kart report workspace to review the private evidence ledger. No private diagnosis or execution plan is included in this email.</p></div>`
+  );
+  return { owner, fk };
+}
+
 function hasMeaningfulAnswer(value: unknown): boolean {
   if (typeof value === "string") return value.trim().length > 0;
   if (typeof value === "number") return Number.isFinite(value);
@@ -135,7 +168,27 @@ Deno.serve(async (req: Request) => {
       status: "submitted", submitted_at: now, updated_at: now,
     }).eq("id", session.id);
     if (submitError) return reply(500, { error: "submit_failed" });
-    return reply(200, { submitted: true, message: "Thank you. Your responses have been received." });
+
+    // Create an empty private-report record now; an allowlisted FK staff member
+    // generates the evidence-first report through brand-discovery-private-report.
+    const { error: reportError } = await db.from("brand_discovery_private_reports").upsert({
+      session_id: session.id,
+      analysis: { status: "PENDING_REVIEW", owner_reported_answers: (answers ?? []).length },
+      execution_plan: { status: "NOT_GENERATED" },
+      generation_status: "pending",
+      updated_at: now,
+    }, { onConflict: "session_id" });
+    if (reportError) {
+      // Submission remains accepted; staff can create the report from the session later.
+      console.error("private_report_placeholder_failed", reportError.code ?? "database_error");
+    }
+    const emailDelivery = await sendCompletionEmails({ ...session, submitted_at: now });
+    return reply(200, {
+      submitted: true,
+      message: "Thank you. Your responses have been received.",
+      email_delivery: emailDelivery,
+      private_report_status: reportError ? "pending_creation" : "pending_staff_review",
+    });
   }
   return reply(400, { error: "unknown_action" });
 });
