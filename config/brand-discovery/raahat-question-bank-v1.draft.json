@@ -1437,13 +1437,13 @@
           "id": "s3_q1",
           "number": 1,
           "prompt": "Which services are currently offered by Raahat?",
-          "type": "multiple_choice",
+          "type": "service_status",
           "required": true,
           "source_status": "CANONICAL_SOURCE_MAPPED_DRAFT",
           "source_section_number": 3,
           "source_block": "### 1. Which services are currently offered by Raahat?\n*Select all that apply.*\n\n- ☐ Restaurant / dine-in\n- ☐ Café / snacks / beverages\n- ☐ Banquets / functions\n- ☐ Hotel accommodation\n- ☐ Room service\n- ☐ Outdoor catering\n- ☐ Takeaway\n- ☐ Home delivery\n- ☐ Corporate / group meals\n- ☐ Birthday and family events\n- ☐ Wedding-related events\n- ☐ Other\n\nFor each selected service, indicate its status:\n\n- ☐ Fully operational\n- ☐ Partially operational\n- ☐ Temporarily inactive\n- ☐ Permanently discontinued",
           "selection_instruction": "Select all that apply.",
-          "options": [
+          "service_options": [
             {
               "value": "s3_q1_o1",
               "label": "Restaurant / dine-in"
@@ -1491,7 +1491,9 @@
             {
               "value": "s3_q1_o12",
               "label": "Other"
-            },
+            }
+          ],
+          "status_options": [
             {
               "value": "s3_q1_o13",
               "label": "Fully operational"
@@ -1509,7 +1511,8 @@
               "label": "Permanently discontinued"
             }
           ],
-          "selection_mode": "multiple"
+          "service_instruction": "Select all that apply.",
+          "status_instruction": "For each selected service, indicate its status:"
         },
         {
           "id": "s3_q2",
@@ -1597,7 +1600,7 @@
               "label": "Not sure"
             }
           ],
-          "selection_mode": "single"
+          "selection_mode": "multiple"
         },
         {
           "id": "s3_q4",
@@ -1928,7 +1931,7 @@
               "label": "Item-wise sales data is not available"
             }
           ],
-          "selection_mode": "single"
+          "selection_mode": "multiple"
         },
         {
           "id": "s4_q3",
@@ -2422,43 +2425,160 @@
           "id": "s4_q15",
           "number": 15,
           "prompt": "What is the average customer bill for breakfast, lunch, dinner and group dining?",
-          "type": "multiple_choice",
+          "type": "multi_part",
           "required": true,
           "source_status": "CANONICAL_SOURCE_MAPPED_DRAFT",
           "source_section_number": 4,
           "source_block": "### 15. What is the average customer bill for breakfast, lunch, dinner and group dining?\n*Select one range for each meal period.*\n\n- ☐ Below ₹200\n- ☐ ₹200–₹400\n- ☐ ₹401–₹700\n- ☐ ₹701–₹1,000\n- ☐ Above ₹1,000\n- ☐ Varies too much to estimate\n- ☐ Not tracked",
           "selection_instruction": "Select one range for each meal period.",
-          "options": [
+          "options": [],
+          "parts": [
             {
-              "value": "s4_q15_o1",
-              "label": "Below ₹200"
+              "id": "period_1",
+              "label": "Breakfast",
+              "instruction": "Select one range for this meal period.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s4_q15_p1_o1",
+                  "label": "Below ₹200"
+                },
+                {
+                  "value": "s4_q15_p1_o2",
+                  "label": "₹200–₹400"
+                },
+                {
+                  "value": "s4_q15_p1_o3",
+                  "label": "₹401–₹700"
+                },
+                {
+                  "value": "s4_q15_p1_o4",
+                  "label": "₹701–₹1,000"
+                },
+                {
+                  "value": "s4_q15_p1_o5",
+                  "label": "Above ₹1,000"
+                },
+                {
+                  "value": "s4_q15_p1_o6",
+                  "label": "Varies too much to estimate"
+                },
+                {
+                  "value": "s4_q15_p1_o7",
+                  "label": "Not tracked"
+                }
+              ]
             },
             {
-              "value": "s4_q15_o2",
-              "label": "₹200–₹400"
+              "id": "period_2",
+              "label": "Lunch",
+              "instruction": "Select one range for this meal period.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s4_q15_p2_o1",
+                  "label": "Below ₹200"
+                },
+                {
+                  "value": "s4_q15_p2_o2",
+                  "label": "₹200–₹400"
+                },
+                {
+                  "value": "s4_q15_p2_o3",
+                  "label": "₹401–₹700"
+                },
+                {
+                  "value": "s4_q15_p2_o4",
+                  "label": "₹701–₹1,000"
+                },
+                {
+                  "value": "s4_q15_p2_o5",
+                  "label": "Above ₹1,000"
+                },
+                {
+                  "value": "s4_q15_p2_o6",
+                  "label": "Varies too much to estimate"
+                },
+                {
+                  "value": "s4_q15_p2_o7",
+                  "label": "Not tracked"
+                }
+              ]
             },
             {
-              "value": "s4_q15_o3",
-              "label": "₹401–₹700"
+              "id": "period_3",
+              "label": "Dinner",
+              "instruction": "Select one range for this meal period.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s4_q15_p3_o1",
+                  "label": "Below ₹200"
+                },
+                {
+                  "value": "s4_q15_p3_o2",
+                  "label": "₹200–₹400"
+                },
+                {
+                  "value": "s4_q15_p3_o3",
+                  "label": "₹401–₹700"
+                },
+                {
+                  "value": "s4_q15_p3_o4",
+                  "label": "₹701–₹1,000"
+                },
+                {
+                  "value": "s4_q15_p3_o5",
+                  "label": "Above ₹1,000"
+                },
+                {
+                  "value": "s4_q15_p3_o6",
+                  "label": "Varies too much to estimate"
+                },
+                {
+                  "value": "s4_q15_p3_o7",
+                  "label": "Not tracked"
+                }
+              ]
             },
             {
-              "value": "s4_q15_o4",
-              "label": "₹701–₹1,000"
-            },
-            {
-              "value": "s4_q15_o5",
-              "label": "Above ₹1,000"
-            },
-            {
-              "value": "s4_q15_o6",
-              "label": "Varies too much to estimate"
-            },
-            {
-              "value": "s4_q15_o7",
-              "label": "Not tracked"
+              "id": "period_4",
+              "label": "Group dining",
+              "instruction": "Select one range for this meal period.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s4_q15_p4_o1",
+                  "label": "Below ₹200"
+                },
+                {
+                  "value": "s4_q15_p4_o2",
+                  "label": "₹200–₹400"
+                },
+                {
+                  "value": "s4_q15_p4_o3",
+                  "label": "₹401–₹700"
+                },
+                {
+                  "value": "s4_q15_p4_o4",
+                  "label": "₹701–₹1,000"
+                },
+                {
+                  "value": "s4_q15_p4_o5",
+                  "label": "Above ₹1,000"
+                },
+                {
+                  "value": "s4_q15_p4_o6",
+                  "label": "Varies too much to estimate"
+                },
+                {
+                  "value": "s4_q15_p4_o7",
+                  "label": "Not tracked"
+                }
+              ]
             }
           ],
-          "selection_mode": "single"
+          "help_text": "Choose one range for each meal period named below."
         },
         {
           "id": "s4_q16",
@@ -2749,59 +2869,76 @@
           "id": "s5_q1",
           "number": 1,
           "prompt": "How many rooms does Raahat have, and what are the categories?",
-          "type": "multiple_choice",
+          "type": "multi_part",
           "required": true,
           "source_status": "CANONICAL_SOURCE_MAPPED_DRAFT",
           "source_section_number": 5,
           "source_block": "### 1. How many rooms does Raahat have, and what are the categories?\n*Select the applicable room-count range.*\n\n- ☐ 1–10\n- ☐ 11–20\n- ☐ 21–30\n- ☐ 31–50\n- ☐ More than 50\n- ☐ Exact count to be confirmed\n\nRoom categories:\n\n- ☐ Standard\n- ☐ Deluxe\n- ☐ Executive\n- ☐ Suite\n- ☐ Other",
           "selection_instruction": "Select the applicable room-count range.",
-          "options": [
+          "options": [],
+          "parts": [
             {
-              "value": "s5_q1_o1",
-              "label": "1–10"
+              "id": "room_count",
+              "label": "Room count",
+              "instruction": "Select the applicable room-count range.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s5_q1_count_o1",
+                  "label": "1–10"
+                },
+                {
+                  "value": "s5_q1_count_o2",
+                  "label": "11–20"
+                },
+                {
+                  "value": "s5_q1_count_o3",
+                  "label": "21–30"
+                },
+                {
+                  "value": "s5_q1_count_o4",
+                  "label": "31–50"
+                },
+                {
+                  "value": "s5_q1_count_o5",
+                  "label": "More than 50"
+                },
+                {
+                  "value": "s5_q1_count_o6",
+                  "label": "Exact count to be confirmed"
+                }
+              ]
             },
             {
-              "value": "s5_q1_o2",
-              "label": "11–20"
-            },
-            {
-              "value": "s5_q1_o3",
-              "label": "21–30"
-            },
-            {
-              "value": "s5_q1_o4",
-              "label": "31–50"
-            },
-            {
-              "value": "s5_q1_o5",
-              "label": "More than 50"
-            },
-            {
-              "value": "s5_q1_o6",
-              "label": "Exact count to be confirmed"
-            },
-            {
-              "value": "s5_q1_o7",
-              "label": "Standard"
-            },
-            {
-              "value": "s5_q1_o8",
-              "label": "Deluxe"
-            },
-            {
-              "value": "s5_q1_o9",
-              "label": "Executive"
-            },
-            {
-              "value": "s5_q1_o10",
-              "label": "Suite"
-            },
-            {
-              "value": "s5_q1_o11",
-              "label": "Other"
+              "id": "room_categories",
+              "label": "Room categories",
+              "instruction": "Select all room categories that apply.",
+              "selection_mode": "multiple",
+              "options": [
+                {
+                  "value": "s5_q1_category_o1",
+                  "label": "Standard"
+                },
+                {
+                  "value": "s5_q1_category_o2",
+                  "label": "Deluxe"
+                },
+                {
+                  "value": "s5_q1_category_o3",
+                  "label": "Executive"
+                },
+                {
+                  "value": "s5_q1_category_o4",
+                  "label": "Suite"
+                },
+                {
+                  "value": "s5_q1_category_o5",
+                  "label": "Other"
+                }
+              ]
             }
           ],
-          "selection_mode": "single"
+          "help_text": "Answer both the room-count and room-category parts."
         },
         {
           "id": "s5_q2",
@@ -2845,85 +2982,643 @@
           "id": "s5_q3",
           "number": 3,
           "prompt": "What is the average room rate by category?",
-          "type": "multiple_choice",
+          "type": "multi_part",
           "required": true,
           "source_status": "CANONICAL_SOURCE_MAPPED_DRAFT",
           "source_section_number": 5,
           "source_block": "### 3. What is the average room rate by category?\n*Select the closest range for each category.*\n\n- ☐ Below ₹1,000\n- ☐ ₹1,000–₹1,999\n- ☐ ₹2,000–₹2,999\n- ☐ ₹3,000–₹4,999\n- ☐ ₹5,000 or above\n- ☐ Rates vary by season\n- ☐ Not tracked",
           "selection_instruction": "Select the closest range for each category.",
-          "options": [
+          "options": [],
+          "parts": [
             {
-              "value": "s5_q3_o1",
-              "label": "Below ₹1,000"
+              "id": "rate_1",
+              "label": "Standard",
+              "instruction": "Select the closest range for this category.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s5_q3_cat1_o1",
+                  "label": "Below ₹1,000"
+                },
+                {
+                  "value": "s5_q3_cat1_o2",
+                  "label": "₹1,000–₹1,999"
+                },
+                {
+                  "value": "s5_q3_cat1_o3",
+                  "label": "₹2,000–₹2,999"
+                },
+                {
+                  "value": "s5_q3_cat1_o4",
+                  "label": "₹3,000–₹4,999"
+                },
+                {
+                  "value": "s5_q3_cat1_o5",
+                  "label": "₹5,000 or above"
+                },
+                {
+                  "value": "s5_q3_cat1_o6",
+                  "label": "Rates vary by season"
+                },
+                {
+                  "value": "s5_q3_cat1_o7",
+                  "label": "Not tracked"
+                }
+              ]
             },
             {
-              "value": "s5_q3_o2",
-              "label": "₹1,000–₹1,999"
+              "id": "rate_2",
+              "label": "Deluxe",
+              "instruction": "Select the closest range for this category.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s5_q3_cat2_o1",
+                  "label": "Below ₹1,000"
+                },
+                {
+                  "value": "s5_q3_cat2_o2",
+                  "label": "₹1,000–₹1,999"
+                },
+                {
+                  "value": "s5_q3_cat2_o3",
+                  "label": "₹2,000–₹2,999"
+                },
+                {
+                  "value": "s5_q3_cat2_o4",
+                  "label": "₹3,000–₹4,999"
+                },
+                {
+                  "value": "s5_q3_cat2_o5",
+                  "label": "₹5,000 or above"
+                },
+                {
+                  "value": "s5_q3_cat2_o6",
+                  "label": "Rates vary by season"
+                },
+                {
+                  "value": "s5_q3_cat2_o7",
+                  "label": "Not tracked"
+                }
+              ]
             },
             {
-              "value": "s5_q3_o3",
-              "label": "₹2,000–₹2,999"
+              "id": "rate_3",
+              "label": "Executive",
+              "instruction": "Select the closest range for this category.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s5_q3_cat3_o1",
+                  "label": "Below ₹1,000"
+                },
+                {
+                  "value": "s5_q3_cat3_o2",
+                  "label": "₹1,000–₹1,999"
+                },
+                {
+                  "value": "s5_q3_cat3_o3",
+                  "label": "₹2,000–₹2,999"
+                },
+                {
+                  "value": "s5_q3_cat3_o4",
+                  "label": "₹3,000–₹4,999"
+                },
+                {
+                  "value": "s5_q3_cat3_o5",
+                  "label": "₹5,000 or above"
+                },
+                {
+                  "value": "s5_q3_cat3_o6",
+                  "label": "Rates vary by season"
+                },
+                {
+                  "value": "s5_q3_cat3_o7",
+                  "label": "Not tracked"
+                }
+              ]
             },
             {
-              "value": "s5_q3_o4",
-              "label": "₹3,000–₹4,999"
+              "id": "rate_4",
+              "label": "Suite",
+              "instruction": "Select the closest range for this category.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s5_q3_cat4_o1",
+                  "label": "Below ₹1,000"
+                },
+                {
+                  "value": "s5_q3_cat4_o2",
+                  "label": "₹1,000–₹1,999"
+                },
+                {
+                  "value": "s5_q3_cat4_o3",
+                  "label": "₹2,000–₹2,999"
+                },
+                {
+                  "value": "s5_q3_cat4_o4",
+                  "label": "₹3,000–₹4,999"
+                },
+                {
+                  "value": "s5_q3_cat4_o5",
+                  "label": "₹5,000 or above"
+                },
+                {
+                  "value": "s5_q3_cat4_o6",
+                  "label": "Rates vary by season"
+                },
+                {
+                  "value": "s5_q3_cat4_o7",
+                  "label": "Not tracked"
+                }
+              ]
             },
             {
-              "value": "s5_q3_o5",
-              "label": "₹5,000 or above"
-            },
-            {
-              "value": "s5_q3_o6",
-              "label": "Rates vary by season"
-            },
-            {
-              "value": "s5_q3_o7",
-              "label": "Not tracked"
+              "id": "rate_5",
+              "label": "Other category",
+              "instruction": "Select the closest range for this category.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s5_q3_cat5_o1",
+                  "label": "Below ₹1,000"
+                },
+                {
+                  "value": "s5_q3_cat5_o2",
+                  "label": "₹1,000–₹1,999"
+                },
+                {
+                  "value": "s5_q3_cat5_o3",
+                  "label": "₹2,000–₹2,999"
+                },
+                {
+                  "value": "s5_q3_cat5_o4",
+                  "label": "₹3,000–₹4,999"
+                },
+                {
+                  "value": "s5_q3_cat5_o5",
+                  "label": "₹5,000 or above"
+                },
+                {
+                  "value": "s5_q3_cat5_o6",
+                  "label": "Rates vary by season"
+                },
+                {
+                  "value": "s5_q3_cat5_o7",
+                  "label": "Not tracked"
+                }
+              ]
             }
           ],
-          "selection_mode": "single"
+          "help_text": "Select one rate range for each room category. If a listed category does not apply, use the closest applicable category and explain in the follow-up discussion."
         },
         {
           "id": "s5_q4",
           "number": 4,
           "prompt": "What is the average occupancy for each month over the last year?",
-          "type": "multiple_choice",
+          "type": "multi_part",
           "required": true,
           "source_status": "CANONICAL_SOURCE_MAPPED_DRAFT",
           "source_section_number": 5,
           "source_block": "### 4. What is the average occupancy for each month over the last year?\n*Select one.*\n\n- ☐ Below 20%\n- ☐ 20–39%\n- ☐ 40–59%\n- ☐ 60–79%\n- ☐ 80% or above\n- ☐ Highly seasonal\n- ☐ Not tracked",
           "selection_instruction": "Select one.",
-          "options": [
+          "options": [],
+          "parts": [
             {
-              "value": "s5_q4_o1",
-              "label": "Below 20%"
+              "id": "month_1",
+              "label": "January",
+              "instruction": "Select one occupancy range for this month.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s5_q4_m1_o1",
+                  "label": "Below 20%"
+                },
+                {
+                  "value": "s5_q4_m1_o2",
+                  "label": "20–39%"
+                },
+                {
+                  "value": "s5_q4_m1_o3",
+                  "label": "40–59%"
+                },
+                {
+                  "value": "s5_q4_m1_o4",
+                  "label": "60–79%"
+                },
+                {
+                  "value": "s5_q4_m1_o5",
+                  "label": "80% or above"
+                },
+                {
+                  "value": "s5_q4_m1_o6",
+                  "label": "Highly seasonal"
+                },
+                {
+                  "value": "s5_q4_m1_o7",
+                  "label": "Not tracked"
+                }
+              ]
             },
             {
-              "value": "s5_q4_o2",
-              "label": "20–39%"
+              "id": "month_2",
+              "label": "February",
+              "instruction": "Select one occupancy range for this month.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s5_q4_m2_o1",
+                  "label": "Below 20%"
+                },
+                {
+                  "value": "s5_q4_m2_o2",
+                  "label": "20–39%"
+                },
+                {
+                  "value": "s5_q4_m2_o3",
+                  "label": "40–59%"
+                },
+                {
+                  "value": "s5_q4_m2_o4",
+                  "label": "60–79%"
+                },
+                {
+                  "value": "s5_q4_m2_o5",
+                  "label": "80% or above"
+                },
+                {
+                  "value": "s5_q4_m2_o6",
+                  "label": "Highly seasonal"
+                },
+                {
+                  "value": "s5_q4_m2_o7",
+                  "label": "Not tracked"
+                }
+              ]
             },
             {
-              "value": "s5_q4_o3",
-              "label": "40–59%"
+              "id": "month_3",
+              "label": "March",
+              "instruction": "Select one occupancy range for this month.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s5_q4_m3_o1",
+                  "label": "Below 20%"
+                },
+                {
+                  "value": "s5_q4_m3_o2",
+                  "label": "20–39%"
+                },
+                {
+                  "value": "s5_q4_m3_o3",
+                  "label": "40–59%"
+                },
+                {
+                  "value": "s5_q4_m3_o4",
+                  "label": "60–79%"
+                },
+                {
+                  "value": "s5_q4_m3_o5",
+                  "label": "80% or above"
+                },
+                {
+                  "value": "s5_q4_m3_o6",
+                  "label": "Highly seasonal"
+                },
+                {
+                  "value": "s5_q4_m3_o7",
+                  "label": "Not tracked"
+                }
+              ]
             },
             {
-              "value": "s5_q4_o4",
-              "label": "60–79%"
+              "id": "month_4",
+              "label": "April",
+              "instruction": "Select one occupancy range for this month.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s5_q4_m4_o1",
+                  "label": "Below 20%"
+                },
+                {
+                  "value": "s5_q4_m4_o2",
+                  "label": "20–39%"
+                },
+                {
+                  "value": "s5_q4_m4_o3",
+                  "label": "40–59%"
+                },
+                {
+                  "value": "s5_q4_m4_o4",
+                  "label": "60–79%"
+                },
+                {
+                  "value": "s5_q4_m4_o5",
+                  "label": "80% or above"
+                },
+                {
+                  "value": "s5_q4_m4_o6",
+                  "label": "Highly seasonal"
+                },
+                {
+                  "value": "s5_q4_m4_o7",
+                  "label": "Not tracked"
+                }
+              ]
             },
             {
-              "value": "s5_q4_o5",
-              "label": "80% or above"
+              "id": "month_5",
+              "label": "May",
+              "instruction": "Select one occupancy range for this month.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s5_q4_m5_o1",
+                  "label": "Below 20%"
+                },
+                {
+                  "value": "s5_q4_m5_o2",
+                  "label": "20–39%"
+                },
+                {
+                  "value": "s5_q4_m5_o3",
+                  "label": "40–59%"
+                },
+                {
+                  "value": "s5_q4_m5_o4",
+                  "label": "60–79%"
+                },
+                {
+                  "value": "s5_q4_m5_o5",
+                  "label": "80% or above"
+                },
+                {
+                  "value": "s5_q4_m5_o6",
+                  "label": "Highly seasonal"
+                },
+                {
+                  "value": "s5_q4_m5_o7",
+                  "label": "Not tracked"
+                }
+              ]
             },
             {
-              "value": "s5_q4_o6",
-              "label": "Highly seasonal"
+              "id": "month_6",
+              "label": "June",
+              "instruction": "Select one occupancy range for this month.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s5_q4_m6_o1",
+                  "label": "Below 20%"
+                },
+                {
+                  "value": "s5_q4_m6_o2",
+                  "label": "20–39%"
+                },
+                {
+                  "value": "s5_q4_m6_o3",
+                  "label": "40–59%"
+                },
+                {
+                  "value": "s5_q4_m6_o4",
+                  "label": "60–79%"
+                },
+                {
+                  "value": "s5_q4_m6_o5",
+                  "label": "80% or above"
+                },
+                {
+                  "value": "s5_q4_m6_o6",
+                  "label": "Highly seasonal"
+                },
+                {
+                  "value": "s5_q4_m6_o7",
+                  "label": "Not tracked"
+                }
+              ]
             },
             {
-              "value": "s5_q4_o7",
-              "label": "Not tracked"
+              "id": "month_7",
+              "label": "July",
+              "instruction": "Select one occupancy range for this month.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s5_q4_m7_o1",
+                  "label": "Below 20%"
+                },
+                {
+                  "value": "s5_q4_m7_o2",
+                  "label": "20–39%"
+                },
+                {
+                  "value": "s5_q4_m7_o3",
+                  "label": "40–59%"
+                },
+                {
+                  "value": "s5_q4_m7_o4",
+                  "label": "60–79%"
+                },
+                {
+                  "value": "s5_q4_m7_o5",
+                  "label": "80% or above"
+                },
+                {
+                  "value": "s5_q4_m7_o6",
+                  "label": "Highly seasonal"
+                },
+                {
+                  "value": "s5_q4_m7_o7",
+                  "label": "Not tracked"
+                }
+              ]
+            },
+            {
+              "id": "month_8",
+              "label": "August",
+              "instruction": "Select one occupancy range for this month.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s5_q4_m8_o1",
+                  "label": "Below 20%"
+                },
+                {
+                  "value": "s5_q4_m8_o2",
+                  "label": "20–39%"
+                },
+                {
+                  "value": "s5_q4_m8_o3",
+                  "label": "40–59%"
+                },
+                {
+                  "value": "s5_q4_m8_o4",
+                  "label": "60–79%"
+                },
+                {
+                  "value": "s5_q4_m8_o5",
+                  "label": "80% or above"
+                },
+                {
+                  "value": "s5_q4_m8_o6",
+                  "label": "Highly seasonal"
+                },
+                {
+                  "value": "s5_q4_m8_o7",
+                  "label": "Not tracked"
+                }
+              ]
+            },
+            {
+              "id": "month_9",
+              "label": "September",
+              "instruction": "Select one occupancy range for this month.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s5_q4_m9_o1",
+                  "label": "Below 20%"
+                },
+                {
+                  "value": "s5_q4_m9_o2",
+                  "label": "20–39%"
+                },
+                {
+                  "value": "s5_q4_m9_o3",
+                  "label": "40–59%"
+                },
+                {
+                  "value": "s5_q4_m9_o4",
+                  "label": "60–79%"
+                },
+                {
+                  "value": "s5_q4_m9_o5",
+                  "label": "80% or above"
+                },
+                {
+                  "value": "s5_q4_m9_o6",
+                  "label": "Highly seasonal"
+                },
+                {
+                  "value": "s5_q4_m9_o7",
+                  "label": "Not tracked"
+                }
+              ]
+            },
+            {
+              "id": "month_10",
+              "label": "October",
+              "instruction": "Select one occupancy range for this month.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s5_q4_m10_o1",
+                  "label": "Below 20%"
+                },
+                {
+                  "value": "s5_q4_m10_o2",
+                  "label": "20–39%"
+                },
+                {
+                  "value": "s5_q4_m10_o3",
+                  "label": "40–59%"
+                },
+                {
+                  "value": "s5_q4_m10_o4",
+                  "label": "60–79%"
+                },
+                {
+                  "value": "s5_q4_m10_o5",
+                  "label": "80% or above"
+                },
+                {
+                  "value": "s5_q4_m10_o6",
+                  "label": "Highly seasonal"
+                },
+                {
+                  "value": "s5_q4_m10_o7",
+                  "label": "Not tracked"
+                }
+              ]
+            },
+            {
+              "id": "month_11",
+              "label": "November",
+              "instruction": "Select one occupancy range for this month.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s5_q4_m11_o1",
+                  "label": "Below 20%"
+                },
+                {
+                  "value": "s5_q4_m11_o2",
+                  "label": "20–39%"
+                },
+                {
+                  "value": "s5_q4_m11_o3",
+                  "label": "40–59%"
+                },
+                {
+                  "value": "s5_q4_m11_o4",
+                  "label": "60–79%"
+                },
+                {
+                  "value": "s5_q4_m11_o5",
+                  "label": "80% or above"
+                },
+                {
+                  "value": "s5_q4_m11_o6",
+                  "label": "Highly seasonal"
+                },
+                {
+                  "value": "s5_q4_m11_o7",
+                  "label": "Not tracked"
+                }
+              ]
+            },
+            {
+              "id": "month_12",
+              "label": "December",
+              "instruction": "Select one occupancy range for this month.",
+              "selection_mode": "single",
+              "options": [
+                {
+                  "value": "s5_q4_m12_o1",
+                  "label": "Below 20%"
+                },
+                {
+                  "value": "s5_q4_m12_o2",
+                  "label": "20–39%"
+                },
+                {
+                  "value": "s5_q4_m12_o3",
+                  "label": "40–59%"
+                },
+                {
+                  "value": "s5_q4_m12_o4",
+                  "label": "60–79%"
+                },
+                {
+                  "value": "s5_q4_m12_o5",
+                  "label": "80% or above"
+                },
+                {
+                  "value": "s5_q4_m12_o6",
+                  "label": "Highly seasonal"
+                },
+                {
+                  "value": "s5_q4_m12_o7",
+                  "label": "Not tracked"
+                }
+              ]
             }
           ],
-          "selection_mode": "single"
+          "help_text": "The question asks for the average occupancy for each month over the last year; choose one range per month."
         },
         {
           "id": "s5_q5",
@@ -3380,7 +4075,7 @@
           "id": "s6_q1",
           "number": 1,
           "prompt": "What is the seating and floating capacity of each hall or event space?",
-          "type": "multiple_choice",
+          "type": "repeatable_choice",
           "required": true,
           "source_status": "CANONICAL_SOURCE_MAPPED_DRAFT",
           "source_section_number": 6,
@@ -3412,7 +4107,8 @@
               "label": "Capacity needs verification"
             }
           ],
-          "selection_mode": "single"
+          "row_label": "Hall or event space name",
+          "row_prompt": "Add one row for each hall or event space, then choose its seating/floating capacity range."
         },
         {
           "id": "s6_q2",
