@@ -144,6 +144,13 @@ Deno.serve(async (req: Request) => {
   let body: any;
   try { body = await req.json(); } catch { return reply(400, { error: "invalid_json" }); }
   const action = body?.action;
+  if (action === "list_templates") {
+    const { data, error } = await db.from("brand_discovery_questionnaire_versions")
+      .select("id,slug,version,brand_category,title,locale,status")
+      .eq("status", "active").order("slug").order("version", { ascending: false });
+    if (error) return reply(500, { error: "could_not_list_active_templates" });
+    return reply(200, { templates: data ?? [] });
+  }
   if (action === "list") {
     const { data, error } = await db.from("brand_discovery_sessions")
       .select("id,brand_name,brand_category,respondent_name,respondent_email,status,submitted_at,updated_at")
