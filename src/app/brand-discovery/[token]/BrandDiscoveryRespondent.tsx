@@ -205,8 +205,16 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
 
   const goBack = async () => {
     if (!section) return;
+    const targetSection = questionIndex > 0 ? sectionIndex : Math.max(sectionIndex - 1, 0);
+    const targetQuestion = questionIndex > 0
+      ? questionIndex - 1
+      : sectionIndex > 0
+        ? Math.max((sections[sectionIndex - 1]?.questions.length ?? 1) - 1, 0)
+        : 0;
     try {
-      await saveCurrent(sectionIndex, questionIndex);
+      // Persist the current answer while moving the stored resume pointer to
+      // the question the respondent will actually see after navigating back.
+      await saveCurrent(targetSection, targetQuestion);
       if (questionIndex > 0) setQuestionIndex(questionIndex - 1);
       else if (sectionIndex > 0) {
         const prev = sections[sectionIndex - 1];
