@@ -19,6 +19,7 @@ on:
       - "package-lock.json"
       - "next.config.*"
       - "tsconfig.json"
+      - "tsconfig.brand-discovery.json"
       - ".github/workflows/brand-discovery-frontend-validation.yml"
 
 permissions:
