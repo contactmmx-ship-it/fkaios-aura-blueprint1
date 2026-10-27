@@ -19,15 +19,30 @@ async function hashToken(token: string) {
 }
 function raahatCanonicalGate(questionnaire: any): boolean {
   if (!questionnaire || questionnaire.status !== "active" ||
-      questionnaire.source_status !== "CANONICAL_SOURCE_TRANSCRIBED_AND_RECONCILED" ||
+      questionnaire.source_status !== "CANONICAL_SOURCE_VERIFIED" ||
       questionnaire.question_count !== 235 ||
       !Array.isArray(questionnaire.sections) || questionnaire.sections.length !== 16 ||
       !Array.isArray(questionnaire.document_checklist) || questionnaire.document_checklist.length !== 20 ||
-      !questionnaire.owner_declaration || !questionnaire.confidentiality_text ||
-      !questionnaire.franchise_kart_signoff ||
-      questionnaire.source_reconciliation?.exact_wording_verified !== true ||
-      questionnaire.source_reconciliation?.selection_rules_verified !== true ||
-      questionnaire.source_reconciliation?.checklist_verified !== true) return false;
+      typeof questionnaire.confidentiality_and_acknowledgement !== "string" ||
+      !questionnaire.confidentiality_and_acknowledgement.trim()) return false;
+
+  const reconciliation = questionnaire.source_reconciliation;
+  const requiredReviewFlags = [
+    "exact_prompt_and_source_block_mapping",
+    "options_transcribed",
+    "selection_rules_interactive_verified",
+    "checklist_interactive_verified",
+    "acknowledgement_ui_verified",
+    "security_review_complete",
+    "semantic_review_complete",
+  ];
+  if (!reconciliation || reconciliation.section_count !== 16 ||
+      reconciliation.question_count !== 235 || reconciliation.checklist_count !== 20 ||
+      requiredReviewFlags.some((key) => reconciliation[key] !== true)) return false;
+  if (questionnaire.document_checklist.some((item: any) =>
+      !item || typeof item.id !== "string" || !item.id ||
+      typeof item.label !== "string" || !item.label.trim() ||
+      !Array.isArray(item.status_options) || item.status_options.length !== 3)) return false;
 
   const sectionIds = new Set<string>();
   const questionIds = new Set<string>();
@@ -41,19 +56,42 @@ function raahatCanonicalGate(questionnaire: any): boolean {
     for (const question of section.questions) {
       if (!question || typeof question.id !== "string" || !question.id ||
           typeof question.prompt !== "string" || !question.prompt.trim() ||
+          typeof question.source_block !== "string" || !question.source_block.trim() ||
           question.source_status !== "CANONICAL_SOURCE_VERIFIED" ||
           !Number.isInteger(question.number) || questionIds.has(question.id)) return false;
       questionIds.add(question.id);
       numbers.push(question.number);
-      if (question.type === "multiple_choice") {
+
+      if (question.type === "multiple_choice" || question.type === "repeatable_choice") {
         if (!Array.isArray(question.options) || question.options.length === 0) return false;
-        const optionValues = question.options.map((option: any) => option?.value);
-        if (optionValues.some((value: unknown) => typeof value !== "string" || !value) ||
-            new Set(optionValues).size !== optionValues.length) return false;
-        if (question.selection_mode !== "single" && question.selection_mode !== "multiple") return false;
-        if (question.max_selections !== undefined &&
-            (!Number.isInteger(question.max_selections) || question.max_selections < 1 ||
-             question.max_selections > question.options.length)) return false;
+        const values = question.options.map((option: any) => option?.value);
+        if (values.some((value: unknown) => typeof value !== "string" || !value) ||
+            new Set(values).size !== values.length) return false;
+        if (question.type === "multiple_choice") {
+          if (question.selection_mode !== "single" && question.selection_mode !== "multiple") return false;
+          if (question.max_selections !== undefined &&
+              (!Number.isInteger(question.max_selections) || question.max_selections < 1 ||
+               question.max_selections > question.options.length)) return false;
+        } else if (typeof question.row_label !== "string" || typeof question.row_prompt !== "string") return false;
+      } else if (question.type === "multi_part") {
+        if (!Array.isArray(question.parts) || question.parts.length < 2) return false;
+        for (const part of question.parts) {
+          if (!part || typeof part.id !== "string" || !part.id ||
+              typeof part.label !== "string" || !part.label ||
+              !Array.isArray(part.options) || part.options.length === 0 ||
+              (part.selection_mode !== "single" && part.selection_mode !== "multiple")) return false;
+          const values = part.options.map((option: any) => option?.value);
+          if (values.some((value: unknown) => typeof value !== "string" || !value) ||
+              new Set(values).size !== values.length) return false;
+          if (part.max_selections !== undefined &&
+              (!Number.isInteger(part.max_selections) || part.max_selections < 1 ||
+               part.max_selections > part.options.length)) return false;
+        }
+      } else if (question.type === "service_status") {
+        if (!Array.isArray(question.service_options) || !question.service_options.length ||
+            !Array.isArray(question.status_options) || !question.status_options.length) return false;
+      } else if (!["text", "long_text", "file_or_text", "repeatable_list"].includes(question.type)) {
+        return false;
       }
       count++;
     }
