@@ -12,6 +12,7 @@ type Submission = {
   submitted_at: string | null;
   updated_at: string;
 };
+type Template = { id: string; slug: string; version: number; brand_category: string; title: string; locale: string; status: string };
 type PrivateReport = {
   brand: string;
   category: string;
@@ -32,6 +33,12 @@ type ApiPayload = { sessions?: Submission[]; report?: PrivateReport; error?: str
 
 export default function BrandDiscoveryAdminPage() {
   const [sessions, setSessions] = useState<Submission[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [brandName, setBrandName] = useState("");
+  const [respondentName, setRespondentName] = useState("");
+  const [respondentEmail, setRespondentEmail] = useState("");
+  const [templateId, setTemplateId] = useState("");
+  const [inviteResult, setInviteResult] = useState<{ resume_url?: string | null; email_delivery?: string; warning?: string } | null>(null);
   const [selected, setSelected] = useState<Submission | null>(null);
   const [report, setReport] = useState<PrivateReport | null>(null);
   const [loading, setLoading] = useState(false);
@@ -56,6 +63,50 @@ export default function BrandDiscoveryAdminPage() {
     if (data?.error) throw new Error(String(data.error));
     return data as ApiPayload;
   }, []);
+
+  const createInvite = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    setNotice("");
+    setInviteResult(null);
+    try {
+      const { data: authData, error: authError } = await supabase.auth.getSession();
+      if (authError) throw authError;
+      const token = authData.session?.access_token;
+      if (!token) {
+        setSignedIn(false);
+        throw new Error("Please sign in using the existing Franchise Kart account login.");
+      }
+      setSignedIn(true);
+      const { data, error: invokeError } = await supabase.functions.invoke("brand-discovery-create-invite", {
+        body: { questionnaire_version_id: templateId, brand_name: brandName.trim(), respondent_name: respondentName.trim(), respondent_email: respondentEmail.trim() },
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (invokeError) throw new Error(invokeError.message || "Could not create invitation.");
+      if (data?.error) throw new Error(String(data.error));
+      setInviteResult({ resume_url: data.resume_url, email_delivery: data.email_delivery, warning: data.warning });
+      setNotice(data.email_delivery === "sent" ? "Invitation created and accepted by the configured email provider." : "Invitation created. Email is not confirmed; use the secure link only through an approved channel.");
+      setBrandName("");
+      setRespondentName("");
+      setRespondentEmail("");
+      await loadSessions();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not create invitation.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadTemplates = useCallback(async () => {
+    try {
+      const data = await callApi({ action: "list_templates" });
+      setTemplates(data.templates ?? []);
+      if (!templateId && data.templates?.[0]?.id) setTemplateId(data.templates[0].id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load active templates.");
+    }
+  }, [callApi, templateId]);
 
   const loadSessions = useCallback(async () => {
     setLoading(true);
@@ -89,7 +140,7 @@ export default function BrandDiscoveryAdminPage() {
     }
   };
 
-  useEffect(() => { void loadSessions(); }, [loadSessions]);
+  useEffect(() => { void loadSessions(); void loadTemplates(); }, [loadSessions, loadTemplates]);
 
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-8 text-white sm:px-8">
@@ -106,6 +157,33 @@ export default function BrandDiscoveryAdminPage() {
         {signedIn === false && <div className="mt-6 rounded-xl border border-amber-300/30 bg-amber-300/10 p-4 text-amber-100">Sign-in is required. Use the existing FK account login. Only email addresses configured in the server-side staff allowlist can open reports.</div>}
         {error && <div role="alert" className="mt-6 rounded-xl border border-rose-300/30 bg-rose-300/10 p-4 text-rose-100">{error}</div>}
         {notice && <div aria-live="polite" className="mt-6 rounded-xl border border-emerald-300/20 bg-emerald-300/5 p-4 text-sm text-emerald-100">{notice}</div>}
+
+        <section className="mt-8 rounded-2xl border border-cyan-300/20 bg-cyan-300/[0.04] p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div><h2 className="text-xl font-semibold">Create a brand invitation</h2><p className="mt-1 text-sm text-slate-400">Choose an approved active template. A new brand cannot use an unapproved draft.</p></div>
+            <span className="rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-400">{templates.length} active template(s)</span>
+          </div>
+          {templates.length === 0 && <p className="mt-4 rounded-xl border border-amber-300/20 bg-amber-300/5 p-4 text-sm text-amber-100">No active templates are available. This is expected until the canonical Raahat source is reconciled and an approved template is activated. Do not bypass this gate.</p>}
+          <form onSubmit={createInvite} className="mt-5 grid gap-4 md:grid-cols-2">
+            <label className="block text-sm text-slate-300">Approved questionnaire template
+              <select required value={templateId} onChange={(e) => setTemplateId(e.target.value)} disabled={!templates.length || loading} className="mt-2 w-full rounded-xl border border-white/15 bg-slate-950 px-3 py-3 text-white">
+                {templates.length === 0 && <option value="">No active template</option>}
+                {templates.map((item) => <option key={item.id} value={item.id}>{item.title} · v{item.version} · {item.brand_category}</option>)}
+              </select>
+            </label>
+            <label className="block text-sm text-slate-300">Brand name
+              <input required value={brandName} onChange={(e) => setBrandName(e.target.value)} placeholder="Brand / business name" className="mt-2 w-full rounded-xl border border-white/15 bg-slate-950 px-3 py-3 text-white" />
+            </label>
+            <label className="block text-sm text-slate-300">Owner / respondent name
+              <input value={respondentName} onChange={(e) => setRespondentName(e.target.value)} placeholder="Owner name (optional)" className="mt-2 w-full rounded-xl border border-white/15 bg-slate-950 px-3 py-3 text-white" />
+            </label>
+            <label className="block text-sm text-slate-300">Owner email
+              <input required type="email" value={respondentEmail} onChange={(e) => setRespondentEmail(e.target.value)} placeholder="owner@example.com" className="mt-2 w-full rounded-xl border border-white/15 bg-slate-950 px-3 py-3 text-white" />
+            </label>
+            <div className="md:col-span-2"><button type="submit" disabled={!templates.length || loading} className="rounded-xl bg-cyan-300 px-5 py-3 font-semibold text-slate-950 disabled:opacity-40">{loading ? "Working…" : "Create secure invitation"}</button></div>
+          </form>
+          {inviteResult && <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/70 p-4"><p className="font-medium">Invitation result</p><p className="mt-1 text-sm text-slate-400">Email status: {inviteResult.email_delivery ?? "unknown"}. {inviteResult.warning ?? ""}</p>{inviteResult.resume_url && <p className="mt-3 break-all text-sm text-cyan-200">Secure link: {inviteResult.resume_url}</p>}<p className="mt-2 text-xs text-amber-200">Treat this link as a password. Share it privately with the intended respondent only.</p></div>}
+        </section>
 
         <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.5fr)]">
           <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
