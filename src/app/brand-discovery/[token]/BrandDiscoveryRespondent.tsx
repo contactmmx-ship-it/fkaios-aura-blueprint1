@@ -7,9 +7,12 @@ type Question = {
   id: string;
   number: number;
   prompt: string;
-  type: "text" | "long_text" | "repeatable_list" | "file_or_text";
+  type: "text" | "long_text" | "repeatable_list" | "file_or_text" | "multiple_choice";
   required?: boolean;
   help_text?: string;
+  options?: Array<{ value: string; label: string }>;
+  optional_explanation?: boolean;
+  explanation_prompt?: string;
 };
 type Section = { id: string; title: string; questions: Question[] };
 type Questionnaire = { sections: Section[]; question_count?: number; brand?: { name?: string } };
@@ -30,6 +33,23 @@ type ApiResult = {
   message?: string;
   submitted?: boolean;
 };
+
+function parseChoiceAnswer(raw: string): { choice: string; explanation: string } {
+  try {
+    const value = JSON.parse(raw);
+    if (value && typeof value === "object") return {
+      choice: typeof value.choice === "string" ? value.choice : "",
+      explanation: typeof value.explanation === "string" ? value.explanation : "",
+    };
+  } catch { /* legacy/plain-text answer */ }
+  return { choice: "", explanation: "" };
+}
+function encodeChoiceAnswer(choice: string, explanation: string) {
+  return JSON.stringify({ choice, explanation });
+}
+function hasAnswer(question: Question, raw: string) {
+  return question.type === "multiple_choice" ? parseChoiceAnswer(raw).choice.trim().length > 0 : raw.trim().length > 0;
+}
 
 const endpoint = () => `${supabaseUrl.replace(/\/$/, "")}/functions/v1/brand-discovery-respondent`;
 
@@ -105,7 +125,7 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
   const section = sections[sectionIndex];
   const question = section?.questions?.[questionIndex];
   const flatQuestions = useMemo(() => sections.flatMap((s) => s.questions), [sections]);
-  const answeredCount = flatQuestions.filter((q) => (answers[q.id] ?? "").trim().length > 0).length;
+  const answeredCount = flatQuestions.filter((q) => hasAnswer(q, answers[q.id] ?? "")).length;
   const progress = flatQuestions.length ? Math.round((answeredCount / flatQuestions.length) * 100) : 0;
   const currentAnswer = question ? answers[question.id] ?? "" : "";
 
@@ -152,7 +172,7 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
 
   const goNext = async () => {
     if (!question || !section) return;
-    if (question.required !== false && !currentAnswer.trim()) {
+    if (question.required !== false && !hasAnswer(question, currentAnswer)) {
       setError("Please add your answer before continuing. If you don't know the exact figure, an estimate is okay.");
       return;
     }
@@ -196,7 +216,7 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
 
   const submit = async () => {
     if (!question || !section) return;
-    if (question.required !== false && !currentAnswer.trim()) {
+    if (question.required !== false && !hasAnswer(question, currentAnswer)) {
       setError("Please answer this required question before submitting.");
       return;
     }
@@ -240,7 +260,19 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
           <h2 className="mt-4 text-2xl font-semibold leading-snug sm:text-3xl">{question.prompt}</h2>
           {question.help_text && <p className="mt-4 text-sm leading-6 text-slate-400">{question.help_text}</p>}
           <div className="mt-7">
-            {question.type === "text" ? <input value={currentAnswer} onChange={(e) => setAnswers((a) => ({ ...a, [question.id]: e.target.value }))} placeholder="Type your answer here…" className="w-full rounded-2xl border border-white/15 bg-slate-950/70 px-4 py-4 text-base outline-none transition focus:border-cyan-300 focus:ring-2 focus:ring-cyan-300/20" /> :
+            {question.type === "multiple_choice" ? <div className="space-y-3">
+              {(!question.options || question.options.length === 0) ? <p role="alert" className="rounded-xl border border-amber-300/20 bg-amber-300/5 p-4 text-sm text-amber-100">This multiple-choice question has no reviewed options yet. Please contact Franchise Kart rather than guessing an answer.</p> : question.options.map((option) => {
+                const selected = parseChoiceAnswer(currentAnswer).choice === option.value;
+                return <label key={option.value} className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-4 transition ${selected ? "border-cyan-300 bg-cyan-300/10" : "border-white/15 bg-slate-950/50 hover:bg-white/5"}`}>
+                  <input type="radio" name={question.id} value={option.value} checked={selected} onChange={() => setAnswers((a) => ({ ...a, [question.id]: encodeChoiceAnswer(option.value, parseChoiceAnswer(a[question.id] ?? "").explanation) }))} className="mt-1 accent-cyan-300" />
+                  <span>{option.label}</span>
+                </label>;
+              })}
+              {question.optional_explanation && <div className="pt-2">
+                <label htmlFor={`explanation-${question.id}`} className="mb-2 block text-sm text-slate-300">{question.explanation_prompt ?? "Optional explanation (if you wish)"}</label>
+                <textarea id={`explanation-${question.id}`} value={parseChoiceAnswer(currentAnswer).explanation} onChange={(e) => setAnswers((a) => ({ ...a, [question.id]: encodeChoiceAnswer(parseChoiceAnswer(a[question.id] ?? "").choice, e.target.value) }))} rows={3} placeholder="Add context if helpful…" className="w-full resize-y rounded-2xl border border-white/15 bg-slate-950/70 px-4 py-3 text-base leading-7 outline-none transition focus:border-cyan-300 focus:ring-2 focus:ring-cyan-300/20" />
+              </div>}
+            </div> : question.type === "text" ? <input value={currentAnswer} onChange={(e) => setAnswers((a) => ({ ...a, [question.id]: e.target.value }))} placeholder="Type your answer here…" className="w-full rounded-2xl border border-white/15 bg-slate-950/70 px-4 py-4 text-base outline-none transition focus:border-cyan-300 focus:ring-2 focus:ring-cyan-300/20" /> :
               <textarea value={currentAnswer} onChange={(e) => setAnswers((a) => ({ ...a, [question.id]: e.target.value }))} rows={question.type === "long_text" ? 6 : 5} placeholder={question.type === "repeatable_list" ? "Add one item per line…" : question.type === "file_or_text" ? "Paste the document link or describe the information here. File upload is not enabled yet." : "Type your answer here…"} className="w-full resize-y rounded-2xl border border-white/15 bg-slate-950/70 px-4 py-4 text-base leading-7 outline-none transition focus:border-cyan-300 focus:ring-2 focus:ring-cyan-300/20" />}
             <p className="mt-2 text-xs text-slate-500">{question.required === false ? "Optional question" : "Required · You can use Hindi, English, or Hinglish."}</p>
           </div>
