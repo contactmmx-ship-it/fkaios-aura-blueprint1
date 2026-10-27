@@ -257,7 +257,7 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
           </div>
         </>}
       </section>
-      <footer className="mt-6 flex flex-wrap justify-between gap-3 text-xs text-slate-500"><span>Private questionnaire · Secure link access</span><span>{answeredCount} of {flatQuestions.length} answers saved locally on this page</span></footer>
+      <footer className="mt-6 flex flex-wrap justify-between gap-3 text-xs text-slate-500"><span>Private questionnaire · Secure link access</span><span>{answeredCount} of {flatQuestions.length} answered (progress is saved to your secure questionnaire link)</span></footer>
     </div>
   </main>;
 }
