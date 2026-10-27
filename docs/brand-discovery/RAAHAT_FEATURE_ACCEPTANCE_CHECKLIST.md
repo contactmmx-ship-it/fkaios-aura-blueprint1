@@ -4,7 +4,7 @@ Status: requirements baseline; not a release approval.
 
 ## Canonical source requirements — hard gate
 - [ ] Use the owner's supplied source document/message as the only canonical wording source.
-- [ ] Preserve the canonical source's 16 numbered sections in the original order; numbering is section-local. Do not impose a global Q1–Q95 scheme or rename sections into parts A–Q unless the canonical source itself does so.
+- [ ] Preserve the canonical source's 16 numbered sections and all 160 numbered questions in the original order; numbering is section-local. Do not impose a global numbering scheme or rename sections unless the canonical source itself does so.
 - [ ] Preserve every question's exact wording, section introduction/instructions, options, subparts, ranges, and selection instruction.
 - [ ] Preserve the original 20-item “Supporting Documents and Records” checklist, declaration, confidentiality text, owner/date/signature fields, FK sign-off, and next-step wording.
 - [ ] Encode single-select, select-all, and select-up-to-N rules exactly as stated in the source.
@@ -62,7 +62,7 @@ Status: requirements baseline; not a release approval.
 - [ ] Document checklist and report sections can vary by approved brand/category template.
 
 ## Required validation evidence before release
-- [ ] Exact source reconciliation report: 16 sections, 20 supporting-document checklist items, and exact question wording/order/options/selection rules verified against the canonical source.
+- [ ] Exact source reconciliation report: 16 sections, 160 questions, 20 supporting-document checklist items, and exact question wording/order/options/selection rules verified against the canonical source.
 - [x] Frontend type-check and production build pass (GitHub Actions run 40475218603).
 - [x] Edge Function type-check passes (GitHub Actions run 40475218702).
 - [ ] Automated questionnaire validation passes against the canonical bank (not the obsolete 234-question draft).
@@ -81,7 +81,7 @@ Code presence is not the same as release acceptance. Checked items above mean th
 - Migration workflow is blocked before any migration is applied because required GitHub Actions Supabase secrets are absent.
 - Vercel build-rate quota is exhausted; this is not a source-code compilation result.
 - No non-production end-to-end journey or access-control test has been run.
-- The user did provide the canonical questionnaire source in a prior conversation. Its required structure is 16 numbered sections, 20 supporting-document checklist items, and the confidentiality/acknowledgement and sign-off content. Do not falsely claim the source was never supplied, and do not fabricate replacement wording when its literal text is not available to the current editing operation.
+- The user did provide the canonical questionnaire source in a prior conversation. Its required structure is 16 numbered sections containing 160 numbered questions, 20 supporting-document checklist items, and the confidentiality/acknowledgement and sign-off content. Do not falsely claim the source was never supplied, and do not fabricate replacement wording when its literal text is not available to the current editing operation.
 
 ## Current known blockers at time this checklist was added
 - The repository's existing 234-question file is explicitly a non-canonical draft and must not be activated.
