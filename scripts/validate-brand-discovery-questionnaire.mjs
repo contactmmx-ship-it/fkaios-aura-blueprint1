@@ -65,6 +65,7 @@ for (let index = 0; index < source.sections.length; index++) {
     assert.equal(question.prompt, original.prompt, "Prompt mismatch: " + label);
     assert.equal(question.source_block, original.source_block, "Canonical source block mismatch: " + label);
     assert.equal(question.source_section_number, originalSection.number, "Source section mismatch: " + label);
+    assert.equal(question.source_status, "CANONICAL_SOURCE_MAPPED_DRAFT", "Question is not marked as mapped draft: " + label);
     assert.equal(question.required, true, "Question must require a response (use a source-provided 'not sure' option when applicable): " + label);
 
     const expectedOptions = optionLabels(original.source_block);
