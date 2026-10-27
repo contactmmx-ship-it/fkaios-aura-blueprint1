@@ -1,0 +1,7 @@
+project_id = "nrlsqshkjuuwiovthrnb"
+
+# Respondent access is authorized inside the function using a high-entropy,
+# hashed resume token. Supabase gateway JWT verification must be disabled
+# only for this public-link endpoint; all other functions keep the default.
+[functions.brand-discovery-respondent]
+verify_jwt = false
