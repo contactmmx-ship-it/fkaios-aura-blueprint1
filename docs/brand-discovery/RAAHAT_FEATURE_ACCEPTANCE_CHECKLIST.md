@@ -77,11 +77,11 @@ Code presence is not the same as release acceptance. Checked items above mean th
 
 - Frontend validation PASS.
 - Edge Function validation PASS.
-- Questionnaire validation intentionally fails because the checked-in 234-question reconstruction is not the user-supplied canonical source.
+- Questionnaire validation intentionally fails because the checked-in 234-question replacement bank is not the canonical source, even though the original source is now recovered and structurally extracted.
 - Migration workflow is blocked before any migration is applied because required GitHub Actions Supabase secrets are absent.
 - Vercel build-rate quota is exhausted; this is not a source-code compilation result.
 - No non-production end-to-end journey or access-control test has been run.
-- The canonical questionnaire has now been recovered from the user's local file and pushed to the feature branch. It contains 16 numbered sections, 235 numbered question headings, 20 supporting-document checklist items, and the confidentiality/acknowledgement and sign-off content. Do not falsely claim the source was never supplied, and do not fabricate replacement wording when its literal text is not available to the current editing operation.
+- The canonical questionnaire has been recovered from the user's local file and pushed to the feature branch. The original text and loss-preserving structural extraction are now in the repository. It contains 16 numbered sections, 235 numbered question headings, 20 supporting-document checklist items, and confidentiality/acknowledgement and sign-off content. Runtime mapping and semantic review are still incomplete; do not activate the replacement draft.
 
 ## Current known blockers at time this checklist was added
 - The repository's existing 234-question file is explicitly a non-canonical draft and must not be activated.
