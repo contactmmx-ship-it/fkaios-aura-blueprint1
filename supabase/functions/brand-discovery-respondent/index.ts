@@ -97,7 +97,7 @@ Deno.serve(async (req: Request) => {
   const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
   const tokenHash = await hashToken(body.token);
   const { data: session, error: sessionError } = await db.from("brand_discovery_sessions")
-    .select("id,questionnaire_version_id,brand_name,brand_category,respondent_name,locale,status,current_section,current_question,resume_token_expires_at,submitted_at")
+    .select("id,questionnaire_version_id,brand_name,brand_category,respondent_name,respondent_email,locale,status,current_section,current_question,resume_token_expires_at,submitted_at")
     .eq("resume_token_hash", tokenHash).maybeSingle();
   if (sessionError || !session) return reply(401, { error: "invalid_resume_link" });
   if (!session.resume_token_expires_at || new Date(session.resume_token_expires_at).getTime() < Date.now())
