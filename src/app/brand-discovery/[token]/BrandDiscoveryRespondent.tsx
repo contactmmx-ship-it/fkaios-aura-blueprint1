@@ -565,7 +565,7 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
                 </fieldset>;
               })}
             </div> : question.type === "multiple_choice" ? <div className="space-y-3">
-              <p className="text-xs text-slate-400">{question.selection_mode === "multiple" ? (question.max_selections ? `Select up to ${question.max_selections}.` : "Select all that apply.") : "Select one."}</p>
+              <p className="text-xs text-slate-400">{question.selection_instruction ?? (question.selection_mode === "multiple" ? (question.max_selections ? `Select up to ${question.max_selections}.` : "Select all that apply.") : "Select one.")}</p>
               {(!question.options || question.options.length === 0) ? <p role="alert" className="rounded-xl border border-amber-300/20 bg-amber-300/5 p-4 text-sm text-amber-100">This choice question has no reviewed options yet. Please contact Franchise Kart rather than guessing an answer.</p> : question.options.map((option) => {
                 const parsed = parseChoiceAnswer(currentAnswer);
                 const selected = parsed.choices.includes(option.value);
