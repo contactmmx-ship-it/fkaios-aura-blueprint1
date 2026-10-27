@@ -31,7 +31,7 @@ function validQuestionnaire(q: any) {
 }
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get("Origin");
-  if (origin && allowedOrigin && origin !== allowedOrigin) return reply(403, { error: "origin_not_allowed" });
+  if (origin && (!allowedOrigin || origin !== allowedOrigin)) return reply(403, { error: "origin_not_allowed" });
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return reply(405, { error: "method_not_allowed" });
   const url = Deno.env.get("SUPABASE_URL");
