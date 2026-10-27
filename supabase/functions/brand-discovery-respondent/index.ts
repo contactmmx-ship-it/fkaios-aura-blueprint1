@@ -90,18 +90,27 @@ function isValidQuestionAnswer(question: any, rawAnswer: unknown): boolean {
   }
   return true;
 }
-function isValidClosureAnswer(questionnaire: any, value: any): boolean {
+function isValidClosureDraft(questionnaire: any, value: any): boolean {
   if (!value || typeof value !== "object" || !value.documents || typeof value.documents !== "object") return false;
   const checklist = Array.isArray(questionnaire?.document_checklist) ? questionnaire.document_checklist : [];
   if (checklist.length !== 20) return false;
+  if (Object.keys(value.documents).some((id) => !checklist.some((item: any) => item.id === id))) return false;
   for (const item of checklist) {
     const status = value.documents[item.id];
-    if (!Array.isArray(item.status_options) || typeof status !== "string" || !item.status_options.includes(status)) return false;
+    if (status !== undefined && (!Array.isArray(item.status_options) || typeof status !== "string" || !item.status_options.includes(status))) return false;
   }
-  if (Object.keys(value.documents).some((id) => !checklist.some((item: any) => item.id === id))) return false;
-  if (typeof value.owner_date !== "string" || !/^\\d{4}-\\d{2}-\\d{2}$/.test(value.owner_date)) return false;
-  if (typeof value.owner_signature !== "string" || value.owner_signature.trim().length < 2 || value.owner_signature.length > 200) return false;
-  return value.acknowledged === true;
+  if (typeof value.owner_date !== "string" || value.owner_date.length > 10 ||
+      (value.owner_date !== "" && !/^\\d{4}-\\d{2}-\\d{2}$/.test(value.owner_date))) return false;
+  if (typeof value.owner_signature !== "string" || value.owner_signature.length > 200) return false;
+  return typeof value.acknowledged === "boolean";
+}
+function isValidClosureAnswer(questionnaire: any, value: any): boolean {
+  if (!isValidClosureDraft(questionnaire, value)) return false;
+  const checklist = questionnaire.document_checklist;
+  return checklist.every((item: any) => typeof value.documents[item.id] === "string") &&
+    /^\\d{4}-\\d{2}-\\d{2}$/.test(value.owner_date) &&
+    value.owner_signature.trim().length >= 2 &&
+    value.acknowledged === true;
 }
 function validQuestionnaire(q: any) {
   return q && Array.isArray(q.sections) && q.sections.every((s: any) =>
@@ -150,7 +159,7 @@ Deno.serve(async (req: Request) => {
   if (session.status === "submitted") return reply(409, { error: "already_submitted" });
   if (body.action === "save_closure") {
     const closure = body.closure;
-    if (!isValidClosureAnswer(version.questionnaire, closure)) return reply(400, { error: "invalid_closure_payload" });
+    if (!isValidClosureDraft(version.questionnaire, closure)) return reply(400, { error: "invalid_closure_payload" });
     const lastSectionIndex = version.questionnaire.sections.length - 1;
     const lastSection = version.questionnaire.sections[lastSectionIndex];
     const lastQuestionIndex = Math.max((lastSection?.questions?.length ?? 1) - 1, 0);
