@@ -1554,7 +1554,8 @@
               "label": "Service-wise revenue is not tracked"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "help_text": "This guided screen uses the source instruction's alternative: select all services that contribute significantly. If an ordered ranking is needed, note that for the follow-up discussion."
         },
         {
           "id": "s3_q3",
