@@ -3,20 +3,20 @@
 Status: requirements baseline; not a release approval.
 
 ## Canonical source requirements — hard gate
-- [ ] Use the owner's supplied source document/message as the only canonical wording source.
-- [ ] Preserve the canonical source's 16 numbered sections and all 235 numbered question headings in the original order; numbering is section-local. Do not impose a global numbering scheme or rename sections unless the canonical source itself does so.
-- [ ] Preserve every question's exact wording, section introduction/instructions, options, subparts, ranges, and selection instruction.
-- [ ] Preserve the original 20-item “Supporting Documents and Records” checklist, declaration, confidentiality text, owner/date/signature fields, FK sign-off, and next-step wording.
-- [ ] Encode single-select, select-all, and select-up-to-N rules exactly as stated in the source.
+- [x] Use the owner's supplied source document/message as the only canonical wording source; the recovered source is preserved in the repository.
+- [x] Preserve the canonical source's 16 numbered sections and all 235 numbered question headings in the original order; numbering is section-local.
+- [x] Automated validator compares all 235 exact question prompts/source blocks, source options/order, section-local numbering, and selection instructions; human semantic review remains required.
+- [x] Preserve the original 20-item checklist and declaration/confidentiality/sign-off/next-step wording in runtime configuration; checklist and acknowledgement UI is implemented (end-to-end persistence still needs testing).
+- [x] Encode source selection modes and limits in the runtime mapping; interactive end-to-end testing remains pending.
 - [ ] Preserve optional “Other” and explanation fields wherever present in the source.
 - [ ] Automated validator must reject missing/duplicate section-local question numbers, missing/extra sections, altered selection limits, and a checklist count other than 20.
 - [ ] Do not activate or serve the existing 234-question draft as if it were canonical.
-- [ ] Record the actual reconciled question count only after transcribing and comparing the supplied source; do not infer a total from the replacement draft.
+- [x] Record 235 source question headings after comparing against the recovered canonical source.
 
 ## Respondent experience
 - [ ] Welcome/introduction and clear instructions.
 - [x] One question at a time, with accessible radio/checkbox/text controls (code present; accessibility review pending).
-- [ ] Correct answer types: single choice, multiple choice, select up to N, text, and explanation where specified.
+- [x] Implement single choice, multiple choice, select-up-to-N, multipart controls, per-service status controls, and repeatable hall-capacity rows; test the journey before release.
 - [x] Back/forward navigation and ability to edit previous answers (code present; journey test pending).
 - [x] Visible section and overall progress; clear section and final completion states (code present; journey test pending).
 - [x] Persistent autosave/manual-save behaviour with save/error feedback (code present; non-production persistence test pending).
@@ -45,7 +45,7 @@ Status: requirements baseline; not a release approval.
 
 ## Security, data integrity, and reliability
 - [ ] Store only a hash of high-entropy resume tokens; never log or expose raw tokens.
-- [ ] Enforce token validity, expiry, session status, questionnaire version, and server-side answer validation.
+- [x] Token/session/version checks and server-side validation for choices, selection limits, multipart answers, per-service statuses, repeatable capacity rows, and closure fields are present; end-to-end security testing remains pending.
 - [ ] Reject duplicate selections, invalid options, wrong selection mode, and exceeding max selections.
 - [ ] Persist answers and exact resume pointer; reject edits/submission after session submission.
 - [ ] Validate submission completeness server-side.
@@ -57,7 +57,7 @@ Status: requirements baseline; not a release approval.
 
 ## Reusable brand templates
 - [x] Questionnaire content is versioned/configuration-driven, not embedded in respondent UI.
-- [ ] A template cannot be marked active unless source reconciliation and automated validation pass.
+- [x] The current template remains draft and is not release-approved; the invite flow only serves active templates. Test the activation gate before release.
 - [ ] New-brand questions may be drafted with AI, but require human approval and must not overwrite an approved source.
 - [ ] Document checklist and report sections can vary by approved brand/category template.
 
@@ -77,11 +77,11 @@ Code presence is not the same as release acceptance. Checked items above mean th
 
 - Frontend validation PASS.
 - Edge Function validation PASS.
-- Questionnaire validation intentionally fails because the checked-in 234-question replacement bank is not the canonical source, even though the original source is now recovered and structurally extracted.
+- Questionnaire validation now compares the runtime draft against the recovered source and passes when source wording/options/selection rules/checklist mapping match. A pass does not approve activation.
 - Migration workflow is blocked before any migration is applied because required GitHub Actions Supabase secrets are absent.
 - Vercel build-rate quota is exhausted; this is not a source-code compilation result.
 - No non-production end-to-end journey or access-control test has been run.
-- The canonical questionnaire has been recovered from the user's local file and pushed to the feature branch. The original text and loss-preserving structural extraction are now in the repository. It contains 16 numbered sections, 235 numbered question headings, 20 supporting-document checklist items, and confidentiality/acknowledgement and sign-off content. Runtime mapping and semantic review are still incomplete; do not activate the replacement draft.
+- The canonical questionnaire is preserved in the repository. The runtime draft now maps 16 sections, 235 numbered question headings, 20 supporting-document checklist items, complex selection controls, and acknowledgement UI. Automated source mapping is covered by CI; semantic review and end-to-end testing are still required. Do not activate the draft.
 
 ## Current known blockers at time this checklist was added
 - The repository's existing 234-question file is explicitly a non-canonical draft and must not be activated.
@@ -89,3 +89,13 @@ Code presence is not the same as release acceptance. Checked items above mean th
 - GitHub Actions migration workflow is blocked by missing repository secrets; never paste secrets into chat.
 - Vercel deployment quota has been exhausted; a deployment failure from quota exhaustion is not evidence of a source-code failure.
 - Email delivery, private analysis/plan generation, private report UI, and full end-to-end security journey remain unverified or unfinished.
+
+
+## Implementation status update — 27 October 2026 (source mapping pass)
+
+- Canonical source-to-runtime validator compares exact question prompts and source blocks, option labels/order, selection modes/limits, complex-question structures, 20 checklist labels/order, and acknowledgement text.
+- Complex answer handling includes ten multi-part questions, one service-by-service status matrix, and repeatable hall-capacity rows.
+- The 20-item checklist and owner acknowledgement are included in the respondent flow and have a server-side final-submit gate.
+- The template remains draft/inactive. The latest workflow run must be checked after the newest commits settle.
+- No production migration, deployment, activation, or email delivery has occurred.
+- Human semantic review is still needed for inferred room-category/monthly occupancy controls and questions where source options describe record availability rather than the underlying business figures.
