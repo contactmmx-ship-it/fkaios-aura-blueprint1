@@ -67,12 +67,39 @@ function isValidChoiceSet(question: any, choices: unknown): boolean {
   return true;
 }
 function isValidQuestionAnswer(question: any, rawAnswer: unknown): boolean {
-  if (question?.type !== "multiple_choice" && question?.type !== "multi_part") return hasMeaningfulAnswer(rawAnswer);
+  if (question?.type !== "multiple_choice" && question?.type !== "multi_part" && question?.type !== "service_status" && question?.type !== "repeatable_choice") return hasMeaningfulAnswer(rawAnswer);
   let answer: any = rawAnswer;
   if (typeof rawAnswer === "string") {
     try { answer = JSON.parse(rawAnswer); } catch { return false; }
   }
   if (!answer || typeof answer !== "object") return false;
+  if (question.type === "service_status") {
+    const serviceOptions = Array.isArray(question.service_options) ? question.service_options : [];
+    const statusOptions = Array.isArray(question.status_options) ? question.status_options : [];
+    const services = answer.services;
+    const statuses = answer.statuses;
+    if (!Array.isArray(services) || services.length === 0 || services.some((id: unknown) => typeof id !== "string")) return false;
+    const allowedServices = new Set(serviceOptions.map((item: any) => item.value));
+    const allowedStatuses = new Set(statusOptions.map((item: any) => item.value));
+    if (services.some((id: string) => !allowedServices.has(id)) || new Set(services).size !== services.length) return false;
+    if (!statuses || typeof statuses !== "object") return false;
+    if (Object.keys(statuses).some((id) => !services.includes(id))) return false;
+    return services.every((id: string) => typeof statuses[id] === "string" && allowedStatuses.has(statuses[id]));
+  }
+  if (question.type === "repeatable_choice") {
+    const options = Array.isArray(question.options) ? question.options : [];
+    const allowed = new Set(options.map((item: any) => item.value));
+    const rows = answer.rows;
+    if (!Array.isArray(rows) || rows.length === 0 || rows.length > 20) return false;
+    const ids = new Set<string>();
+    return rows.every((row: any) => {
+      if (!row || typeof row.id !== "string" || !row.id || ids.has(row.id) ||
+          typeof row.label !== "string" || row.label.trim().length === 0 || row.label.length > 100 ||
+          typeof row.choice !== "string" || !allowed.has(row.choice)) return false;
+      ids.add(row.id);
+      return true;
+    });
+  }
   if (question.type === "multiple_choice") {
     const choices = Array.isArray(answer.choices) ? answer.choices :
       typeof answer.choice === "string" ? [answer.choice] : null;
