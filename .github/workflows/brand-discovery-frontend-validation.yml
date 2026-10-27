@@ -8,6 +8,7 @@ on:
       - "package-lock.json"
       - "next.config.*"
       - "tsconfig.json"
+      - "tsconfig.brand-discovery.json"
       - ".github/workflows/brand-discovery-frontend-validation.yml"
   push:
     branches:
@@ -38,6 +39,6 @@ jobs:
       - name: Install dependencies (repair existing lockfile drift in CI)
         run: npm install --no-audit --no-fund
       - name: Type-check application
-        run: npx tsc --noEmit
+        run: npx tsc --noEmit --project tsconfig.brand-discovery.json
       - name: Build Next.js application
         run: npm run build
