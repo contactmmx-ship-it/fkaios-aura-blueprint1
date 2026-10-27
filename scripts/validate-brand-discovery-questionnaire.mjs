@@ -19,7 +19,7 @@ const selectionMode = (instruction = "") => {
   const match = text.match(/select up to (one|two|three|four|five|six|seven|eight|nine|ten|\d+)/);
   const words = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
   if (match) return { mode: "multiple", max: Number(match[1]) || words[match[1]] };
-  if (text.includes("select all")) return { mode: "multiple" };
+  if (text.includes("select all") || text.includes("select one or more") || text.includes("select the relevant categories") || text.includes("rank the applicable services")) return { mode: "multiple" };
   return { mode: "single" };
 };
 const optionLabels = (block) => [...block.matchAll(/^\s*-\s*☐\s*(.+?)\s*$/gm)].map((match) => match[1].trim());
@@ -64,23 +64,52 @@ for (let index = 0; index < source.sections.length; index++) {
     assert.equal(question.source_section_number, originalSection.number, "Source section mismatch: " + label);
     assert.equal(question.required, true, "Question must require a response (use a source-provided 'not sure' option when applicable): " + label);
 
-    const expectedParts = subparts(original.source_block);
-    if (expectedParts.length) {
-      multiPartCount++;
-      assert.equal(question.type, "multi_part", "Multi-part question not mapped to separate controls: " + label);
-      assert.equal(question.parts.length, expectedParts.length, "Part count mismatch: " + label);
-      for (let partIndex = 0; partIndex < expectedParts.length; partIndex++) {
-        const expected = expectedParts[partIndex];
+    const expectedOptions = optionLabels(original.source_block);
+    const customKey = originalSection.number + ":" + original.number;
+    if (customKey === "3:1") {
+      assert.equal(question.type, "service_status", "Service inventory must capture status for each selected service.");
+      assert.deepEqual(question.service_options.map((option) => option.label), expectedOptions.slice(0, 12));
+      assert.deepEqual(question.status_options.map((option) => option.label), expectedOptions.slice(12));
+    } else if (customKey === "6:1") {
+      assert.equal(question.type, "repeatable_choice", "Capacity must be captured separately for each named hall.");
+      assert.deepEqual(question.options.map((option) => option.label), expectedOptions);
+    } else if (["4:15", "5:1", "5:3", "5:4"].includes(customKey)) {
+      assert.equal(question.type, "multi_part", "Question requiring multiple independent answers must use separate controls: " + label);
+      const expectedDefinitions = customKey === "4:15"
+        ? ["Breakfast", "Lunch", "Dinner", "Group dining"].map((name, index) => ({ id: "period_" + (index + 1), label: name, options: expectedOptions, mode: "single" }))
+        : customKey === "5:1"
+          ? [
+              { id: "room_count", label: "Room count", options: expectedOptions.slice(0, 6), mode: "single" },
+              { id: "room_categories", label: "Room categories", options: expectedOptions.slice(6), mode: "multiple" },
+            ]
+          : customKey === "5:3"
+            ? ["Standard", "Deluxe", "Executive", "Suite", "Other category"].map((name, index) => ({ id: "rate_" + (index + 1), label: name, options: expectedOptions, mode: "single" }))
+            : ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((name, index) => ({ id: "month_" + (index + 1), label: name, options: expectedOptions, mode: "single" }));
+      assert.equal(question.parts.length, expectedDefinitions.length, "Custom part count mismatch: " + label);
+      for (let partIndex = 0; partIndex < expectedDefinitions.length; partIndex++) {
+        const expected = expectedDefinitions[partIndex];
         const actual = question.parts[partIndex];
-        assert.equal(actual.id, expected.id, "Part id mismatch: " + label);
-        assert.equal(actual.label, expected.label, "Part label mismatch: " + label + " " + expected.id);
-        assert.equal(actual.selection_mode, expected.mode, "Part selection mode mismatch: " + label + " " + expected.id);
-        assert.equal(actual.max_selections, expected.max, "Part selection limit mismatch: " + label + " " + expected.id);
-        assert.deepEqual(actual.options.map((option) => option.label), expected.options, "Part options mismatch: " + label + " " + expected.id);
+        assert.equal(actual.id, expected.id, "Custom part id mismatch: " + label);
+        assert.equal(actual.label, expected.label, "Custom part label mismatch: " + label);
+        assert.equal(actual.selection_mode, expected.mode, "Custom part selection mode mismatch: " + label);
+        assert.deepEqual(actual.options.map((option) => option.label), expected.options, "Custom part options mismatch: " + label);
       }
     } else {
-      const expectedOptions = optionLabels(original.source_block);
-      if (expectedOptions.length) {
+      const expectedParts = subparts(original.source_block);
+      if (expectedParts.length) {
+        multiPartCount++;
+        assert.equal(question.type, "multi_part", "Multi-part question not mapped to separate controls: " + label);
+        assert.equal(question.parts.length, expectedParts.length, "Part count mismatch: " + label);
+        for (let partIndex = 0; partIndex < expectedParts.length; partIndex++) {
+          const expected = expectedParts[partIndex];
+          const actual = question.parts[partIndex];
+          assert.equal(actual.id, expected.id, "Part id mismatch: " + label);
+          assert.equal(actual.label, expected.label, "Part label mismatch: " + label + " " + expected.id);
+          assert.equal(actual.selection_mode, expected.mode, "Part selection mode mismatch: " + label + " " + expected.id);
+          assert.equal(actual.max_selections, expected.max, "Part selection limit mismatch: " + label + " " + expected.id);
+          assert.deepEqual(actual.options.map((option) => option.label), expected.options, "Part options mismatch: " + label + " " + expected.id);
+        }
+      } else if (expectedOptions.length) {
         assert.equal(question.type, "multiple_choice", "Choice question has wrong runtime type: " + label);
         assert.deepEqual(question.options.map((option) => option.label), expectedOptions, "Choice labels/order mismatch: " + label);
         const expectedMode = selectionMode(original.selection_instruction);
