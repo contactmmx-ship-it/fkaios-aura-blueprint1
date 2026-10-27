@@ -1,8 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
+const allowedOrigin = Deno.env.get("BRAND_DISCOVERY_ALLOWED_ORIGIN") ?? "";
 const cors = {
-  "Access-Control-Allow-Origin": Deno.env.get("BRAND_DISCOVERY_ALLOWED_ORIGIN") ?? "null",
+  "Access-Control-Allow-Origin": allowedOrigin || "null",
   "Access-Control-Allow-Headers": "authorization, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Content-Type": "application/json",
@@ -15,6 +16,8 @@ async function hashToken(token: string) {
   return Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, "0")).join("");
 }
 Deno.serve(async (req: Request) => {
+  const origin = req.headers.get("Origin");
+  if (origin && (!allowedOrigin || origin !== allowedOrigin)) return reply(403, { error: "origin_not_allowed" });
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return reply(405, { error: "method_not_allowed" });
   const url = Deno.env.get("SUPABASE_URL");
