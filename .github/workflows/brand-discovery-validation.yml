@@ -1,0 +1,31 @@
+name: Brand Discovery Questionnaire Validation
+
+on:
+  pull_request:
+    paths:
+      - "config/brand-discovery/raahat-question-bank-v1.draft.json"
+      - "scripts/validate-brand-discovery-questionnaire.mjs"
+      - ".github/workflows/brand-discovery-validation.yml"
+  push:
+    branches:
+      - "feature/brand-discovery-foundation"
+    paths:
+      - "config/brand-discovery/raahat-question-bank-v1.draft.json"
+      - "scripts/validate-brand-discovery-questionnaire.mjs"
+      - ".github/workflows/brand-discovery-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-question-bank:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate question bank structure
+        run: node scripts/validate-brand-discovery-questionnaire.mjs
