@@ -17,10 +17,11 @@ The current report generator is deliberately conservative. It records answers as
 
 ## Validation results from the implementation pass
 
-- Frontend validation workflow: **PASS** — TypeScript check and Next.js production build succeeded on this branch.
-- Edge Function validation workflow: **PASS** — invite, respondent, and new private-report Edge Functions passed Deno type-check.
-- Canonical questionnaire validation workflow: **FAIL BY DESIGN** — strict validator rejects the non-canonical 234-question / 16-section / 14-item checklist draft.
-- Supabase migration workflow: **BLOCKED** — required GitHub Actions secrets are absent; the workflow stopped before linking or applying any migration.
+- Latest observed frontend validation on head `fc785236a6c41f430498fd919e00712b07e7b459`: **PASS** — GitHub Actions run `40491169293` completed the TypeScript check and Next.js production build successfully.
+- Latest observed Edge Function validation on that head: **PASS** — run `40491169182` passed Deno type-check for invite, respondent, and private-report functions.
+- Canonical questionnaire validation on that head: **FAIL BY DESIGN** — run `40491169493` rejects the non-canonical 234-question / 16-section / 14-item checklist draft. Do not bypass this gate.
+- Supabase migration workflow: **BLOCKED** — run `40491169575` failed at `Check required Supabase secrets`; all setup/link/preview/apply steps were skipped. No migration was applied.
+- Production migration drift check: **PASS** — run `40491169181`; this is not a substitute for applying/testing the new migration in non-production.
 - Vercel deployment status: **FAILURE DUE TO BUILD-RATE QUOTA** — this does not establish a source build failure. No deployment was made by this pass.
 - End-to-end security, email delivery and actual respondent journey: **NOT TESTED** in a non-production environment.
 
@@ -45,6 +46,10 @@ The current report generator is deliberately conservative. It records answers as
 
 Never place these secrets in frontend variables or commit them. The source code does not contain a mail API key. No production database migration or Edge Function deployment was performed.
 
+## Latest verification snapshot
+
+Observed PR head at the time of this snapshot: `fc785236a6c41f430498fd919e00712b07e7b459`. PR #191 remains open, draft, unmerged and undeployed. The frontend and Edge Function checks passed for this head; the canonical-source gate intentionally failed; the migration workflow stopped before any migration action because required secrets are absent. Vercel preview deployment was separately blocked by the free-plan daily deployment quota, so no new deployment is claimed.
+
 ## Safe next gate
 
-Transcribe the already-supplied canonical 160-question source → encode and reconcile exact wording/options/selection rules/20-item checklist/declarations → run the fail-closed validator → run frontend and Edge Function CI → apply migration only to a non-production project → test invite/save/resume/edit/submit/email/report privacy → review accessibility and browser voice support → only then consider production approval.
+Transcribe the already-supplied canonical 160-question source → encode and reconcile exact wording/options/selection rules/20-item checklist/declarations → run the fail-closed validator → run frontend and Edge Function CI → apply migration only to a non-production project after authorized secret configuration → test invite/save/resume/edit/submit/email/report privacy → review accessibility and browser voice support → only then consider production approval.
