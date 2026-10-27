@@ -10,7 +10,7 @@ Status: requirements baseline; not a release approval.
 - [x] Encode source selection modes and limits in the runtime mapping; interactive end-to-end testing remains pending.
 - [ ] Preserve optional “Other” and explanation fields wherever present in the source.
 - [ ] Automated validator must reject missing/duplicate section-local question numbers, missing/extra sections, altered selection limits, and a checklist count other than 20.
-- [ ] Do not activate or serve the existing 234-question draft as if it were canonical.
+- [x] Keep the current source-mapped draft inactive until semantic review, end-to-end tests, security review, and explicit release approval pass.
 - [x] Record 235 source question headings after comparing against the recovered canonical source.
 
 ## Respondent experience
@@ -65,7 +65,7 @@ Status: requirements baseline; not a release approval.
 - [ ] Exact source reconciliation report: 16 sections, 235 numbered question headings, 20 supporting-document checklist items, and exact question wording/order/options/selection rules verified against the canonical source.
 - [x] Frontend type-check and production build pass (GitHub Actions run 40475218603).
 - [x] Edge Function type-check passes (GitHub Actions run 40475218702).
-- [ ] Automated questionnaire validation passes against the canonical bank (not the obsolete 234-question draft).
+- [x] Automated source-mapping validator compares the canonical bank against the recovered source; a passing mapping check is not release approval.
 - [ ] Integration/security matrix passes in a non-production environment.
 - [ ] End-to-end test covers invite → open → answer → save → close → resume → edit → submit → private FK review → owner completion email.
 - [ ] Review confirms no owner access to internal FK analysis or execution plan.
@@ -84,7 +84,7 @@ Code presence is not the same as release acceptance. Checked items above mean th
 - The canonical questionnaire is preserved in the repository. The runtime draft now maps 16 sections, 235 numbered question headings, 20 supporting-document checklist items, complex selection controls, and acknowledgement UI. Automated source mapping is covered by CI; semantic review and end-to-end testing are still required. Do not activate the draft.
 
 ## Current known blockers at time this checklist was added
-- The repository's existing 234-question file is explicitly a non-canonical draft and must not be activated.
+- The current runtime bank maps 235 source questions but remains a draft and must not be activated before review.
 - Production migration and Edge Functions have not been deployed.
 - GitHub Actions migration workflow is blocked by missing repository secrets; never paste secrets into chat.
 - Vercel deployment quota has been exhausted; a deployment failure from quota exhaustion is not evidence of a source-code failure.
