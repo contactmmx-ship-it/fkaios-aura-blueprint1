@@ -1058,7 +1058,7 @@
           "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
         },
         {
-          "id": "conversion",
+          "id": "sales_conversion_rate",
           "number": 7,
           "prompt": "Enquiry-to-booking conversion rate ka estimate kya hai?",
           "type": "long_text",
@@ -1452,7 +1452,7 @@
           "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
         },
         {
-          "id": "maintenance",
+          "id": "preventive_maintenance",
           "number": 13,
           "prompt": "Preventive maintenance schedule aur issue escalation kaun manage karta hai?",
           "type": "long_text",
