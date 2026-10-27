@@ -32,9 +32,15 @@ function isValidQuestionAnswer(question: any, rawAnswer: unknown): boolean {
   if (typeof rawAnswer === "string") {
     try { answer = JSON.parse(rawAnswer); } catch { return false; }
   }
-  if (!answer || typeof answer !== "object" || typeof answer.choice !== "string") return false;
+  if (!answer || typeof answer !== "object") return false;
+  const choices = Array.isArray(answer.choices) ? answer.choices :
+    typeof answer.choice === "string" ? [answer.choice] : null;
+  if (!choices || choices.length === 0 || choices.some((v: unknown) => typeof v !== "string")) return false;
   const options = Array.isArray(question.options) ? question.options : [];
-  if (!options.some((option: any) => option && option.value === answer.choice)) return false;
+  const allowed = new Set(options.map((option: any) => option?.value).filter((v: unknown) => typeof v === "string"));
+  if (choices.some((choice: string) => !allowed.has(choice)) || new Set(choices).size !== choices.length) return false;
+  if (question.selection_mode !== "multiple" && choices.length !== 1) return false;
+  if (question.max_selections && choices.length > question.max_selections) return false;
   return answer.explanation === undefined || typeof answer.explanation === "string";
 }
 function validQuestionnaire(q: any) {
