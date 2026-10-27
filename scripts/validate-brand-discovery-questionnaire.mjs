@@ -24,7 +24,6 @@ assert.ok(
 const sectionIds = new Set();
 const questionIds = new Set();
 let total = 0;
-let total = 0;
 
 for (const [sectionIndex, section] of bank.sections.entries()) {
   assert.ok(section.id && section.title, `section ${sectionIndex + 1} needs id and title`);
