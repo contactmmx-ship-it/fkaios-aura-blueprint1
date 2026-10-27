@@ -4,8 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 const file = new URL("../config/brand-discovery/raahat-question-bank-v1.draft.json", import.meta.url);
 const bank = JSON.parse(await readFile(file, "utf8"));
 
-if (bank.status !== "draft" || bank.source_status !== "ORIGINAL_QUESTION_TEXT_NOT_RECOVERED") {
-  throw new Error("Refusing to seed: this script only accepts the clearly labelled draft question bank.");
+if (bank.status !== "draft" || bank.source_status !== "CANONICAL_SOURCE_MAPPED_DRAFT") {
+  throw new Error("Refusing to seed: only the source-mapped draft may be seeded, and it must remain draft.");
 }
 if (process.env.BRAND_DISCOVERY_SEED_CONFIRM !== "I_UNDERSTAND_DRAFT_SEED") {
   throw new Error("Set BRAND_DISCOVERY_SEED_CONFIRM=I_UNDERSTAND_DRAFT_SEED to confirm a draft-only database write.");
@@ -47,4 +47,4 @@ if (existing) {
   if (error) throw error;
   console.log(`Inserted draft version ${data.id}; it remains draft and cannot be invited.`);
 }
-console.log("No session or invitation was created. Review the original wording and business relevance before any activation.");
+console.log("No session or invitation was created. This seed is draft-only; complete semantic review and release gates before any activation.");
