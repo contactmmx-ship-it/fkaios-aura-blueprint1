@@ -53,3 +53,15 @@ Observed PR head at the time of this snapshot: `fc785236a6c41f430498fd919e00712b
 ## Safe next gate
 
 Use the recovered source in the feature branch → encode and reconcile all 235 question headings, exact wording/options/selection rules/20-item checklist/declarations → run the fail-closed validator → run frontend and Edge Function CI → apply migration only to a non-production project after authorized secret configuration → test invite/save/resume/edit/submit/email/report privacy → review accessibility and browser voice support → only then consider production approval.
+
+
+## Later update — canonical source mapping pass
+
+The earlier handoff snapshot above predates the latest mapping work. The runtime questionnaire is now mapped to the recovered source and remains inactive as a draft.
+
+- 16 sections and 235 section-local question headings are mapped.
+- The automated validator compares exact prompts/source blocks, option order, selection rules, complex control structures, checklist and declaration.
+- The respondent flow now includes ten multi-part questions, per-service operational statuses, repeatable named hall-capacity rows, the 20-item document checklist, and owner acknowledgement.
+- Questionnaire validation and Edge Function type-check passed on the latest observed implementation head; the frontend build was still running when this note was prepared.
+- Human semantic review, end-to-end security/access testing, accessibility review and non-production integration testing remain required.
+- The PR remains draft/open; no production migration, deployment, activation or email delivery has occurred.
