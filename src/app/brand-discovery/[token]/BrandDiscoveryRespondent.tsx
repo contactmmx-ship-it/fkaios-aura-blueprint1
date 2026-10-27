@@ -16,7 +16,7 @@ type Question = {
   optional_explanation?: boolean;
   explanation_prompt?: string;
 };
-type Section = { id: string; title: string; questions: Question[] };
+type Section = { id: string; title: string; intro?: string; why_it_matters?: string; questions: Question[] };
 type Questionnaire = { sections: Section[]; question_count?: number; brand?: { name?: string } };
 type AnswerRow = { question_id: string; answer: unknown };
 type Session = {
