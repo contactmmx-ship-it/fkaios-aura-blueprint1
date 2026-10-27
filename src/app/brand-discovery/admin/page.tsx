@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { supabase } from "@/lib/supabase";
 
 type Submission = {
@@ -29,7 +29,7 @@ type PrivateReport = {
   execution_plan: { status: string; actions: Array<Record<string, unknown>>; do_not_treat_as_approved_plan: boolean };
   disclaimer: string;
 };
-type ApiPayload = { sessions?: Submission[]; report?: PrivateReport; error?: string };
+type ApiPayload = { sessions?: Submission[]; templates?: Template[]; report?: PrivateReport; error?: string };
 
 export default function BrandDiscoveryAdminPage() {
   const [sessions, setSessions] = useState<Submission[]>([]);
@@ -64,7 +64,7 @@ export default function BrandDiscoveryAdminPage() {
     return data as ApiPayload;
   }, []);
 
-  const createInvite = async (event: React.FormEvent<HTMLFormElement>) => {
+  const createInvite = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLoading(true);
     setError("");
