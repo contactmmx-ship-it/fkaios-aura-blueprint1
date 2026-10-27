@@ -169,7 +169,7 @@ Deno.serve(async (req: Request) => {
   const report = buildEvidenceReport(version.questionnaire, answers ?? [], session);
   const { error: upsertError } = await db.from("brand_discovery_private_reports").upsert({
     session_id: session.id,
-    analysis: report.evidence_ledger,
+    analysis: { executive_summary: report.executive_summary, evidence_ledger: report.evidence_ledger, diagnosis: report.diagnosis, disclaimer: report.disclaimer },
     execution_plan: report.execution_plan,
     generation_status: "complete",
     generated_at: report.generated_at,
