@@ -20,8 +20,10 @@ type Question = {
   parts?: Array<{ id: string; label: string; instruction: string; selection_mode: "single" | "multiple"; max_selections?: number; options: Array<{ value: string; label: string }> }>;
 };
 type Section = { id: string; title: string; intro?: string; why_it_matters?: string; questions: Question[] };
-type Questionnaire = { sections: Section[]; question_count?: number; brand?: { name?: string } };
+type Questionnaire = { sections: Section[]; question_count?: number; brand?: { name?: string }; document_checklist?: Array<{ id: string; label: string; required?: boolean; status_options: string[] }>; confidentiality_and_acknowledgement?: string };
 type AnswerRow = { question_id: string; answer: unknown };
+type Closure = { documents: Record<string, string>; owner_date: string; owner_signature: string; acknowledged: boolean };
+const localDate = () => { const now = new Date(); return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0"); };
 type Session = {
   brand_name: string;
   brand_category: string;
@@ -90,6 +92,8 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
   const [notice, setNotice] = useState("");
   const [intro, setIntro] = useState(true);
   const [submitted, setSubmitted] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [closure, setClosure] = useState<Closure>({ documents: {}, owner_date: "", owner_signature: "", acknowledged: false });
   const [readyForAutosave, setReadyForAutosave] = useState(false);
   const [resumed, setResumed] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState("");
@@ -133,6 +137,20 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
         setQuestionnaire(q);
         setSession(s);
         setAnswers(restored);
+        if (restored.__closure__) {
+          try {
+            const savedClosure = JSON.parse(restored.__closure__);
+            if (savedClosure && typeof savedClosure === "object") {
+              setClosure({
+                documents: savedClosure.documents && typeof savedClosure.documents === "object" ? savedClosure.documents : {},
+                owner_date: typeof savedClosure.owner_date === "string" ? savedClosure.owner_date : localDate(),
+                owner_signature: typeof savedClosure.owner_signature === "string" ? savedClosure.owner_signature : "",
+                acknowledged: savedClosure.acknowledged === true,
+              });
+              setClosing(true);
+            }
+          } catch { /* ignore an invalid draft and allow the respondent to continue */ }
+        } else setClosure((previous) => ({ ...previous, owner_date: localDate() }));
         setSectionIndex(Math.min(Math.max(s.current_section ?? 0, 0), q.sections.length - 1));
         const savedSection = q.sections[Math.min(Math.max(s.current_section ?? 0, 0), q.sections.length - 1)];
         setQuestionIndex(Math.min(Math.max(s.current_question ?? 0, 0), Math.max(savedSection.questions.length - 1, 0)));
@@ -176,6 +194,20 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
     }, 900);
     return () => window.clearTimeout(timer);
   }, [answers, api, loading, question, questionIndex, readyForAutosave, section, sectionIndex, submitted]);
+
+  useEffect(() => {
+    if (!closing || loading || submitted || !questionnaire) return;
+    const timer = window.setTimeout(async () => {
+      try {
+        await api("save_closure", { closure });
+        setNotice("Checklist and acknowledgement saved securely.");
+        setError("");
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not save the checklist.");
+      }
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [api, closure, closing, loading, questionnaire, submitted]);
 
   const saveCurrent = useCallback(async (targetSection: number, targetQuestion: number) => {
     if (!question || !section) return;
@@ -296,14 +328,43 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
     recognition.start();
   };
 
-  const submit = async () => {
+  const beginClosure = async () => {
     if (!question || !section) return;
     if (question.required !== false && !hasAnswer(question, currentAnswer)) {
-      setError("Please answer this required question before submitting.");
+      setError("Please answer this required question before continuing.");
       return;
     }
     try {
       await saveCurrent(sectionIndex, questionIndex);
+      setError("");
+      setNotice("");
+      setClosing(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save your answer.");
+    }
+  };
+
+  const submit = async () => {
+    const checklist = questionnaire?.document_checklist ?? [];
+    const missingDocuments = checklist.filter((item) => !closure.documents[item.id]);
+    if (missingDocuments.length) {
+      setError("Please mark the availability of all 20 supporting documents or records before submitting.");
+      return;
+    }
+    if (!closure.owner_date || !/^\\d{4}-\\d{2}-\\d{2}$/.test(closure.owner_date)) {
+      setError("Please enter the acknowledgement date.");
+      return;
+    }
+    if (closure.owner_signature.trim().length < 2) {
+      setError("Please type the owner's name in the signature field to acknowledge the submission.");
+      return;
+    }
+    if (!closure.acknowledged) {
+      setError("Please confirm the acknowledgement before submitting.");
+      return;
+    }
+    try {
+      await api("save_closure", { closure });
       setSaving(true);
       await api("submit");
       setSubmitted(true);
@@ -320,6 +381,65 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
   if (error && !questionnaire) return <main className="min-h-screen grid place-items-center bg-slate-950 p-6"><div className="max-w-lg rounded-3xl border border-white/10 bg-white/5 p-8 text-center"><p className="text-2xl font-semibold">Let’s get you connected</p><p className="mt-3 text-slate-300">{error}</p><button onClick={() => location.reload()} className="mt-6 rounded-xl bg-cyan-300 px-5 py-3 font-semibold text-slate-950">Try again</button></div></main>;
   if (submitted) return <main className="min-h-screen grid place-items-center bg-slate-950 p-6 text-white"><div className="max-w-xl rounded-3xl border border-emerald-300/20 bg-emerald-300/5 p-10 text-center"><div className="text-5xl">✓</div><h1 className="mt-5 text-3xl font-semibold">Thank you{session?.respondent_name ? `, ${session.respondent_name}` : ""}!</h1><p className="mt-4 text-lg text-slate-300">Your answers have been submitted successfully. Franchise Kart will review the information and contact you about the next steps.</p><p className="mt-5 text-sm text-slate-400">Your private Franchise Kart analysis and execution plan are not shown on this page.</p></div></main>;
   if (!questionnaire || !section || !question) return <main className="min-h-screen bg-slate-950 p-8 text-white">Questionnaire content is not available.</main>;
+
+  if (closing) {
+    const checklist = questionnaire.document_checklist ?? [];
+    const declarationText = (questionnaire.confidentiality_and_acknowledgement ?? "").replace(/^## /m, "").replace(/\\*\\*/g, "");
+    return <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-cyan-950 via-slate-950 to-slate-950 px-4 py-8 text-white sm:px-6">
+      <div className="mx-auto max-w-3xl">
+        <header className="mb-8">
+          <p className="text-xs font-bold uppercase tracking-[0.25em] text-cyan-300">Franchise Kart · Final review</p>
+          <h1 className="mt-2 text-2xl font-semibold sm:text-3xl">{session?.brand_name ?? "Business"} Discovery</h1>
+          <p className="mt-3 text-slate-300">Final step: confirm which records are available and acknowledge your responses. You can return to edit your answers before submitting.</p>
+        </header>
+        <section className="rounded-3xl border border-white/10 bg-slate-900/80 p-5 shadow-2xl shadow-cyan-950/20 sm:p-8">
+          <h2 className="text-2xl font-semibold">Supporting Documents and Records</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-400">Please mark each item honestly. This records availability only; it does not upload documents. Share sensitive records with Franchise Kart through an agreed secure channel.</p>
+          <div className="mt-6 space-y-4">
+            {checklist.map((item, index) => <fieldset key={item.id} className="rounded-2xl border border-white/10 p-4">
+              <legend className="px-2 text-sm font-medium text-slate-100">{index + 1}. {item.label}</legend>
+              <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                {item.status_options.map((status) => <label key={status} className={"flex cursor-pointer items-start gap-2 rounded-xl border px-3 py-3 text-sm " + (closure.documents[item.id] === status ? "border-cyan-300 bg-cyan-300/10" : "border-white/10 bg-slate-950/40")}>
+                  <input type="radio" name={item.id} value={status} checked={closure.documents[item.id] === status} onChange={() => setClosure((old) => ({ ...old, documents: { ...old.documents, [item.id]: status } }))} className="mt-1 accent-cyan-300" />
+                  <span>{status}</span>
+                </label>)}
+              </div>
+            </fieldset>)}
+          </div>
+          <div className="mt-8 rounded-2xl border border-white/10 bg-slate-950/40 p-5">
+            <h2 className="text-xl font-semibold">Confidentiality and Acknowledgement</h2>
+            <p className="mt-4 whitespace-pre-line text-sm leading-7 text-slate-300">{declarationText}</p>
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              <label className="block text-sm text-slate-300">Owner
+                <input value={session?.respondent_name ?? "Mr. Chitwan"} readOnly className="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-4 py-3 text-white" />
+              </label>
+              <label className="block text-sm text-slate-300">Date
+                <input type="date" value={closure.owner_date} onChange={(e) => setClosure((old) => ({ ...old, owner_date: e.target.value }))} className="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-4 py-3 text-white" />
+              </label>
+              <label className="block text-sm text-slate-300 sm:col-span-2">Owner signature / type your full name to acknowledge
+                <input value={closure.owner_signature} onChange={(e) => setClosure((old) => ({ ...old, owner_signature: e.target.value }))} maxLength={200} autoComplete="name" placeholder="Type your full name" className="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-4 py-3 text-white" />
+              </label>
+              <div className="sm:col-span-2 rounded-xl border border-white/10 p-4">
+                <p className="text-sm font-medium">For Franchise Kart</p>
+                <p className="mt-1 text-sm text-slate-400">Internal sign-off field — completed by Franchise Kart after receipt; it is not for the owner to fill in.</p>
+              </div>
+            </div>
+            <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-cyan-300/20 bg-cyan-300/5 p-4">
+              <input type="checkbox" checked={closure.acknowledged} onChange={(e) => setClosure((old) => ({ ...old, acknowledged: e.target.checked }))} className="mt-1 accent-cyan-300" />
+              <span className="text-sm leading-6 text-slate-200">I confirm that I have reviewed my responses and the document-availability selections, and I acknowledge the confidentiality statement above.</span>
+            </label>
+          </div>
+          {error && <p role="alert" className="mt-5 rounded-xl border border-rose-300/20 bg-rose-300/5 px-4 py-3 text-sm text-rose-200">{error}</p>}
+          {notice && <p aria-live="polite" className="mt-5 text-sm text-emerald-300">{notice}</p>}
+          <div className="mt-8 flex flex-wrap justify-between gap-3 border-t border-white/10 pt-6">
+            <button onClick={() => { setClosing(false); setError(""); setNotice(""); }} disabled={saving} className="rounded-xl border border-white/15 px-5 py-3 font-medium text-slate-200 hover:bg-white/5 disabled:opacity-50">← Back to questions</button>
+            <button onClick={submit} disabled={saving} className="rounded-xl bg-emerald-300 px-6 py-3 font-semibold text-slate-950 hover:bg-emerald-200 disabled:opacity-50">{saving ? "Submitting…" : "Submit completed questionnaire ✓"}</button>
+          </div>
+          <p className="mt-4 text-xs text-slate-500">The private Franchise Kart analysis and execution plan are not shown to the owner.</p>
+        </section>
+      </div>
+    </main>;
+  }
 
   const isLastQuestion = sectionIndex === sections.length - 1 && questionIndex === section.questions.length - 1;
   return <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-cyan-950 via-slate-950 to-slate-950 px-4 py-8 text-white sm:px-6">
@@ -409,7 +529,7 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
             <button onClick={goBack} disabled={saving || (sectionIndex === 0 && questionIndex === 0)} className="rounded-xl border border-white/15 px-5 py-3 font-medium text-slate-200 transition hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-30">← Back</button>
             <div className="flex flex-wrap gap-3">
               <button onClick={async () => { try { await saveCurrent(sectionIndex, questionIndex); setError(""); } catch (e) { setError(e instanceof Error ? e.message : "Save failed."); } }} disabled={saving} className="rounded-xl border border-cyan-300/40 px-5 py-3 font-medium text-cyan-200 transition hover:bg-cyan-300/10 disabled:opacity-50">{saving ? "Saving…" : "Save progress"}</button>
-              {isLastQuestion ? <button onClick={submit} disabled={saving} className="rounded-xl bg-emerald-300 px-6 py-3 font-semibold text-slate-950 transition hover:bg-emerald-200 disabled:opacity-50">{saving ? "Submitting…" : "Submit answers ✓"}</button> : <button onClick={goNext} disabled={saving} className="rounded-xl bg-cyan-300 px-6 py-3 font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:opacity-50">Save & continue →</button>}
+              {isLastQuestion ? <button onClick={beginClosure} disabled={saving} className="rounded-xl bg-emerald-300 px-6 py-3 font-semibold text-slate-950 transition hover:bg-emerald-200 disabled:opacity-50">Review checklist & finish →</button> : <button onClick={goNext} disabled={saving} className="rounded-xl bg-cyan-300 px-6 py-3 font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:opacity-50">Save & continue →</button>}
             </div>
           </div>
         </>}
