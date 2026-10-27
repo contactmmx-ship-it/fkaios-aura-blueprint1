@@ -32,3 +32,5 @@ jobs:
         run: deno check --node-modules-dir=auto supabase/functions/brand-discovery-create-invite/index.ts
       - name: Type-check respondent function
         run: deno check --node-modules-dir=auto supabase/functions/brand-discovery-respondent/index.ts
+      - name: Type-check private report function
+        run: deno check --node-modules-dir=auto supabase/functions/brand-discovery-private-report/index.ts
