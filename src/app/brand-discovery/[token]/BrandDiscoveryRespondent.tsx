@@ -7,7 +7,7 @@ type Question = {
   id: string;
   number: number;
   prompt: string;
-  type: "text" | "long_text" | "repeatable_list" | "file_or_text" | "multiple_choice" | "multi_part";
+  type: "text" | "long_text" | "repeatable_list" | "file_or_text" | "multiple_choice" | "multi_part" | "service_status" | "repeatable_choice";
   required?: boolean;
   help_text?: string;
   options?: Array<{ value: string; label: string }>;
@@ -18,6 +18,12 @@ type Question = {
   selection_instruction?: string;
   source_block?: string;
   parts?: Array<{ id: string; label: string; instruction: string; selection_mode: "single" | "multiple"; max_selections?: number; options: Array<{ value: string; label: string }> }>;
+  service_options?: Array<{ value: string; label: string }>;
+  status_options?: Array<{ value: string; label: string }>;
+  service_instruction?: string;
+  status_instruction?: string;
+  row_label?: string;
+  row_prompt?: string;
 };
 type Section = { id: string; title: string; intro?: string; why_it_matters?: string; questions: Question[] };
 type Questionnaire = { sections: Section[]; question_count?: number; brand?: { name?: string }; document_checklist?: Array<{ id: string; label: string; required?: boolean; status_options: string[] }>; confidentiality_and_acknowledgement?: string };
@@ -66,6 +72,11 @@ function parsePartAnswer(raw: string): Record<string, string[]> {
   } catch { /* no saved multipart answer */ }
   return {};
 }
+function parseStructuredAnswer(raw: string): any {
+  try { const value = JSON.parse(raw); return value && typeof value === "object" ? value : {}; }
+  catch { return {}; }
+}
+function encodeStructuredAnswer(value: unknown) { return JSON.stringify(value); }
 function encodePartAnswer(parts: Record<string, string[]>) {
   return JSON.stringify({ parts: Object.fromEntries(Object.entries(parts).map(([id, choices]) => [id, { choices }])) });
 }
@@ -74,6 +85,16 @@ function hasAnswer(question: Question, raw: string) {
   if (question.type === "multi_part") {
     const saved = parsePartAnswer(raw);
     return Boolean(question.parts?.length) && question.parts!.every((part) => (saved[part.id] ?? []).length > 0);
+  }
+  if (question.type === "service_status") {
+    const value = parseStructuredAnswer(raw);
+    return Array.isArray(value.services) && value.services.length > 0 &&
+      value.services.every((id: string) => typeof value.statuses?.[id] === "string");
+  }
+  if (question.type === "repeatable_choice") {
+    const value = parseStructuredAnswer(raw);
+    return Array.isArray(value.rows) && value.rows.length > 0 &&
+      value.rows.every((row: any) => typeof row.label === "string" && row.label.trim() && typeof row.choice === "string" && row.choice);
   }
   return raw.trim().length > 0;
 }
@@ -468,7 +489,55 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
           <h2 className="mt-4 text-2xl font-semibold leading-snug sm:text-3xl">{question.prompt}</h2>
           {question.help_text && <p className="mt-4 text-sm leading-6 text-slate-400">{question.help_text}</p>}
           <div className="mt-7">
-            {question.type === "multi_part" ? <div className="space-y-6">
+            {question.type === "service_status" ? (() => {
+              const saved = parseStructuredAnswer(currentAnswer);
+              const services: string[] = Array.isArray(saved.services) ? saved.services : [];
+              const statuses: Record<string, string> = saved.statuses && typeof saved.statuses === "object" ? saved.statuses : {};
+              return <div className="space-y-4">
+                <p className="text-xs text-slate-400">{question.service_instruction}</p>
+                {(question.service_options ?? []).map((option) => {
+                  const selected = services.includes(option.value);
+                  return <div key={option.value} className="rounded-2xl border border-white/10 p-4">
+                    <label className="flex cursor-pointer items-start gap-3 text-sm">
+                      <input type="checkbox" checked={selected} onChange={() => setAnswers((a) => {
+                        const value = parseStructuredAnswer(a[question.id] ?? "");
+                        const current: string[] = Array.isArray(value.services) ? value.services : [];
+                        const next = selected ? current.filter((id) => id !== option.value) : [...current, option.value];
+                        const nextStatuses = { ...(value.statuses ?? {}) };
+                        if (selected) delete nextStatuses[option.value];
+                        return { ...a, [question.id]: encodeStructuredAnswer({ services: next, statuses: nextStatuses }) };
+                      })} className="mt-1 accent-cyan-300" />
+                      <span className="font-medium">{option.label}</span>
+                    </label>
+                    {selected && <div className="ml-7 mt-3">
+                      <p className="mb-2 text-xs text-slate-400">{question.status_instruction}</p>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {(question.status_options ?? []).map((status) => <label key={status.value} className={"flex cursor-pointer items-start gap-2 rounded-xl border px-3 py-3 text-sm " + (statuses[option.value] === status.value ? "border-cyan-300 bg-cyan-300/10" : "border-white/10 bg-slate-950/40")}>
+                          <input type="radio" name={question.id + "-" + option.value} value={status.value} checked={statuses[option.value] === status.value} onChange={() => setAnswers((a) => { const value = parseStructuredAnswer(a[question.id] ?? ""); return { ...a, [question.id]: encodeStructuredAnswer({ ...value, services: value.services ?? [], statuses: { ...(value.statuses ?? {}), [option.value]: status.value } }) }; })} className="mt-1 accent-cyan-300" />
+                          <span>{status.label}</span>
+                        </label>)}
+                      </div>
+                    </div>}
+                  </div>;
+                })}
+              </div>;
+            })() : question.type === "repeatable_choice" ? <div className="space-y-4">
+              <p className="text-sm text-slate-400">{question.row_prompt}</p>
+              {(() => { const saved = parseStructuredAnswer(currentAnswer); const rows: Array<{id: string; label: string; choice: string}> = Array.isArray(saved.rows) ? saved.rows : []; return <div className="space-y-3">
+                {rows.map((row, index) => <div key={row.id} className="grid gap-3 rounded-2xl border border-white/10 p-4 sm:grid-cols-[1fr_1fr_auto]">
+                  <label className="text-sm text-slate-300">{question.row_label} {index + 1}
+                    <input value={row.label} onChange={(e) => setAnswers((a) => { const value = parseStructuredAnswer(a[question.id] ?? ""); const next = [...(value.rows ?? [])]; next[index] = { ...next[index], label: e.target.value }; return { ...a, [question.id]: encodeStructuredAnswer({ rows: next }) }; })} maxLength={100} placeholder="e.g. Main banquet hall" className="mt-2 w-full rounded-xl border border-white/15 bg-slate-950 px-3 py-3 text-white" />
+                  </label>
+                  <label className="text-sm text-slate-300">Capacity range
+                    <select value={row.choice} onChange={(e) => setAnswers((a) => { const value = parseStructuredAnswer(a[question.id] ?? ""); const next = [...(value.rows ?? [])]; next[index] = { ...next[index], choice: e.target.value }; return { ...a, [question.id]: encodeStructuredAnswer({ rows: next }) }; })} className="mt-2 w-full rounded-xl border border-white/15 bg-slate-950 px-3 py-3 text-white">
+                      <option value="">Choose a range</option>{(question.options ?? []).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </label>
+                  <button type="button" onClick={() => setAnswers((a) => { const value = parseStructuredAnswer(a[question.id] ?? ""); const next = [...(value.rows ?? [])].filter((_: unknown, i: number) => i !== index); return { ...a, [question.id]: encodeStructuredAnswer({ rows: next }) }; })} className="self-end rounded-lg border border-white/15 px-3 py-2 text-sm text-slate-300 hover:bg-white/5">Remove</button>
+                </div>)}
+                <button type="button" onClick={() => setAnswers((a) => { const value = parseStructuredAnswer(a[question.id] ?? ""); const rows = Array.isArray(value.rows) ? value.rows : []; if (rows.length >= 20) return a; return { ...a, [question.id]: encodeStructuredAnswer({ rows: [...rows, { id: "row-" + Date.now(), label: "", choice: "" }] }) }; })} className="rounded-xl border border-cyan-300/40 px-4 py-3 text-sm font-medium text-cyan-200 hover:bg-cyan-300/10">+ Add another hall / event space</button>
+              </div>; })()}
+            </div> : question.type === "multi_part" ? <div className="space-y-6">
               {(question.parts ?? []).map((part) => {
                 const saved = parsePartAnswer(currentAnswer);
                 const selectedChoices = saved[part.id] ?? [];
