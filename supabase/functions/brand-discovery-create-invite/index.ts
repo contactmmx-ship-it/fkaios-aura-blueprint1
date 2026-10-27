@@ -4,7 +4,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const allowedOrigin = Deno.env.get("BRAND_DISCOVERY_ALLOWED_ORIGIN") ?? "";
 const cors = {
   "Access-Control-Allow-Origin": allowedOrigin || "null",
-  "Access-Control-Allow-Headers": "authorization, content-type",
+  "Access-Control-Allow-Headers": "authorization, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Content-Type": "application/json",
   "Cache-Control": "no-store",
