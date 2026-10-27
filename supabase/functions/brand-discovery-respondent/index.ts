@@ -1,8 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const cors = {
-  "Access-Control-Allow-Origin": Deno.env.get("BRAND_DISCOVERY_ALLOWED_ORIGIN") ?? "null",
+const allowedOrigin = Deno.env.get("BRAND_DISCOVERY_ALLOWED_ORIGIN") ?? "";\nconst cors = {
+  "Access-Control-Allow-Origin": allowedOrigin || "null",
   "Access-Control-Allow-Headers": "authorization, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Content-Type": "application/json",
@@ -15,7 +15,7 @@ async function hashToken(token: string) {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
   return Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, "0")).join("");
 }
-function validQuestionnaire(q: any) {
+function hasMeaningfulAnswer(value: unknown): boolean {\n  if (typeof value === "string") return value.trim().length > 0;\n  if (typeof value === "number") return Number.isFinite(value);\n  if (typeof value === "boolean") return true;\n  if (Array.isArray(value)) return value.some(hasMeaningfulAnswer);\n  if (value && typeof value === "object") return Object.values(value as Record<string, unknown>).some(hasMeaningfulAnswer);\n  return false;\n}\nfunction validQuestionnaire(q: any) {
   return q && Array.isArray(q.sections) && q.sections.every((s: any) =>
     typeof s.id === "string" && Array.isArray(s.questions) &&
     s.questions.every((item: any) => typeof item.id === "string"));
