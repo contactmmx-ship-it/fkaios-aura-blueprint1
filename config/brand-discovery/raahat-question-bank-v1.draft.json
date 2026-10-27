@@ -1,0 +1,2286 @@
+{
+  "schema_version": 1,
+  "slug": "raahat-brand-discovery",
+  "version": 1,
+  "status": "draft",
+  "brand": {
+    "name": "Raahat",
+    "owner": "Mr. Chitwan",
+    "location": "Karnal",
+    "category": "hospitality"
+  },
+  "language": "Natural Hinglish; respondent may answer in Hindi, English, or a mix.",
+  "critical_notice": "This is a newly drafted replacement question bank, not recovered historical wording. Review with the original framework/source before activation.",
+  "source_status": "ORIGINAL_QUESTION_TEXT_NOT_RECOVERED",
+  "question_count": 234,
+  "sections": [
+    {
+      "id": "owner_vision",
+      "title": "Owner and Vision",
+      "module": "core",
+      "expected_question_count": 15,
+      "questions": [
+        {
+          "id": "owner_name",
+          "number": 1,
+          "prompt": "Aapka poora naam aur business mein aapki official role kya hai?",
+          "type": "text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "ownership",
+          "number": 2,
+          "prompt": "Raahat ki ownership aur decision-making structure kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "founding_reason",
+          "number": 3,
+          "prompt": "Raahat shuru karne ka original idea aur reason kya tha?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "vision_3y",
+          "number": 4,
+          "prompt": "Agle 3 saal mein aap Raahat ko kahan dekhna chahte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "success_definition",
+          "number": 5,
+          "prompt": "Aapke liye Raahat ki success ka sabse important matlab kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "personal_role",
+          "number": 6,
+          "prompt": "Aaj aap apna kitna samay Raahat ko dete hain aur kin kaamon mein?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "motivation",
+          "number": 7,
+          "prompt": "Is business ko aage badhane ki aapki sabse badi motivation kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "values",
+          "number": 8,
+          "prompt": "Raahat kin 3 values ke liye jaana jaana chahiye?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "nonnegotiables",
+          "number": 9,
+          "prompt": "Kaun si cheezein hain jin par aap compromise nahi karna chahenge?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "decision_style",
+          "number": 10,
+          "prompt": "Bade business decisions aap kaise lete hain aur kaun saath hota hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "risk_appetite",
+          "number": 11,
+          "prompt": "Growth ke liye aap kitna risk aur investment consider kar sakte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "family_expectations",
+          "number": 12,
+          "prompt": "Family ya co-owners ki business se kya expectations hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "time_horizon",
+          "number": 13,
+          "prompt": "Aap business ko kitne saal khud chalana ya own karna chahte hain?",
+          "type": "text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "owner_strengths",
+          "number": 14,
+          "prompt": "Aapki personal strengths Raahat ko sabse zyada kahan help karti hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "owner_success_metric",
+          "number": 15,
+          "prompt": "Agle 12 mahine mein kaun se 3 results aapko kahenge ki progress hui?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        }
+      ]
+    },
+    {
+      "id": "history_identity",
+      "title": "History, Brand Identity and Reputation",
+      "module": "core",
+      "expected_question_count": 12,
+      "questions": [
+        {
+          "id": "start_year",
+          "number": 1,
+          "prompt": "Raahat kab shuru hua aur tab se kya-kya badla hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "name_meaning",
+          "number": 2,
+          "prompt": "Raahat naam ka kya meaning hai aur ise kyun chuna gaya?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "milestones",
+          "number": 3,
+          "prompt": "Business ke sabse important milestones kaun se rahe hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "best_period",
+          "number": 4,
+          "prompt": "Raahat ka sabse achha daur kab tha aur us waqt kya sahi chal raha tha?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "difficult_period",
+          "number": 5,
+          "prompt": "Sabse mushkil period kab aaya aur uska kya asar hua?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "reputation",
+          "number": 6,
+          "prompt": "Aapke hisaab se local market Raahat ko kis baat ke liye jaanta hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "differentiation",
+          "number": 7,
+          "prompt": "Raahat ko Karnal ke alternatives se alag kya banata hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "brand_assets",
+          "number": 8,
+          "prompt": "Logo, signage, photos, menus ya brand material mein kya available hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "reviews",
+          "number": 9,
+          "prompt": "Online aur word-of-mouth reviews mein customers kya praise ya criticize karte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "brand_consistency",
+          "number": 10,
+          "prompt": "Service aur customer experience mein brand promise kitna consistently deliver hota hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "legacy",
+          "number": 11,
+          "prompt": "Aap Raahat ki legacy ke roop mein kya chhodna chahte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "identity_change",
+          "number": 12,
+          "prompt": "Agar brand identity badalni ho, to kya preserve aur kya change karenge?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        }
+      ]
+    },
+    {
+      "id": "business_inventory",
+      "title": "Complete Business and Service Inventory",
+      "module": "hospitality",
+      "expected_question_count": 7,
+      "questions": [
+        {
+          "id": "services_list",
+          "number": 1,
+          "prompt": "Raahat ki har service ya revenue stream list karein; har item ke saath location, price, capacity aur monthly sales agar pata ho batayein.",
+          "type": "repeatable_list",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "service_profitability",
+          "number": 2,
+          "prompt": "Kaun si services sabse zyada revenue aur kaun si sabse zyada profit deti hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "service_demand",
+          "number": 3,
+          "prompt": "Har service ki demand season, weekday/weekend aur customer type ke hisaab se kaise badalti hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "capacity",
+          "number": 4,
+          "prompt": "Har service ki maximum practical capacity aur current utilisation kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "service_dependencies",
+          "number": 5,
+          "prompt": "Kaun si services ek doosre ko customers ya revenue deti hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "service_gaps",
+          "number": 6,
+          "prompt": "Customers kin services ke liye poochte hain jo aap abhi offer nahi karte?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "inventory_owner",
+          "number": 7,
+          "prompt": "Har service ka accountable owner/manager kaun hai aur performance kaise track hoti hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        }
+      ]
+    },
+    {
+      "id": "restaurant_food",
+      "title": "Restaurant, Menu and Food Quality",
+      "module": "restaurant",
+      "expected_question_count": 21,
+      "questions": [
+        {
+          "id": "restaurant_opening",
+          "number": 1,
+          "prompt": "Restaurant ke opening hours, seating capacity aur service formats kya hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "menu_current",
+          "number": 2,
+          "prompt": "Current menu, item prices aur latest menu file/link share karein.",
+          "type": "file_or_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "bestsellers",
+          "number": 3,
+          "prompt": "Top-selling menu items kaun se hain aur unki sales ka data available hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "low_sellers",
+          "number": 4,
+          "prompt": "Kaun se items kam bikte hain ya menu ko unnecessarily complex banate hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "food_cost",
+          "number": 5,
+          "prompt": "Popular items ka approximate ingredient cost aur gross margin kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "purchasing",
+          "number": 6,
+          "prompt": "Raw material suppliers, purchase frequency aur rate control kaise hota hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "quality_standard",
+          "number": 7,
+          "prompt": "Taste, portion size aur presentation ko consistent kaise rakha jata hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "recipes",
+          "number": 8,
+          "prompt": "Kya standard recipes, portion specs aur preparation cards documented hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "wastage",
+          "number": 9,
+          "prompt": "Food wastage kitna hota hai aur kaise record/reduce kiya jata hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "hygiene",
+          "number": 10,
+          "prompt": "Cleaning, hygiene, temperature aur food-safety checks ka process kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "kitchen_flow",
+          "number": 11,
+          "prompt": "Order se serving tak kitchen workflow aur average time kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "peak_load",
+          "number": 12,
+          "prompt": "Peak hours mein bottleneck ya delays kahan aate hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "complaints",
+          "number": 13,
+          "prompt": "Food-related complaints sabse zyada kis baat par aati hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "delivery",
+          "number": 14,
+          "prompt": "Dine-in, takeaway aur delivery ka sales mix kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "aggregators",
+          "number": 15,
+          "prompt": "Delivery platforms ka commission, ratings aur profitability kaisi hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "menu_engineering",
+          "number": 16,
+          "prompt": "Kya menu items ko popularity aur profitability ke basis par review karte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "equipment",
+          "number": 17,
+          "prompt": "Kitchen equipment ki condition, maintenance aur capacity issues kya hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "chef_dependency",
+          "number": 18,
+          "prompt": "Quality ya operations kisi particular chef ya employee par kitne dependent hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "supplier_risk",
+          "number": 19,
+          "prompt": "Kya critical ingredients ke alternate suppliers available hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "compliance",
+          "number": 20,
+          "prompt": "Food licences, inspections aur compliance records ki current status kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "food_improvements",
+          "number": 21,
+          "prompt": "Agle 90 din mein food offering ya kitchen operations mein sabse important improvement kya hoga?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        }
+      ]
+    },
+    {
+      "id": "hotel_rooms",
+      "title": "Hotel Rooms and Guest Experience",
+      "module": "hotel",
+      "expected_question_count": 15,
+      "questions": [
+        {
+          "id": "room_inventory",
+          "number": 1,
+          "prompt": "Room types aur har type mein rooms ki sankhya kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "room_rates",
+          "number": 2,
+          "prompt": "Har room type ka published rate, realised rate aur discount policy kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "occupancy",
+          "number": 3,
+          "prompt": "Pichhle 12 mahine ka monthly occupancy data available hai?",
+          "type": "file_or_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "booking_mix",
+          "number": 4,
+          "prompt": "Direct, phone, walk-in aur online travel agent bookings ka share kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "guest_profile",
+          "number": 5,
+          "prompt": "Typical guests kaun hain—business, families, events ya transit?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "checkin",
+          "number": 6,
+          "prompt": "Reservation, check-in, ID verification aur checkout process kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "housekeeping",
+          "number": 7,
+          "prompt": "Room cleaning checklist, inspection aur linen process kaise chalta hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "maintenance",
+          "number": 8,
+          "prompt": "Room maintenance issues kaise report aur resolve hote hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "amenities",
+          "number": 9,
+          "prompt": "Kaun si amenities included hain aur guests kis cheez ki demand karte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "guest_feedback",
+          "number": 10,
+          "prompt": "Guest reviews aur complaints mein recurring themes kya hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "service_recovery",
+          "number": 11,
+          "prompt": "Guest dissatisfied ho to complaint resolution aur compensation authority kiski hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "room_cost",
+          "number": 12,
+          "prompt": "Per occupied room approximate operating cost kaise estimate karte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "staffing",
+          "number": 13,
+          "prompt": "Front desk, housekeeping aur security ki staffing shift-wise kaise hoti hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "safety",
+          "number": 14,
+          "prompt": "Guest safety, emergency response aur incident register ka process kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "room_growth",
+          "number": 15,
+          "prompt": "Occupancy ya room revenue badhane ka sabse practical opportunity kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        }
+      ]
+    },
+    {
+      "id": "banquets_events",
+      "title": "Banquets, Events and Catering",
+      "module": "events",
+      "expected_question_count": 18,
+      "questions": [
+        {
+          "id": "venue_inventory",
+          "number": 1,
+          "prompt": "Banquet/event spaces ki sankhya, capacity aur seating layouts kya hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "event_types",
+          "number": 2,
+          "prompt": "Kaun se event types sabse zyada book hote hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "event_pricing",
+          "number": 3,
+          "prompt": "Hall rent, per-plate rates, packages aur add-on charges kya hain?",
+          "type": "file_or_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "booking_pipeline",
+          "number": 4,
+          "prompt": "Enquiry se booking aur advance tak ka current process kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "conversion",
+          "number": 5,
+          "prompt": "Monthly enquiries, site visits, quotations aur confirmed bookings kitni hoti hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "utilisation",
+          "number": 6,
+          "prompt": "Pichhle 12 mahine mein date-wise/season-wise utilisation kaisa raha?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "lead_time",
+          "number": 7,
+          "prompt": "Customers average kitne din/mahine pehle booking karte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "catering",
+          "number": 8,
+          "prompt": "In-house catering, outside caterers aur menu approval policy kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "event_costing",
+          "number": 9,
+          "prompt": "Ek typical event ka direct cost aur contribution margin kaise calculate hota hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "vendor_network",
+          "number": 10,
+          "prompt": "Decoration, DJ, photography aur other vendors ka approved network hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "event_execution",
+          "number": 11,
+          "prompt": "Event-day run sheet, owner assignment aur quality check kaise hota hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "power_backup",
+          "number": 12,
+          "prompt": "Power, cooling, parking, washrooms aur backup arrangements kya hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "contracts",
+          "number": 13,
+          "prompt": "Booking terms, cancellation policy, refund aur damage deposit rules kya hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "payment_control",
+          "number": 14,
+          "prompt": "Advance, instalments, final settlement aur overdue follow-up kaise hota hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "lost_bookings",
+          "number": 15,
+          "prompt": "Bookings lose hone ke common reasons kya hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "feedback",
+          "number": 16,
+          "prompt": "Event ke baad customer feedback kaise collect aur act upon hota hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "repeat_referral",
+          "number": 17,
+          "prompt": "Repeat events, referrals aur corporate tie-ups kaise generate hote hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "event_growth",
+          "number": 18,
+          "prompt": "Agle 90 din mein event sales ya profitability improve karne ka best lever kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        }
+      ]
+    },
+    {
+      "id": "customers_market",
+      "title": "Customers, Market and Competition",
+      "module": "core",
+      "expected_question_count": 15,
+      "questions": [
+        {
+          "id": "customer_segments",
+          "number": 1,
+          "prompt": "Aapke main customer segments kaun se hain aur har segment kya kharidta hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "ideal_customer",
+          "number": 2,
+          "prompt": "Raahat ke liye sabse profitable aur suitable customer kaun hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "catchment",
+          "number": 3,
+          "prompt": "Customers aam taur par kin areas/towns se aate hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "purchase_motive",
+          "number": 4,
+          "prompt": "Customers Raahat choose karte waqt sabse zyada kis cheez ko value karte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "selection_barriers",
+          "number": 5,
+          "prompt": "Potential customers Raahat choose kyun nahi karte?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "repeat_rate",
+          "number": 6,
+          "prompt": "Repeat customers ka share ya repeat frequency pata hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "customer_value",
+          "number": 7,
+          "prompt": "Average bill/booking value aur customer lifetime value ka koi estimate hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "competitors",
+          "number": 8,
+          "prompt": "Main direct aur indirect competitors kaun hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "competitor_strengths",
+          "number": 9,
+          "prompt": "Competitors kis area mein Raahat se behtar perform karte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "competitor_gaps",
+          "number": 10,
+          "prompt": "Competitors ke customers ki unmet needs kya hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "price_position",
+          "number": 11,
+          "prompt": "Raahat ki pricing local alternatives ke mukable premium, similar ya budget hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "seasonality",
+          "number": 12,
+          "prompt": "Demand ke seasonal, festival, wedding aur weekday/weekend patterns kya hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "feedback_capture",
+          "number": 13,
+          "prompt": "Customer feedback systematically kaise collect aur analyse hota hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "lost_customers",
+          "number": 14,
+          "prompt": "Kya customers chhod kar gaye? Agar haan, common reasons kya the?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "market_change",
+          "number": 15,
+          "prompt": "Local market mein kaun se changes agle 2 saal mein important honge?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        }
+      ]
+    },
+    {
+      "id": "sales_marketing",
+      "title": "Sales, Marketing and Digital",
+      "module": "core",
+      "expected_question_count": 16,
+      "questions": [
+        {
+          "id": "sales_owner",
+          "number": 1,
+          "prompt": "Enquiries aur sales conversion ka accountable person kaun hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "lead_sources",
+          "number": 2,
+          "prompt": "Enquiries kis source se aati hain aur source-wise count track hota hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "response_time",
+          "number": 3,
+          "prompt": "New enquiry ka response average kitni der mein diya jata hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "followup",
+          "number": 4,
+          "prompt": "Unconverted enquiries ka follow-up schedule aur tracking system kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "sales_script",
+          "number": 5,
+          "prompt": "Kya phone, WhatsApp aur site visit ke liye standard scripts hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "quotation",
+          "number": 6,
+          "prompt": "Quotation/package proposals ka format aur approval process kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "conversion",
+          "number": 7,
+          "prompt": "Enquiry-to-booking conversion rate ka estimate kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "marketing_budget",
+          "number": 8,
+          "prompt": "Monthly marketing budget aur channel-wise spend kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "campaign_results",
+          "number": 9,
+          "prompt": "Pichhle campaigns se enquiries, bookings aur revenue kitna mila?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "digital_assets",
+          "number": 10,
+          "prompt": "Website, Google Business Profile, Instagram, Facebook aur booking links share karein.",
+          "type": "file_or_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "online_reviews",
+          "number": 11,
+          "prompt": "Reviews ka response kaun deta hai aur negative reviews kaise handle hote hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "content",
+          "number": 12,
+          "prompt": "Photos, videos, offers aur customer stories ka content plan hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "referrals",
+          "number": 13,
+          "prompt": "Referral, loyalty ya repeat-customer programme chalta hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "partnerships",
+          "number": 14,
+          "prompt": "Corporate, wedding planners, travel agents ya local businesses ke tie-ups hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "crm",
+          "number": 15,
+          "prompt": "Customer/contact data kahan store hota hai aur duplicate/lost leads kaise avoid hote hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "marketing_priority",
+          "number": 16,
+          "prompt": "Agle 90 din mein marketing ka ek measurable goal kya hona chahiye?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        }
+      ]
+    },
+    {
+      "id": "financial_economics",
+      "title": "Financials and Unit Economics",
+      "module": "core",
+      "expected_question_count": 20,
+      "questions": [
+        {
+          "id": "revenue_monthly",
+          "number": 1,
+          "prompt": "Pichhle 12 mahine ka monthly revenue, service-wise aur tax basis ke saath share karein.",
+          "type": "file_or_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "revenue_recognition",
+          "number": 2,
+          "prompt": "Sales, collections aur GST-inclusive figures ko records mein kaise distinguish karte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "gross_margin",
+          "number": 3,
+          "prompt": "Service-wise gross margin ya direct-cost estimate available hai?",
+          "type": "file_or_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "fixed_costs",
+          "number": 4,
+          "prompt": "Monthly fixed costs—rent, salaries, utilities, software aur maintenance—kya hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "variable_costs",
+          "number": 5,
+          "prompt": "Main variable costs aur unke drivers kya hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "profitability",
+          "number": 6,
+          "prompt": "Monthly P&L aur actual cash position mein kya difference raha hai?",
+          "type": "file_or_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "cashflow",
+          "number": 7,
+          "prompt": "Cash-flow forecast aur daily/weekly cash tracking kaise hoti hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "receivables",
+          "number": 8,
+          "prompt": "Customers se kitna paisa outstanding hai aur ageing report available hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "payables",
+          "number": 9,
+          "prompt": "Supplier dues, statutory dues aur other payables kitne hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "debt",
+          "number": 10,
+          "prompt": "Loans, interest, repayment schedule aur security commitments kya hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "owner_drawings",
+          "number": 11,
+          "prompt": "Owner withdrawals/salary aur personal-business expense separation kaise hoti hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "seasonal_cash",
+          "number": 12,
+          "prompt": "Low season mein cash requirement kaise manage karte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "service_unit",
+          "number": 13,
+          "prompt": "Ek typical room night, restaurant order ya event ki unit economics kaise calculate karte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "break_even",
+          "number": 14,
+          "prompt": "Monthly break-even revenue aur uski calculation pata hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "discounting",
+          "number": 15,
+          "prompt": "Discounts, complimentary services aur credit sales ka profit par kya asar hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "leakage",
+          "number": 16,
+          "prompt": "Cash leakage, wastage, unbilled service ya reconciliation issues kaise check hote hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "controls",
+          "number": 17,
+          "prompt": "Cash, UPI, card, aggregator aur bank collections reconcile kaun karta hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "capex",
+          "number": 18,
+          "prompt": "Pending repairs, replacement aur planned capital expenditure kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "records_quality",
+          "number": 19,
+          "prompt": "Kaun se financial figures verified records par based hain aur kaun estimates hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "financial_goal",
+          "number": 20,
+          "prompt": "Agle 12 mahine ka realistic revenue, margin aur cash target kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        }
+      ]
+    },
+    {
+      "id": "people_operations",
+      "title": "People, Management and Daily Operations",
+      "module": "core",
+      "expected_question_count": 17,
+      "questions": [
+        {
+          "id": "org_chart",
+          "number": 1,
+          "prompt": "Current team, roles, reporting lines aur shift structure kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "headcount_cost",
+          "number": 2,
+          "prompt": "Department-wise headcount, salary aur total people cost kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "key_persons",
+          "number": 3,
+          "prompt": "Kaun se kaam sirf ek particular employee kar sakta hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "job_descriptions",
+          "number": 4,
+          "prompt": "Kya har role ki written responsibilities aur performance measures hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "daily_rhythm",
+          "number": 5,
+          "prompt": "Daily opening, handover, closing aur management review ka routine kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "sops",
+          "number": 6,
+          "prompt": "Kaun se SOPs/checklists written aur actively used hain?",
+          "type": "file_or_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "training",
+          "number": 7,
+          "prompt": "New staff induction, skills training aur refresher training kaise hoti hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "performance",
+          "number": 8,
+          "prompt": "Attendance, productivity, service quality aur sales performance kaise measure hote hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "incentives",
+          "number": 9,
+          "prompt": "Incentive, discipline aur recognition rules kya hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "staff_turnover",
+          "number": 10,
+          "prompt": "Recent staff turnover aur absenteeism ke main reasons kya hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "procurement",
+          "number": 11,
+          "prompt": "Purchase request, approval, receiving aur invoice matching ka process kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "inventory",
+          "number": 12,
+          "prompt": "Inventory counts, stock variance aur expiry/wastage controls kaise hote hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "maintenance",
+          "number": 13,
+          "prompt": "Preventive maintenance schedule aur issue escalation kaun manage karta hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "technology",
+          "number": 14,
+          "prompt": "Kaun se POS, PMS, accounting, booking ya staff systems use hote hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "reports",
+          "number": 15,
+          "prompt": "Owner ko daily, weekly aur monthly kaun se reports milte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "escalation",
+          "number": 16,
+          "prompt": "Operational problem aane par escalation path aur decision authority kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "owner_independence",
+          "number": 17,
+          "prompt": "Owner 14 din absent ho to kaun se operations rukne ka risk hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        }
+      ]
+    },
+    {
+      "id": "owner_diagnosis",
+      "title": "Owner Diagnosis and What Went Wrong",
+      "module": "core",
+      "expected_question_count": 15,
+      "questions": [
+        {
+          "id": "core_problem",
+          "number": 1,
+          "prompt": "Aapke hisaab se Raahat ki sabse badi current problem kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "problem_start",
+          "number": 2,
+          "prompt": "Yeh problem kab shuru hui aur tab kya change hua tha?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "symptoms_vs_cause",
+          "number": 3,
+          "prompt": "Aapko kya lagta hai root cause kya hai, sirf symptoms nahi?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "past_attempts",
+          "number": 4,
+          "prompt": "Is problem ko solve karne ke liye ab tak kya steps liye?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "attempt_results",
+          "number": 5,
+          "prompt": "Har attempt ka measurable result kya raha?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "failed_changes",
+          "number": 6,
+          "prompt": "Koi initiative kyun fail hua ya sustain nahi ho paya?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "external_factors",
+          "number": 7,
+          "prompt": "Market, economy, competition, property ya regulation ka kya impact hua?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "internal_factors",
+          "number": 8,
+          "prompt": "Team, systems, leadership ya execution mein kya gaps rahe?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "data_evidence",
+          "number": 9,
+          "prompt": "Kaun se records ya examples aapki diagnosis ko support karte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "blind_spot",
+          "number": 10,
+          "prompt": "Koi aisi baat jo team samajhti hai lekin owner tak nahi pahunchti?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "turning_point",
+          "number": 11,
+          "prompt": "Kaun sa event ya decision situation ko sabse zyada badal gaya?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "unresolved",
+          "number": 12,
+          "prompt": "Kaun se important issues baar-baar postpone hote rahe?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "control",
+          "number": 13,
+          "prompt": "In problems mein se kaun si cheezein aapke control mein hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "outside_help",
+          "number": 14,
+          "prompt": "Kis expertise ya support ki kami sabse zyada mehsoos hui?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "diagnosis_change",
+          "number": 15,
+          "prompt": "Agar ek assumption galat nikle, to aapko lagta hai woh kaun si ho sakti hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        }
+      ]
+    },
+    {
+      "id": "fears_constraints",
+      "title": "Fears, Pain and Constraints",
+      "module": "core",
+      "expected_question_count": 14,
+      "questions": [
+        {
+          "id": "biggest_fear",
+          "number": 1,
+          "prompt": "Raahat ke future ko lekar aapki sabse badi chinta kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "cash_pressure",
+          "number": 2,
+          "prompt": "Cash-flow ya financial pressure kitna urgent hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "time_pressure",
+          "number": 3,
+          "prompt": "Owner ke time aur energy par sabse bada pressure kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "people_constraints",
+          "number": 4,
+          "prompt": "Team ya talent se judi sabse badi constraint kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "property_constraints",
+          "number": 5,
+          "prompt": "Property, lease, layout ya infrastructure ki koi constraint hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "legal_constraints",
+          "number": 6,
+          "prompt": "Koi legal, licence, tax ya compliance issue pending hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "investment_limit",
+          "number": 7,
+          "prompt": "Bina approval ke invest na karne wali limit aur available budget kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "risk_limit",
+          "number": 8,
+          "prompt": "Kaun se risks aap bilkul nahi lena chahte?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "family_constraints",
+          "number": 9,
+          "prompt": "Family/co-owner expectations ya commitments ka kya impact hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "change_resistance",
+          "number": 10,
+          "prompt": "Team mein kaun se changes ka resistance aa sakta hai aur kyun?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "past_advisors",
+          "number": 11,
+          "prompt": "Pehle consultants/vendors se kya experience raha aur kya avoid karna hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "data_gaps",
+          "number": 12,
+          "prompt": "Kaun se important records abhi unavailable ya unreliable hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "urgency",
+          "number": 13,
+          "prompt": "Kaun si problem 30 din ke andar address karna zaroori hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "support_needed",
+          "number": 14,
+          "prompt": "Aapko practical support kis format mein chahiye aur kis cheez se bachna hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        }
+      ]
+    },
+    {
+      "id": "swot",
+      "title": "SWOT",
+      "module": "core",
+      "expected_question_count": 12,
+      "questions": [
+        {
+          "id": "strengths_internal",
+          "number": 1,
+          "prompt": "Raahat ki 3–5 strongest internal capabilities ya assets kya hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "strength_evidence",
+          "number": 2,
+          "prompt": "Har strength ka evidence ya example kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "weaknesses_internal",
+          "number": 3,
+          "prompt": "Business ke andar ke sabse important weaknesses kya hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "weakness_impact",
+          "number": 4,
+          "prompt": "Har weakness revenue, profit, service ya owner time ko kaise affect karti hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "opportunities_external",
+          "number": 5,
+          "prompt": "Market mein kaun se realistic growth opportunities dikhte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "opportunity_evidence",
+          "number": 6,
+          "prompt": "In opportunities ke liye customer demand ya market evidence kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "threats_external",
+          "number": 7,
+          "prompt": "Kaun se external threats business ko harm kar sakte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "threat_preparedness",
+          "number": 8,
+          "prompt": "In threats ke liye current contingency plan kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "competitive_advantage",
+          "number": 9,
+          "prompt": "Kaunsi capability competitors ke liye copy karna mushkil hogi?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "priority_swot",
+          "number": 10,
+          "prompt": "SWOT ke kaun se 2 points ko sabse pehle act karna chahiye?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "assumption_check",
+          "number": 11,
+          "prompt": "SWOT mein kaun se conclusions facts hain aur kaun se assumptions?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "swot_success",
+          "number": 12,
+          "prompt": "90 din baad kaunsa measurable change SWOT priorities ko validate karega?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        }
+      ]
+    },
+    {
+      "id": "future_ambition",
+      "title": "Future Ambition and Growth",
+      "module": "core",
+      "expected_question_count": 12,
+      "questions": [
+        {
+          "id": "growth_direction",
+          "number": 1,
+          "prompt": "Aap organic growth, new services, new location, franchise ya partnership mein kya consider karte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "target_customer",
+          "number": 2,
+          "prompt": "Future growth ke liye kaun se customer segment ko priority deni chahiye?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "growth_revenue",
+          "number": 3,
+          "prompt": "12, 24 aur 36 mahine ke revenue/profit goals kya hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "growth_capacity",
+          "number": 4,
+          "prompt": "Current building, team aur systems kitni growth support kar sakte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "capital_available",
+          "number": 5,
+          "prompt": "Growth ke liye kitna capital realistically available ho sakta hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "replication",
+          "number": 6,
+          "prompt": "Kya business ka koi part doosri location par repeat kiya ja sakta hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "standardisation",
+          "number": 7,
+          "prompt": "Growth se pehle kaun se processes standardise karna zaroori hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "new_services",
+          "number": 8,
+          "prompt": "Kaun se new services demand aur economics ke basis par test karna chahenge?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "partnerships_future",
+          "number": 9,
+          "prompt": "Kaun se strategic partners growth ko accelerate kar sakte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "owner_future_role",
+          "number": 10,
+          "prompt": "Growth ke baad aapka ideal role operations, strategy ya ownership mein kya hoga?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "growth_constraints",
+          "number": 11,
+          "prompt": "Growth ko rokne wale top constraints aur unhe solve karne ka plan kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "growth_gate",
+          "number": 12,
+          "prompt": "Scale karne se pehle kaun se proof points achieve hona zaroori hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        }
+      ]
+    },
+    {
+      "id": "fk_partnership",
+      "title": "Franchise Kart Partnership and Authority",
+      "module": "core",
+      "expected_question_count": 15,
+      "questions": [
+        {
+          "id": "fk_expectation",
+          "number": 1,
+          "prompt": "Franchise Kart se aap exactly kis outcome aur support ki expectation rakhte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "scope_priority",
+          "number": 2,
+          "prompt": "Aapko sabse pehle diagnosis, systems, sales, marketing, training ya expansion mein kya chahiye?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "success_metrics",
+          "number": 3,
+          "prompt": "FK engagement ki success ko kaun se measurable metrics se judge karenge?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "decision_owner",
+          "number": 4,
+          "prompt": "Project ke liye final decision-maker kaun hoga?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "team_contact",
+          "number": 5,
+          "prompt": "FK ke saath daily coordination ke liye accountable contact kaun hoga?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "data_access",
+          "number": 6,
+          "prompt": "Kaun se business records FK ko review karne ke liye available honge?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "site_access",
+          "number": 7,
+          "prompt": "Site visits, staff discussions aur process observation ke liye kya access milega?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "staff_involvement",
+          "number": 8,
+          "prompt": "Kaun se managers/staff project mein participate karenge?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "approval_limits",
+          "number": 9,
+          "prompt": "Kaun se decisions FK recommend kar sakta hai aur kaun se owner approval require karenge?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "budget_authority",
+          "number": 10,
+          "prompt": "Kisi expense, vendor ya capex ke liye approval workflow kya hoga?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "implementation_owner",
+          "number": 11,
+          "prompt": "Recommendations implement karne ka accountable owner kaun hoga?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "confidentiality",
+          "number": 12,
+          "prompt": "Confidential data, access, storage aur sharing ke liye kya boundaries honi chahiye?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "engagement_constraints",
+          "number": 13,
+          "prompt": "Engagement ki duration, availability, exclusions ya commercial constraints kya hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "communication",
+          "number": 14,
+          "prompt": "Progress review kitni frequency par aur kis format mein chahiye?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "stop_continue",
+          "number": 15,
+          "prompt": "Kis evidence par aap scope continue, change ya stop karna chahenge?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        }
+      ]
+    },
+    {
+      "id": "priorities_success",
+      "title": "Immediate Priorities and Success Criteria",
+      "module": "core",
+      "expected_question_count": 10,
+      "questions": [
+        {
+          "id": "top_three",
+          "number": 1,
+          "prompt": "Agle 30 din ki top 3 priorities kya hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "first_action",
+          "number": 2,
+          "prompt": "Agar kal se ek action shuru karna ho, woh kya hoga?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "urgent_risk",
+          "number": 3,
+          "prompt": "Sabse urgent risk jise turant control karna hai kya hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "quick_win",
+          "number": 4,
+          "prompt": "Kaunsa quick win 2–4 hafton mein practical result de sakta hai?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "baseline_metrics",
+          "number": 5,
+          "prompt": "Aaj ke baseline numbers kaun se record karenge taaki progress compare ho?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "success_30",
+          "number": 6,
+          "prompt": "30 din baad kaun se visible results success prove karenge?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "success_90",
+          "number": 7,
+          "prompt": "90 din baad kaun se measurable outcomes chahiye?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "owner_commitment",
+          "number": 8,
+          "prompt": "Aap personally kaun se decisions/actions ki commitment de sakte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "documents_next",
+          "number": 9,
+          "prompt": "Pehle 7 din mein kaun se documents/data provide kar sakte hain?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        },
+        {
+          "id": "final_note",
+          "number": 10,
+          "prompt": "Koi important baat, concern ya context jo abhi tak cover nahi hua?",
+          "type": "long_text",
+          "required": true,
+          "source_status": "NEW_DRAFT_NOT_RECOVERED_ORIGINAL",
+          "help_text": "Agar exact number available nahi hai, estimate aur uska basis batayein."
+        }
+      ]
+    }
+  ],
+  "document_checklist": [
+    "Menus and prices",
+    "Monthly service-wise sales for the last 12 months",
+    "Profit and loss statements and cash flow",
+    "Food cost, purchases, inventory and wastage",
+    "Staff list, roles and salaries",
+    "Banquet capacity and utilisation",
+    "Room inventory, rates, occupancy and booking channels",
+    "Supplier contracts, dues and liabilities",
+    "Licences, fire safety, food safety and property approvals",
+    "Reviews and complaints",
+    "Website, social media and other digital links",
+    "Historical brand material",
+    "SOPs, checklists, training materials and management reports",
+    "Loans, leases, commitments and planned capital expenditure"
+  ],
+  "respondent_privacy": {
+    "can_view": [
+      "own answers",
+      "own progress"
+    ],
+    "cannot_view": [
+      "FK internal analysis",
+      "FK SWOT conclusions",
+      "FK execution plan",
+      "internal recommendations"
+    ]
+  },
+  "review_gates": [
+    "Check every question against the original source when recovered",
+    "Confirm relevance of hotel/restaurant/banquet modules for actual Raahat services",
+    "Review mandatory fields and sensitive financial questions with FK owner",
+    "Only activate through approved PR and security review"
+  ]
+}
