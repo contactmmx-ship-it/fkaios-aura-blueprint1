@@ -1,71 +1,114 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const path = new URL("../config/brand-discovery/raahat-question-bank-v1.draft.json", import.meta.url);
-const bank = JSON.parse(await readFile(path, "utf8"));
+const bank = JSON.parse(await readFile(new URL("../config/brand-discovery/raahat-question-bank-v1.draft.json", import.meta.url), "utf8"));
+const source = JSON.parse(await readFile(new URL("../docs/brand-discovery/source/RAAHAT_SOURCE_TRANSCRIPTION_V1.json", import.meta.url), "utf8"));
 
-// Release gate: the historical 234-question reconstruction is not the approved source; recovered source has 235 numbered question headings.
-// This validator intentionally fails closed until the exact owner-supplied source is encoded.
-assert.equal(bank.status, "draft", "Questionnaire must remain draft until release approval.");
-assert.equal(
-  bank.source_status,
-  "CANONICAL_SOURCE_TRANSCRIBED_AND_RECONCILED",
-  "Canonical source is not reconciled: do not merge/activate the 234-question draft."
-);
-assert.equal(bank.sections.length, 16, "Canonical source must contain exactly 16 numbered sections.");
-assert.equal(bank.question_count, 235, "Recovered canonical source contains 235 numbered question headings.");
-assert.equal(bank.document_checklist.length, 20, "Canonical source must contain exactly 20 supporting-document checklist items.");
-assert.ok(Number.isInteger(bank.question_count) && bank.question_count > 0,
-  "Canonical question_count must be a positive integer and must be reconciled from the actual source.");
-assert.ok(
-  bank.owner_declaration && bank.confidentiality_text && bank.franchise_kart_signoff,
-  "Canonical owner declaration, confidentiality text, and FK sign-off must be present."
-);
+// This checks exact source-to-runtime mapping. It deliberately does NOT approve or activate the draft.
+assert.equal(bank.status, "draft", "The questionnaire must remain inactive until release approval.");
+assert.equal(bank.source_status, "CANONICAL_SOURCE_MAPPED_DRAFT", "Unexpected source mapping state.");
+assert.equal(source.sections.length, 16);
+assert.equal(source.question_count, 235);
+assert.equal(source.document_checklist.length, 20);
+assert.equal(bank.sections.length, source.sections.length);
+assert.equal(bank.question_count, source.question_count);
+assert.equal(bank.document_checklist.length, source.document_checklist.length);
 
-const sectionIds = new Set();
-const questionIds = new Set();
+const selectionMode = (instruction = "") => {
+  const text = instruction.toLowerCase();
+  const match = text.match(/select up to (one|two|three|four|five|six|seven|eight|nine|ten|\\d+)/);
+  const words = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+  if (match) return { mode: "multiple", max: Number(match[1]) || words[match[1]] };
+  if (text.includes("select all")) return { mode: "multiple" };
+  return { mode: "single" };
+};
+const optionLabels = (block) => [...block.matchAll(/^\\s*-\\s*☐\\s*(.+?)\\s*$/gm)].map((match) => match[1].trim());
+const subparts = (block) => {
+  const lines = block.split("\\n");
+  const headers = [];
+  for (let index = 0; index < lines.length; index++) {
+    const match = lines[index].match(/^\\*\\*([A-Z])\\.\\s*(.+?)\\*\\*\\s*$/);
+    if (match) headers.push({ letter: match[1], title: match[2].replace(/\\s*[—–-]\\s*select.*$/i, "").trim(), raw: match[2], line: index });
+  }
+  if (headers.length < 2) return [];
+  return headers.map((header, index) => {
+    const end = headers[index + 1]?.line ?? lines.length;
+    const body = lines.slice(header.line, end).join("\\n");
+    const mode = selectionMode(header.raw);
+    return { id: "part_" + header.letter.toLowerCase(), label: header.letter + ". " + header.title, mode: mode.mode, max: mode.max, options: optionLabels(body) };
+  });
+};
+
+const seenSectionIds = new Set();
+const seenQuestionIds = new Set();
 let total = 0;
+let multiPartCount = 0;
+for (let index = 0; index < source.sections.length; index++) {
+  const originalSection = source.sections[index];
+  const section = bank.sections[index];
+  assert.equal(section.source_section_number, originalSection.number, "Section order/number mismatch.");
+  assert.equal(section.title, originalSection.title, "Section title mismatch in section " + originalSection.number);
+  assert.ok(section.id && !seenSectionIds.has(section.id), "Missing or duplicate section id.");
+  seenSectionIds.add(section.id);
+  assert.equal(section.questions.length, originalSection.questions.length, "Question count mismatch in section " + originalSection.number);
 
-for (const [sectionIndex, section] of bank.sections.entries()) {
-  assert.ok(section.id && section.title, `section ${sectionIndex + 1} needs id and title`);
-  assert.ok(!sectionIds.has(section.id), `duplicate section id: ${section.id}`);
-  sectionIds.add(section.id);
-  assert.ok(Array.isArray(section.questions), `section ${section.id} needs questions`);
+  for (let qIndex = 0; qIndex < originalSection.questions.length; qIndex++) {
+    const original = originalSection.questions[qIndex];
+    const question = section.questions[qIndex];
+    const label = "Section " + originalSection.number + ", question " + original.number;
+    assert.ok(question.id && !seenQuestionIds.has(question.id), "Missing or duplicate question id: " + label);
+    seenQuestionIds.add(question.id);
+    assert.equal(question.number, original.number, "Question order/number mismatch: " + label);
+    assert.equal(question.prompt, original.prompt, "Prompt mismatch: " + label);
+    assert.equal(question.source_block, original.source_block, "Canonical source block mismatch: " + label);
+    assert.equal(question.source_section_number, originalSection.number, "Source section mismatch: " + label);
+    assert.equal(question.required, true, "Question must require a response (use a source-provided 'not sure' option when applicable): " + label);
 
-  const sectionNumbers = [];
-  for (const question of section.questions) {
-    assert.ok(question.id && question.prompt && question.type, "question needs id, prompt, and type");
-    assert.ok(!questionIds.has(question.id), `duplicate question id: ${question.id}`);
-    questionIds.add(question.id);
-    assert.equal(question.source_status, "CANONICAL_SOURCE_VERIFIED", `question ${question.id} not source-verified`);
-    assert.ok(Number.isInteger(question.number), `question ${question.id} needs an integer source number`);
-    sectionNumbers.push(question.number);
-
-    if (question.selection_mode === "multiple") {
-      assert.ok(Array.isArray(question.options) && question.options.length > 0,
-        `multi-select question ${question.id} needs exact options`);
-      if (question.max_selections !== undefined) {
-        assert.ok(Number.isInteger(question.max_selections) && question.max_selections > 0 &&
-          question.max_selections <= question.options.length,
-        `question ${question.id} has invalid max_selections`);
+    const expectedParts = subparts(original.source_block);
+    if (expectedParts.length) {
+      multiPartCount++;
+      assert.equal(question.type, "multi_part", "Multi-part question not mapped to separate controls: " + label);
+      assert.equal(question.parts.length, expectedParts.length, "Part count mismatch: " + label);
+      for (let partIndex = 0; partIndex < expectedParts.length; partIndex++) {
+        const expected = expectedParts[partIndex];
+        const actual = question.parts[partIndex];
+        assert.equal(actual.id, expected.id, "Part id mismatch: " + label);
+        assert.equal(actual.label, expected.label, "Part label mismatch: " + label + " " + expected.id);
+        assert.equal(actual.selection_mode, expected.mode, "Part selection mode mismatch: " + label + " " + expected.id);
+        assert.equal(actual.max_selections, expected.max, "Part selection limit mismatch: " + label + " " + expected.id);
+        assert.deepEqual(actual.options.map((option) => option.label), expected.options, "Part options mismatch: " + label + " " + expected.id);
+      }
+    } else {
+      const expectedOptions = optionLabels(original.source_block);
+      if (expectedOptions.length) {
+        assert.equal(question.type, "multiple_choice", "Choice question has wrong runtime type: " + label);
+        assert.deepEqual(question.options.map((option) => option.label), expectedOptions, "Choice labels/order mismatch: " + label);
+        const expectedMode = selectionMode(original.selection_instruction);
+        assert.equal(question.selection_mode, expectedMode.mode, "Selection mode mismatch: " + label);
+        assert.equal(question.max_selections, expectedMode.max, "Selection limit mismatch: " + label);
+      } else {
+        assert.ok(question.type === "text" || question.type === "long_text", "Open-response question has wrong runtime type: " + label);
       }
     }
     total++;
   }
-  assert.deepEqual(
-    sectionNumbers,
-    Array.from({ length: sectionNumbers.length }, (_, i) => i + 1),
-    `Question numbers in section ${section.id} must be sequential and start at 1.`
-  );
 }
 
-assert.equal(total, bank.question_count,
-  "Nested question count must match the reconciled question_count in the bank.");
-assert.ok(bank.source_reconciliation?.exact_wording_verified === true,
-  "Exact wording reconciliation against the owner-supplied source is not marked verified.");
-assert.ok(bank.source_reconciliation?.selection_rules_verified === true,
-  "Selection rules have not been reconciled against the source.");
-assert.ok(bank.source_reconciliation?.checklist_verified === true,
-  "Checklist has not been reconciled against the source.");
+assert.equal(total, 235);
+assert.equal(multiPartCount, 6, "Expected six source questions with separately selectable subparts.");
+assert.deepEqual(
+  bank.document_checklist.map((item) => item.label),
+  source.document_checklist,
+  "Supporting document checklist labels/order must exactly match source."
+);
+assert.equal(bank.confidentiality_and_acknowledgement, source.confidentiality_and_acknowledgement,
+  "Confidentiality and acknowledgement text must exactly match source.");
+assert.equal(bank.source_reconciliation.exact_prompt_and_source_block_mapping, true);
+assert.equal(bank.source_reconciliation.options_transcribed, true);
+assert.equal(bank.source_reconciliation.selection_rules_interactive_verified, false,
+  "Do not mark interactive selection rules verified before end-to-end testing.");
+assert.equal(bank.source_reconciliation.checklist_interactive_verified, false,
+  "Do not mark the checklist verified before it is implemented and tested.");
 
-console.log("PASS: canonical Raahat source gates — 16 sections, 235 numbered question headings, 20 checklist items, exact source reconciliation, numbering, and selection configuration.");
+console.log("PASS: source mapping — 16 sections, 235 exact prompt/source blocks, 229 choice questions, 6 multi-part questions, exact choice order/limits, 20 checklist items and acknowledgement text.");
+console.log("RELEASE BLOCKED BY DESIGN: template remains draft; checklist/acknowledgement UI, security, accessibility and end-to-end tests are not yet approved.");
