@@ -57,22 +57,38 @@ function hasMeaningfulAnswer(value: unknown): boolean {
   if (value && typeof value === "object") return Object.values(value as Record<string, unknown>).some(hasMeaningfulAnswer);
   return false;
 }
-function isValidQuestionAnswer(question: any, rawAnswer: unknown): boolean {
-  if (question?.type !== "multiple_choice") return hasMeaningfulAnswer(rawAnswer);
-  let answer: any = rawAnswer;
-  if (typeof rawAnswer === "string") {
-    try { answer = JSON.parse(rawAnswer); } catch { return false; }
-  }
-  if (!answer || typeof answer !== "object") return false;
-  const choices = Array.isArray(answer.choices) ? answer.choices :
-    typeof answer.choice === "string" ? [answer.choice] : null;
-  if (!choices || choices.length === 0 || choices.some((v: unknown) => typeof v !== "string")) return false;
+function isValidChoiceSet(question: any, choices: unknown): boolean {
+  if (!Array.isArray(choices) || choices.length === 0 || choices.some((v: unknown) => typeof v !== "string")) return false;
   const options = Array.isArray(question.options) ? question.options : [];
   const allowed = new Set(options.map((option: any) => option?.value).filter((v: unknown) => typeof v === "string"));
   if (choices.some((choice: string) => !allowed.has(choice)) || new Set(choices).size !== choices.length) return false;
   if (question.selection_mode !== "multiple" && choices.length !== 1) return false;
   if (question.max_selections && choices.length > question.max_selections) return false;
-  return answer.explanation === undefined || typeof answer.explanation === "string";
+  return true;
+}
+function isValidQuestionAnswer(question: any, rawAnswer: unknown): boolean {
+  if (question?.type !== "multiple_choice" && question?.type !== "multi_part") return hasMeaningfulAnswer(rawAnswer);
+  let answer: any = rawAnswer;
+  if (typeof rawAnswer === "string") {
+    try { answer = JSON.parse(rawAnswer); } catch { return false; }
+  }
+  if (!answer || typeof answer !== "object") return false;
+  if (question.type === "multiple_choice") {
+    const choices = Array.isArray(answer.choices) ? answer.choices :
+      typeof answer.choice === "string" ? [answer.choice] : null;
+    if (!isValidChoiceSet(question, choices)) return false;
+    return answer.explanation === undefined || typeof answer.explanation === "string";
+  }
+  const parts = Array.isArray(question.parts) ? question.parts : [];
+  if (parts.length === 0 || !answer.parts || typeof answer.parts !== "object") return false;
+  const suppliedPartIds = Object.keys(answer.parts);
+  if (suppliedPartIds.some((id) => !parts.some((part: any) => part.id === id))) return false;
+  for (const part of parts) {
+    const value = answer.parts[part.id];
+    const pseudoQuestion = { options: part.options, selection_mode: part.selection_mode, max_selections: part.max_selections };
+    if (!value || !isValidChoiceSet(pseudoQuestion, value.choices)) return false;
+  }
+  return true;
 }
 function validQuestionnaire(q: any) {
   return q && Array.isArray(q.sections) && q.sections.every((s: any) =>
