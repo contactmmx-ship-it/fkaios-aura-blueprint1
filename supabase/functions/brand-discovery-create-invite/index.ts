@@ -20,7 +20,7 @@ async function hashToken(token: string) {
 function raahatCanonicalGate(questionnaire: any): boolean {
   if (!questionnaire || questionnaire.status !== "active" ||
       questionnaire.source_status !== "CANONICAL_SOURCE_TRANSCRIBED_AND_RECONCILED" ||
-      questionnaire.question_count !== 160 ||
+      questionnaire.question_count !== 235 ||
       !Array.isArray(questionnaire.sections) || questionnaire.sections.length !== 16 ||
       !Array.isArray(questionnaire.document_checklist) || questionnaire.document_checklist.length !== 20 ||
       !questionnaire.owner_declaration || !questionnaire.confidentiality_text ||
@@ -59,7 +59,7 @@ function raahatCanonicalGate(questionnaire: any): boolean {
     }
     if (numbers.some((n, i) => n !== i + 1)) return false;
   }
-  return count === 160;
+  return count === 235;
 }
 
 Deno.serve(async (req: Request) => {
