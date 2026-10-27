@@ -13,6 +13,7 @@ assert.equal(
   "Canonical source is not reconciled: do not merge/activate the 234-question draft."
 );
 assert.equal(bank.sections.length, 16, "Canonical source must contain exactly 16 numbered sections.");
+assert.equal(bank.question_count, 160, "Canonical source must contain exactly 160 numbered questions.");
 assert.equal(bank.document_checklist.length, 20, "Canonical source must contain exactly 20 supporting-document checklist items.");
 assert.ok(Number.isInteger(bank.question_count) && bank.question_count > 0,
   "Canonical question_count must be a positive integer and must be reconciled from the actual source.");
@@ -67,4 +68,4 @@ assert.ok(bank.source_reconciliation?.selection_rules_verified === true,
 assert.ok(bank.source_reconciliation?.checklist_verified === true,
   "Checklist has not been reconciled against the source.");
 
-console.log("PASS: canonical Raahat source gates — 16 sections, 20 checklist items, reconciled question count, source reconciliation, numbering, and selection configuration.");
+console.log("PASS: canonical Raahat source gates — 16 sections, 160 questions, 20 checklist items, exact source reconciliation, numbering, and selection configuration.");
