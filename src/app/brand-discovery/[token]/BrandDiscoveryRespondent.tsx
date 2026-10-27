@@ -7,7 +7,7 @@ type Question = {
   id: string;
   number: number;
   prompt: string;
-  type: "text" | "long_text" | "repeatable_list" | "file_or_text" | "multiple_choice";
+  type: "text" | "long_text" | "repeatable_list" | "file_or_text" | "multiple_choice" | "multi_part";
   required?: boolean;
   help_text?: string;
   options?: Array<{ value: string; label: string }>;
@@ -15,6 +15,9 @@ type Question = {
   max_selections?: number;
   optional_explanation?: boolean;
   explanation_prompt?: string;
+  selection_instruction?: string;
+  source_block?: string;
+  parts?: Array<{ id: string; label: string; instruction: string; selection_mode: "single" | "multiple"; max_selections?: number; options: Array<{ value: string; label: string }> }>;
 };
 type Section = { id: string; title: string; intro?: string; why_it_matters?: string; questions: Question[] };
 type Questionnaire = { sections: Section[]; question_count?: number; brand?: { name?: string } };
@@ -50,8 +53,27 @@ function parseChoiceAnswer(raw: string): { choices: string[]; explanation: strin
 function encodeChoiceAnswer(choices: string[], explanation: string) {
   return JSON.stringify({ choices, explanation });
 }
+function parsePartAnswer(raw: string): Record<string, string[]> {
+  try {
+    const value = JSON.parse(raw);
+    if (value && typeof value === "object" && value.parts && typeof value.parts === "object") {
+      return Object.fromEntries(Object.entries(value.parts).map(([key, part]: [string, any]) => [
+        key, Array.isArray(part?.choices) ? part.choices.filter((v: unknown) => typeof v === "string") : [],
+      ]));
+    }
+  } catch { /* no saved multipart answer */ }
+  return {};
+}
+function encodePartAnswer(parts: Record<string, string[]>) {
+  return JSON.stringify({ parts: Object.fromEntries(Object.entries(parts).map(([id, choices]) => [id, { choices }])) });
+}
 function hasAnswer(question: Question, raw: string) {
-  return question.type === "multiple_choice" ? parseChoiceAnswer(raw).choices.length > 0 : raw.trim().length > 0;
+  if (question.type === "multiple_choice") return parseChoiceAnswer(raw).choices.length > 0;
+  if (question.type === "multi_part") {
+    const saved = parsePartAnswer(raw);
+    return Boolean(question.parts?.length) && question.parts!.every((part) => (saved[part.id] ?? []).length > 0);
+  }
+  return raw.trim().length > 0;
 }
 
 const endpoint = () => `${supabaseUrl.replace(/\/$/, "")}/functions/v1/brand-discovery-respondent`;
@@ -235,8 +257,8 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
     }
     window.speechSynthesis.cancel();
     const text = intro
-      ? `${section?.title ?? "Next section"}. ${section?.intro ?? "This section helps us understand this part of your business and why it matters for the transformation plan."}`
-      : question.prompt;
+      ? (section?.title ?? "Next section") + ". " + (section?.intro ?? "This section helps us understand this part of your business and why it matters for the transformation plan.")
+      : question.prompt + ". " + (question.selection_instruction ?? "") + " " + (question.parts?.map((part) => part.label + ". " + part.instruction).join(". ") ?? "");
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "hi-IN";
     utterance.rate = 0.92;
@@ -326,7 +348,34 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
           <h2 className="mt-4 text-2xl font-semibold leading-snug sm:text-3xl">{question.prompt}</h2>
           {question.help_text && <p className="mt-4 text-sm leading-6 text-slate-400">{question.help_text}</p>}
           <div className="mt-7">
-            {question.type === "multiple_choice" ? <div className="space-y-3">
+            {question.type === "multi_part" ? <div className="space-y-6">
+              {(question.parts ?? []).map((part) => {
+                const saved = parsePartAnswer(currentAnswer);
+                const selectedChoices = saved[part.id] ?? [];
+                return <fieldset key={part.id} className="rounded-2xl border border-white/10 bg-slate-950/40 p-4 sm:p-5">
+                  <legend className="px-2 text-base font-semibold text-cyan-100">{part.label}</legend>
+                  <p className="mb-3 text-xs text-slate-400">{part.instruction}</p>
+                  <div className="space-y-2">
+                    {part.options.map((option) => {
+                      const selected = selectedChoices.includes(option.value);
+                      const inputType = part.selection_mode === "multiple" ? "checkbox" : "radio";
+                      return <label key={option.value} className={"flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 transition " + (selected ? "border-cyan-300 bg-cyan-300/10" : "border-white/15 bg-slate-950/50 hover:bg-white/5")}>
+                        <input type={inputType} name={question.id + "-" + part.id} value={option.value} checked={selected} onChange={() => setAnswers((a) => {
+                          const all = parsePartAnswer(a[question.id] ?? "");
+                          let next = all[part.id] ?? [];
+                          if (part.selection_mode === "multiple") {
+                            next = selected ? next.filter((v) => v !== option.value) : [...next, option.value];
+                            if (part.max_selections && next.length > part.max_selections) return a;
+                          } else next = [option.value];
+                          return { ...a, [question.id]: encodePartAnswer({ ...all, [part.id]: next }) };
+                        })} className="mt-1 accent-cyan-300" />
+                        <span>{option.label}</span>
+                      </label>;
+                    })}
+                  </div>
+                </fieldset>;
+              })}
+            </div> : question.type === "multiple_choice" ? <div className="space-y-3">
               <p className="text-xs text-slate-400">{question.selection_mode === "multiple" ? (question.max_selections ? `Select up to ${question.max_selections}.` : "Select all that apply.") : "Select one."}</p>
               {(!question.options || question.options.length === 0) ? <p role="alert" className="rounded-xl border border-amber-300/20 bg-amber-300/5 p-4 text-sm text-amber-100">This choice question has no reviewed options yet. Please contact Franchise Kart rather than guessing an answer.</p> : question.options.map((option) => {
                 const parsed = parseChoiceAnswer(currentAnswer);
