@@ -15,7 +15,7 @@ This is a status record for the feature branch and PR #191. It is not production
 
 The current report generator is deliberately conservative. It records answers as owner-reported and not independently verified, identifies unanswered required questions, and marks documents as not provided/verified unless a separate review proves otherwise. It does not claim that it has diagnosed the business, verified financials, or built a final brand-specific transformation plan. It uses no external AI API.
 
-## Validation results from the implementation pass
+## Historical validation snapshot (before canonical runtime mapping)
 
 - Latest observed frontend validation on head `fc785236a6c41f430498fd919e00712b07e7b459`: **PASS** — GitHub Actions run `40491169293` completed the TypeScript check and Next.js production build successfully.
 - Latest observed Edge Function validation on that head: **PASS** — run `40491169182` passed Deno type-check for invite, respondent, and private-report functions.
@@ -25,7 +25,7 @@ The current report generator is deliberately conservative. It records answers as
 - Vercel deployment status: **FAILURE DUE TO BUILD-RATE QUOTA** — this does not establish a source build failure. No deployment was made by this pass.
 - End-to-end security, email delivery and actual respondent journey: **NOT TESTED** in a non-production environment.
 
-## Hard blockers to real completion
+## Historical blockers before canonical runtime mapping
 
 1. **Source recovery is complete; runtime reconciliation is not.** The original source is stored at `docs/brand-discovery/source/RAAHAT_OWNER_DISCOVERY_QUESTIONNAIRE_ORIGINAL.txt`. A loss-preserving structural extraction is stored at `docs/brand-discovery/source/RAAHAT_SOURCE_TRANSCRIPTION_V1.json`, and the comparison report is `docs/brand-discovery/RAAHAT_SOURCE_RECONCILIATION_REPORT.md`. The recovered source has 16 sections, 235 numbered question headings, and 20 checklist items. The separate 234-question replacement draft is still not canonical and must not be activated. The validator must continue to fail until source blocks, choice rules, multi-part questions, declarations, and checklist are mapped and reviewed against the runtime schema.
 2. **No active questionnaire template exists by default.** The invitation UI intentionally refuses to create an invitation without an active, reviewed template. Do not activate the non-canonical draft.
@@ -50,7 +50,7 @@ Never place these secrets in frontend variables or commit them. The source code 
 
 Observed PR head at the time of this snapshot: `fc785236a6c41f430498fd919e00712b07e7b459`. PR #191 remains open, draft, unmerged and undeployed. The frontend and Edge Function checks passed for this head; the canonical-source gate intentionally failed; the migration workflow stopped before any migration action because required secrets are absent. Vercel preview deployment was separately blocked by the free-plan daily deployment quota, so no new deployment is claimed.
 
-## Safe next gate
+## Earlier safe-next-gate plan (superseded by the addendum below)
 
 Use the recovered source in the feature branch → encode and reconcile all 235 question headings, exact wording/options/selection rules/20-item checklist/declarations → run the fail-closed validator → run frontend and Edge Function CI → apply migration only to a non-production project after authorized secret configuration → test invite/save/resume/edit/submit/email/report privacy → review accessibility and browser voice support → only then consider production approval.
 
