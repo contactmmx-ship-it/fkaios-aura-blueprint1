@@ -16,24 +16,24 @@ assert.equal(bank.document_checklist.length, source.document_checklist.length);
 
 const selectionMode = (instruction = "") => {
   const text = instruction.toLowerCase();
-  const match = text.match(/select up to (one|two|three|four|five|six|seven|eight|nine|ten|\\d+)/);
+  const match = text.match(/select up to (one|two|three|four|five|six|seven|eight|nine|ten|\d+)/);
   const words = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
   if (match) return { mode: "multiple", max: Number(match[1]) || words[match[1]] };
   if (text.includes("select all")) return { mode: "multiple" };
   return { mode: "single" };
 };
-const optionLabels = (block) => [...block.matchAll(/^\\s*-\\s*☐\\s*(.+?)\\s*$/gm)].map((match) => match[1].trim());
+const optionLabels = (block) => [...block.matchAll(/^\s*-\s*☐\s*(.+?)\s*$/gm)].map((match) => match[1].trim());
 const subparts = (block) => {
-  const lines = block.split("\\n");
+  const lines = block.split("\n");
   const headers = [];
   for (let index = 0; index < lines.length; index++) {
-    const match = lines[index].match(/^\\*\\*([A-Z])\\.\\s*(.+?)\\*\\*\\s*$/);
-    if (match) headers.push({ letter: match[1], title: match[2].replace(/\\s*[—–-]\\s*select.*$/i, "").trim(), raw: match[2], line: index });
+    const match = lines[index].match(/^\*\*([A-Z])\.\s*(.+?)\*\*\s*$/);
+    if (match) headers.push({ letter: match[1], title: match[2].replace(/\s*[—–-]\s*select.*$/i, "").trim(), raw: match[2], line: index });
   }
   if (headers.length < 2) return [];
   return headers.map((header, index) => {
     const end = headers[index + 1]?.line ?? lines.length;
-    const body = lines.slice(header.line, end).join("\\n");
+    const body = lines.slice(header.line, end).join("\n");
     const mode = selectionMode(header.raw);
     return { id: "part_" + header.letter.toLowerCase(), label: header.letter + ". " + header.title, mode: mode.mode, max: mode.max, options: optionLabels(body) };
   });
