@@ -26,7 +26,7 @@ The current report generator is deliberately conservative. It records answers as
 
 ## Hard blockers to real completion
 
-1. **Canonical Raahat source is still unavailable in the repository.** The only encoded questionnaire is a clearly labelled 234-question replacement draft with 16 sections and 14 checklist items. It is not the required 95-question / 17-part / 16-checklist original. The fail-closed validator must continue to fail until the verbatim original is reconciled.
+1. **Canonical Raahat source is not yet transcribed into the repository.** The user did provide the exact 95-question source in a prior conversation; available working context confirms that fact but does not expose the complete literal message for safe transcription in this pass. The only encoded questionnaire is a clearly labelled 234-question replacement draft with 16 sections and 14 checklist items. It is not the canonical original. Do not claim the user never supplied it, and do not fabricate a substitute. The fail-closed validator must continue to fail until the exact source is transcribed and reconciled.
 2. **No active questionnaire template exists by default.** The invitation UI intentionally refuses to create an invitation without an active, reviewed template. Do not activate the non-canonical draft.
 3. **The exact questionnaire cannot be tested end-to-end yet.** Once canonical wording is recovered, test all answer types, select-all / select-up-to-N rules, optional explanations, resume pointer, final submission and completion checks.
 4. **Email is code-complete but configuration-dependent and unverified.** Provider, verified sender domain, privacy notice, and FK report mailbox need approval. No emails have been sent by this implementation pass.
