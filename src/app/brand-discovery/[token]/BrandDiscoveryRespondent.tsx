@@ -168,7 +168,9 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
                 owner_signature: typeof savedClosure.owner_signature === "string" ? savedClosure.owner_signature : "",
                 acknowledged: savedClosure.acknowledged === true,
               });
-              setClosing(true);
+              const lastSectionIndex = q.sections.length - 1;
+              const lastQuestionIndex = Math.max((q.sections[lastSectionIndex]?.questions?.length ?? 1) - 1, 0);
+              setClosing(s.current_section === lastSectionIndex && s.current_question === lastQuestionIndex);
             }
           } catch { /* ignore an invalid draft and allow the respondent to continue */ }
         } else setClosure((previous) => ({ ...previous, owner_date: localDate() }));
