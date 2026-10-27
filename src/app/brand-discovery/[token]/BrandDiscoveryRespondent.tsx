@@ -351,7 +351,7 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
       setError("Please mark the availability of all 20 supporting documents or records before submitting.");
       return;
     }
-    if (!closure.owner_date || !/^\\d{4}-\\d{2}-\\d{2}$/.test(closure.owner_date)) {
+    if (!closure.owner_date || !/^\d{4}-\d{2}-\d{2}$/.test(closure.owner_date)) {
       setError("Please enter the acknowledgement date.");
       return;
     }
