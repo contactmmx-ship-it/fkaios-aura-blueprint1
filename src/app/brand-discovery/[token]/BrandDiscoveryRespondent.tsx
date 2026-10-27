@@ -217,7 +217,7 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
   }, [answers, api, loading, question, questionIndex, readyForAutosave, section, sectionIndex, submitted]);
 
   useEffect(() => {
-    if (!closing || loading || submitted || !questionnaire) return;
+    if (!closing || loading || submitted || saving || !questionnaire) return;
     const timer = window.setTimeout(async () => {
       try {
         await api("save_closure", { closure });
@@ -228,7 +228,7 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
       }
     }, 900);
     return () => window.clearTimeout(timer);
-  }, [api, closure, closing, loading, questionnaire, submitted]);
+  }, [api, closure, closing, loading, questionnaire, saving, submitted]);
 
   const saveCurrent = useCallback(async (targetSection: number, targetQuestion: number) => {
     if (!question || !section) return;
@@ -384,9 +384,9 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
       setError("Please confirm the acknowledgement before submitting.");
       return;
     }
+    setSaving(true);
     try {
       await api("save_closure", { closure });
-      setSaving(true);
       await api("submit");
       setSubmitted(true);
       setNotice("");
