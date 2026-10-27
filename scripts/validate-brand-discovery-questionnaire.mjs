@@ -43,6 +43,9 @@ const seenSectionIds = new Set();
 const seenQuestionIds = new Set();
 let total = 0;
 let multiPartCount = 0;
+let simpleChoiceCount = 0;
+let serviceStatusCount = 0;
+let repeatableChoiceCount = 0;
 for (let index = 0; index < source.sections.length; index++) {
   const originalSection = source.sections[index];
   const section = bank.sections[index];
@@ -67,13 +70,16 @@ for (let index = 0; index < source.sections.length; index++) {
     const expectedOptions = optionLabels(original.source_block);
     const customKey = originalSection.number + ":" + original.number;
     if (customKey === "3:1") {
+      serviceStatusCount++;
       assert.equal(question.type, "service_status", "Service inventory must capture status for each selected service.");
       assert.deepEqual(question.service_options.map((option) => option.label), expectedOptions.slice(0, 12));
       assert.deepEqual(question.status_options.map((option) => option.label), expectedOptions.slice(12));
     } else if (customKey === "6:1") {
+      repeatableChoiceCount++;
       assert.equal(question.type, "repeatable_choice", "Capacity must be captured separately for each named hall.");
       assert.deepEqual(question.options.map((option) => option.label), expectedOptions);
     } else if (["4:15", "5:1", "5:3", "5:4"].includes(customKey)) {
+      multiPartCount++;
       assert.equal(question.type, "multi_part", "Question requiring multiple independent answers must use separate controls: " + label);
       const expectedDefinitions = customKey === "4:15"
         ? ["Breakfast", "Lunch", "Dinner", "Group dining"].map((name, index) => ({ id: "period_" + (index + 1), label: name, options: expectedOptions, mode: "single" }))
@@ -110,6 +116,7 @@ for (let index = 0; index < source.sections.length; index++) {
           assert.deepEqual(actual.options.map((option) => option.label), expected.options, "Part options mismatch: " + label + " " + expected.id);
         }
       } else if (expectedOptions.length) {
+        simpleChoiceCount++;
         assert.equal(question.type, "multiple_choice", "Choice question has wrong runtime type: " + label);
         assert.deepEqual(question.options.map((option) => option.label), expectedOptions, "Choice labels/order mismatch: " + label);
         const expectedMode = selectionMode(original.selection_instruction);
@@ -124,7 +131,10 @@ for (let index = 0; index < source.sections.length; index++) {
 }
 
 assert.equal(total, 235);
-assert.equal(multiPartCount, 6, "Expected six source questions with separately selectable subparts.");
+assert.equal(multiPartCount, 10, "Expected six lettered and four custom multi-part questions.");
+assert.equal(simpleChoiceCount, 223, "Unexpected simple choice question count.");
+assert.equal(serviceStatusCount, 1, "Service inventory must have per-service status controls.");
+assert.equal(repeatableChoiceCount, 1, "Hall capacity must have repeatable rows.");
 assert.deepEqual(
   bank.document_checklist.map((item) => item.label),
   source.document_checklist,
@@ -139,5 +149,5 @@ assert.equal(bank.source_reconciliation.selection_rules_interactive_verified, fa
 assert.equal(bank.source_reconciliation.checklist_interactive_verified, false,
   "Do not mark the checklist verified before it is implemented and tested.");
 
-console.log("PASS: source mapping — 16 sections, 235 exact prompt/source blocks, 229 choice questions, 6 multi-part questions, exact choice order/limits, 20 checklist items and acknowledgement text.");
+console.log("PASS: source mapping — 16 sections, 235 exact prompt/source blocks, 223 simple choice questions, 10 multi-part questions, 1 per-service status matrix, 1 repeatable hall-capacity matrix, exact choice order/limits, 20 checklist items and acknowledgement text.");
 console.log("RELEASE BLOCKED BY DESIGN: template remains draft; checklist/acknowledgement UI, security, accessibility and end-to-end tests are not yet approved.");
