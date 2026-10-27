@@ -22,9 +22,7 @@ async function sendCompletionEmails(session: any): Promise<{ owner: string; fk: 
   const apiKey = Deno.env.get("RESEND_API_KEY");
   const from = Deno.env.get("BRAND_DISCOVERY_EMAIL_FROM");
   const fkEmail = Deno.env.get("FK_BRAND_DISCOVERY_REPORT_EMAIL");
-  if (!apiKey || !from || !session.respondent_email || !fkEmail) {
-    return { owner: "not_configured", fk: "not_configured" };
-  }
+  if (!apiKey || !from) return { owner: "not_configured", fk: "not_configured" };
   const send = async (to: string, subject: string, html: string) => {
     try {
       const response = await fetch("https://api.resend.com/emails", {
@@ -38,16 +36,16 @@ async function sendCompletionEmails(session: any): Promise<{ owner: string; fk: 
     }
   };
   const brand = String(session.brand_name ?? "your business").replace(/[<>]/g, "");
-  const owner = await send(
+  const owner = session.respondent_email ? await send(
     session.respondent_email,
     `Questionnaire completed — ${brand}`,
     `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;line-height:1.6"><h2>Thank you for completing your discovery questionnaire.</h2><p>Your responses for <strong>${brand}</strong> have been received successfully.</p><p>The Franchise Kart team will review the information and contact you about next steps.</p><p>This email confirms receipt only; it does not represent a business diagnosis or approval.</p><p>Regards,<br>Franchise Kart</p></div>`
-  );
-  const fk = await send(
+  ) : "not_configured";
+  const fk = fkEmail ? await send(
     fkEmail,
     `Private Brand Discovery submission received — ${brand}`,
     `<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;line-height:1.6"><h2>New completed brand discovery</h2><p><strong>Brand:</strong> ${brand}</p><p><strong>Respondent:</strong> ${String(session.respondent_name ?? "Not supplied").replace(/[<>]/g, "")}</p><p><strong>Submission ID:</strong> ${String(session.id)}</p><p>This is a notification only. Open the authorised Franchise Kart report workspace to review the private evidence ledger. No private diagnosis or execution plan is included in this email.</p></div>`
-  );
+  ) : "not_configured";
   return { owner, fk };
 }
 
