@@ -4,8 +4,13 @@ import { createClient } from "@supabase/supabase-js";
 const file = new URL("../config/brand-discovery/raahat-question-bank-v1.draft.json", import.meta.url);
 const bank = JSON.parse(await readFile(file, "utf8"));
 
-if (bank.status !== "draft" || bank.source_status !== "CANONICAL_SOURCE_MAPPED_DRAFT") {
-  throw new Error("Refusing to seed: only the source-mapped draft may be seeded, and it must remain draft.");
+const nestedQuestionCount = Array.isArray(bank.sections)
+  ? bank.sections.reduce((sum, section) => sum + (Array.isArray(section.questions) ? section.questions.length : 0), 0)
+  : 0;
+if (bank.status !== "draft" || bank.source_status !== "CANONICAL_SOURCE_MAPPED_DRAFT" ||
+    bank.question_count !== 235 || !Array.isArray(bank.sections) || bank.sections.length !== 16 ||
+    nestedQuestionCount !== 235 || !Array.isArray(bank.document_checklist) || bank.document_checklist.length !== 20) {
+  throw new Error("Refusing to seed: only the complete 16-section, 235-question, 20-item source-mapped draft may be seeded, and it must remain draft.");
 }
 if (process.env.BRAND_DISCOVERY_SEED_CONFIRM !== "I_UNDERSTAND_DRAFT_SEED") {
   throw new Error("Set BRAND_DISCOVERY_SEED_CONFIRM=I_UNDERSTAND_DRAFT_SEED to confirm a draft-only database write.");
