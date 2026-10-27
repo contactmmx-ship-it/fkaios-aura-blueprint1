@@ -17,6 +17,37 @@ async function hashToken(token: string) {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
   return Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, "0")).join("");
 }
+function raahatCanonicalGate(questionnaire: any): boolean {
+  if (!questionnaire || questionnaire.status !== "active" ||
+      questionnaire.source_status !== "CANONICAL_SOURCE_TRANSCRIBED_AND_RECONCILED" ||
+      questionnaire.question_count !== 160 ||
+      !Array.isArray(questionnaire.sections) || questionnaire.sections.length !== 16 ||
+      !Array.isArray(questionnaire.document_checklist) || questionnaire.document_checklist.length !== 20 ||
+      !questionnaire.owner_declaration || !questionnaire.confidentiality_text ||
+      !questionnaire.franchise_kart_signoff ||
+      questionnaire.source_reconciliation?.exact_wording_verified !== true ||
+      questionnaire.source_reconciliation?.selection_rules_verified !== true ||
+      questionnaire.source_reconciliation?.checklist_verified !== true) return false;
+
+  const seenIds = new Set<string>();
+  let count = 0;
+  for (const section of questionnaire.sections) {
+    if (!section || typeof section.id !== "string" || !Array.isArray(section.questions)) return false;
+    const numbers: number[] = [];
+    for (const question of section.questions) {
+      if (!question || typeof question.id !== "string" ||
+          typeof question.prompt !== "string" || !question.prompt.trim() ||
+          question.source_status !== "CANONICAL_SOURCE_VERIFIED" ||
+          !Number.isInteger(question.number) || seenIds.has(question.id)) return false;
+      seenIds.add(question.id);
+      numbers.push(question.number);
+      count++;
+    }
+    if (numbers.some((n, i) => n !== i + 1)) return false;
+  }
+  return count === 160;
+}
+
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get("Origin");
   if (origin && (!allowedOrigin || origin !== allowedOrigin)) return reply(403, { error: "origin_not_allowed" });
@@ -42,9 +73,13 @@ Deno.serve(async (req: Request) => {
     return reply(400, { error: "questionnaire_version_id_brand_name_and_respondent_email_required" });
 
   const { data: version, error: versionError } = await db.from("brand_discovery_questionnaire_versions")
-    .select("id,slug,version,brand_category,title,locale,status").eq("id", body.questionnaire_version_id).maybeSingle();
+    .select("id,slug,version,brand_category,title,locale,status,questionnaire").eq("id", body.questionnaire_version_id).maybeSingle();
   if (versionError || !version || version.status !== "active")
     return reply(400, { error: "active_questionnaire_version_required" });
+  // Extra server-side release gate for the Raahat pilot. A database status flip
+  // alone must never make the known non-canonical replacement draft inviteable.
+  if (version.slug === "raahat-brand-discovery" && !raahatCanonicalGate(version.questionnaire))
+    return reply(409, { error: "raahat_canonical_source_gate_not_passed" });
   const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
   const token = Array.from(tokenBytes, b => b.toString(16).padStart(2, "0")).join("");
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
