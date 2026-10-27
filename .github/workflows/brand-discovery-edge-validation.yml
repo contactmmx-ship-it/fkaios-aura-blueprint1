@@ -29,6 +29,6 @@ jobs:
         with:
           deno-version: v2.x
       - name: Type-check invite function
-        run: deno check supabase/functions/brand-discovery-create-invite/index.ts
+        run: deno check --node-modules-dir=auto supabase/functions/brand-discovery-create-invite/index.ts
       - name: Type-check respondent function
-        run: deno check supabase/functions/brand-discovery-respondent/index.ts
+        run: deno check --node-modules-dir=auto supabase/functions/brand-discovery-respondent/index.ts
