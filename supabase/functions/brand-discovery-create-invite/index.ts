@@ -29,18 +29,32 @@ function raahatCanonicalGate(questionnaire: any): boolean {
       questionnaire.source_reconciliation?.selection_rules_verified !== true ||
       questionnaire.source_reconciliation?.checklist_verified !== true) return false;
 
-  const seenIds = new Set<string>();
+  const sectionIds = new Set<string>();
+  const questionIds = new Set<string>();
   let count = 0;
   for (const section of questionnaire.sections) {
-    if (!section || typeof section.id !== "string" || !Array.isArray(section.questions)) return false;
+    if (!section || typeof section.id !== "string" || !section.id ||
+        typeof section.title !== "string" || !section.title ||
+        sectionIds.has(section.id) || !Array.isArray(section.questions)) return false;
+    sectionIds.add(section.id);
     const numbers: number[] = [];
     for (const question of section.questions) {
-      if (!question || typeof question.id !== "string" ||
+      if (!question || typeof question.id !== "string" || !question.id ||
           typeof question.prompt !== "string" || !question.prompt.trim() ||
           question.source_status !== "CANONICAL_SOURCE_VERIFIED" ||
-          !Number.isInteger(question.number) || seenIds.has(question.id)) return false;
-      seenIds.add(question.id);
+          !Number.isInteger(question.number) || questionIds.has(question.id)) return false;
+      questionIds.add(question.id);
       numbers.push(question.number);
+      if (question.type === "multiple_choice") {
+        if (!Array.isArray(question.options) || question.options.length === 0) return false;
+        const optionValues = question.options.map((option: any) => option?.value);
+        if (optionValues.some((value: unknown) => typeof value !== "string" || !value) ||
+            new Set(optionValues).size !== optionValues.length) return false;
+        if (question.selection_mode !== "single" && question.selection_mode !== "multiple") return false;
+        if (question.max_selections !== undefined &&
+            (!Number.isInteger(question.max_selections) || question.max_selections < 1 ||
+             question.max_selections > question.options.length)) return false;
+      }
       count++;
     }
     if (numbers.some((n, i) => n !== i + 1)) return false;
