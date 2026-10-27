@@ -26,6 +26,17 @@ function hasMeaningfulAnswer(value: unknown): boolean {
   if (value && typeof value === "object") return Object.values(value as Record<string, unknown>).some(hasMeaningfulAnswer);
   return false;
 }
+function isValidQuestionAnswer(question: any, rawAnswer: unknown): boolean {
+  if (question?.type !== "multiple_choice") return hasMeaningfulAnswer(rawAnswer);
+  let answer: any = rawAnswer;
+  if (typeof rawAnswer === "string") {
+    try { answer = JSON.parse(rawAnswer); } catch { return false; }
+  }
+  if (!answer || typeof answer !== "object" || typeof answer.choice !== "string") return false;
+  const options = Array.isArray(question.options) ? question.options : [];
+  if (!options.some((option: any) => option && option.value === answer.choice)) return false;
+  return answer.explanation === undefined || typeof answer.explanation === "string";
+}
 function validQuestionnaire(q: any) {
   return q && Array.isArray(q.sections) && q.sections.every((s: any) =>
     typeof s.id === "string" && Array.isArray(s.questions) &&
@@ -106,7 +117,12 @@ Deno.serve(async (req: Request) => {
       .select("question_id,answer").eq("session_id", session.id);
     if (error) return reply(500, { error: "could_not_verify_completion" });
     const saved = new Map((answers ?? []).map((a: any) => [a.question_id, a.answer]));
-    const missing = required.filter(q => !saved.has(q.id) || !hasMeaningfulAnswer(saved.get(q.id)));
+    const questionById = new Map<string, any>();
+    for (const section of version.questionnaire.sections) {
+      for (const question of section.questions) questionById.set(question.id, question);
+    }
+    const missing = required.filter(q => !saved.has(q.id) ||
+      !isValidQuestionAnswer(questionById.get(q.id), saved.get(q.id)));
     if (missing.length) return reply(422, { error: "required_answers_missing", missing_count: missing.length });
     const now = new Date().toISOString();
     const { error: submitError } = await db.from("brand_discovery_sessions").update({
