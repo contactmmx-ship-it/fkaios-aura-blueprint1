@@ -11,8 +11,8 @@ const validTemplate = {
   question_count: 2,
   sections: [
     { id: "core", title: "Core", questions: [
-      { id: "q1", prompt: "Tell us about the business.", type: "long_text", required: true },
-      { id: "q2", prompt: "Which services do you offer?", type: "multiple_choice", required: true,
+      { id: "q1", prompt: "Tell us about the business.", type: "long_text", required: true, source_status: "FK_AUTHORED_AND_APPROVED", source_reference: "FK core template" },
+      { id: "q2", prompt: "Which services do you offer?", type: "multiple_choice", required: true, source_status: "FK_AUTHORED_AND_APPROVED", source_reference: "FK core template",
         selection_mode: "multiple", options: [{ value: "a", label: "Service A" }, { value: "b", label: "Service B" }] },
     ] },
   ],
@@ -23,6 +23,8 @@ const validTemplate = {
 };
 
 const validDraft = { ...structuredClone(validTemplate), status: "draft" };
+validDraft.sections[0].questions[0].source_status = "FK_AUTHORED_DRAFT";
+validDraft.sections[0].questions[1].source_status = "FK_AUTHORED_DRAFT";
 delete validDraft.release_readiness;
 delete validDraft.release_approval;
 assert.deepEqual(validateBrandDiscoveryDraft(validDraft), { ok: true, errors: [] },
@@ -36,6 +38,9 @@ assert.deepEqual(validateBrandDiscoveryTemplate(validTemplate), { ok: true, erro
 const missingApproval = structuredClone(validTemplate);
 delete missingApproval.release_approval;
 assert.ok(validateBrandDiscoveryTemplate(missingApproval).errors.includes("human_release_approval_missing"));
+const unapprovedProvenance = structuredClone(validTemplate);
+unapprovedProvenance.sections[0].questions[0].source_status = "FK_AUTHORED_DRAFT";
+assert.ok(validateBrandDiscoveryTemplate(unapprovedProvenance).errors.includes("question_provenance_not_approved:q1"));
 
 const failedReview = structuredClone(validTemplate);
 failedReview.release_readiness.security_review_complete = false;
