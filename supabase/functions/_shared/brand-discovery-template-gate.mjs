@@ -71,6 +71,7 @@ export function validateBrandDiscoveryTemplate(questionnaire) {
   }
   if (questionnaire.status !== "active") errors.push("questionnaire_not_active");
   if (typeof questionnaire.slug !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(questionnaire.slug)) errors.push("slug_invalid");
+  if (!Number.isInteger(questionnaire.version) || questionnaire.version < 1) errors.push("version_invalid");
   if (!questionnaire.brand || typeof questionnaire.brand.name !== "string" || !questionnaire.brand.name.trim() ||
       typeof questionnaire.brand.category !== "string" || !questionnaire.brand.category.trim()) errors.push("brand_metadata_missing");
   if (!Array.isArray(questionnaire.sections) || questionnaire.sections.length === 0) {
