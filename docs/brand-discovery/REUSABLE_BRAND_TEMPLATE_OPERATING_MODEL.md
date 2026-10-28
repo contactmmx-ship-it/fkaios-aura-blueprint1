@@ -33,7 +33,7 @@ The release gate checks question IDs, prompt, required flag, type-specific optio
 1. Copy a template JSON into `config/brand-discovery/` and give it a unique filename.
 2. Set a unique lowercase kebab-case `slug`, positive `version`, `brand.name`, `brand.category`, a real question count, sections, checklist and acknowledgement. Keep `status: "draft"`.
 3. Preserve the original source or record FK-authored provenance; do not invent owner facts or label unreviewed questions as verified.
-4. Run `node scripts/validate-brand-discovery-questionnaire.mjs` for the Raahat source bank, or run the generic-template tests and review the new bank against the documented schema.
+4. Run `node scripts/validate-brand-discovery-template.mjs future-brand-v1.draft.json` to validate a future brand draft offline without database credentials. For Raahat, also run `node scripts/validate-brand-discovery-questionnaire.mjs` to verify exact source reconciliation.
 5. Seed only to an authorised non-production environment after explicit approval, with `BRAND_DISCOVERY_SEED_CONFIRM=I_UNDERSTAND_DRAFT_SEED` and the selected JSON filename, for example: `node scripts/seed-brand-discovery-questionnaire.mjs future-brand-v1.draft.json`.
 
 The seeder only inserts or updates a row that is still `draft`; it refuses to overwrite a non-draft version and never creates a session or invitation. Do not put credentials in a command shared in chat or commit them to the repository.
