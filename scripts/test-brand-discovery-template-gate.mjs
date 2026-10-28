@@ -67,6 +67,10 @@ console.log("Brand Discovery reusable-template release-gate tests passed (7 scen
 const inviteSource = await readFile(new URL("../supabase/functions/brand-discovery-create-invite/index.ts", import.meta.url), "utf8");
 const activationSource = await readFile(new URL("./activate-brand-discovery-template.mjs", import.meta.url), "utf8");
 const respondentUiSource = await readFile(new URL("../src/app/brand-discovery/[token]/BrandDiscoveryRespondent.tsx", import.meta.url), "utf8");
+const raahatPreviewSource = await readFile(new URL("../src/app/brand-discovery-preview/page.tsx", import.meta.url), "utf8");
+const staticPreviewSource = await readFile(new URL("../preview-static/src/App.tsx", import.meta.url), "utf8");
+const raahatBank = JSON.parse(await readFile(new URL("../config/brand-discovery/raahat-question-bank-v1.draft.json", import.meta.url), "utf8"));
+
 const respondentSource = await readFile(new URL("../supabase/functions/brand-discovery-respondent/index.ts", import.meta.url), "utf8");
 assert.ok(activationSource.includes("--confirm-activate") && activationSource.includes("I_APPROVE_TEMPLATE_RELEASE"),
   "Template activation must require explicit approval flags.");
@@ -80,6 +84,17 @@ assert.ok(respondentSource.includes("if (!isValidQuestionAnswer(question, answer
   "The respondent API must validate each answer before it is persisted.");
 assert.ok(respondentSource.includes("request_too_large"),
   "The respondent API must reject oversized request bodies.");
+assert.ok(raahatBank.sections.flatMap((section) => section.questions).filter((question) => question.optional_explanation).length > 0,
+  "Raahat source bank must preserve conditional clarification metadata.");
+for (const [label, source] of [["Next.js preview", raahatPreviewSource], ["standalone preview", staticPreviewSource]]) {
+  assert.ok(source.includes("other-clarification-") && source.includes('toLowerCase().startsWith("other")'),
+    label + " must show a separate optional clarification when an Other-labelled choice is selected.");
+  assert.ok(source.includes("other-service-clarification-"),
+    label + " must show a separate optional clarification for the Other service row.");
+}
+assert.ok(respondentUiSource.includes('toLowerCase().startsWith("other")') &&
+  respondentUiSource.includes("hasOther ? previous.explanation : \"\""),
+  "Live respondent UI must support all Other-labelled choices and clear stale clarification when Other is deselected.");
 assert.ok(!respondentUiSource.includes("all 20 supporting documents"),
   "Respondent UI copy must not hard-code the Raahat checklist count.");
 assert.ok(!respondentSource.includes("checklist.length !== 20"),
