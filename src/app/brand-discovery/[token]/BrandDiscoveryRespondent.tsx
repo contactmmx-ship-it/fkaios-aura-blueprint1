@@ -586,7 +586,7 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
                   <span>{option.label}</span>
                 </label>;
               })}
-              {question.optional_explanation && <div className="pt-2">
+              {question.optional_explanation && (question.options ?? []).some((option) => option.label.trim().toLowerCase() === "other" && parseChoiceAnswer(currentAnswer).choices.includes(option.value)) && <div className="pt-2">
                 <label htmlFor={`explanation-${question.id}`} className="mb-2 block text-sm text-slate-300">{question.explanation_prompt ?? "Optional explanation (if you wish)"}</label>
                 <textarea id={`explanation-${question.id}`} value={parseChoiceAnswer(currentAnswer).explanation} onChange={(e) => setAnswers((a) => { const previous = parseChoiceAnswer(a[question.id] ?? ""); return { ...a, [question.id]: encodeChoiceAnswer(previous.choices, e.target.value) }; })} rows={3} placeholder="Add context if helpful…" className="w-full resize-y rounded-2xl border border-white/15 bg-slate-950/70 px-4 py-3 text-base leading-7 outline-none transition focus:border-cyan-300 focus:ring-2 focus:ring-cyan-300/20" />
               </div>}
