@@ -88,6 +88,20 @@ export function parseSelfHostedModels(body: unknown): DiscoveredModel[] {
     .map((id) => ({ provider: "self_hosted", model: id, source: "provider_api:self_hosted", freeTier: true, costInPerMtok: 0, costOutPerMtok: 0 }));
 }
 
+/**
+ * Groq (OpenAI-compatible model list). Groq's free tier limits requests and tokens PER MODEL, so every
+ * text model listed is extra free capacity with the same key: when one model hits its limit the router
+ * moves to the next instead of stopping the work (28 Oct 2026).
+ */
+export function parseGroqModels(body: unknown): DiscoveredModel[] {
+  const data = (body as { data?: unknown[] })?.data ?? [];
+  return (data as Array<Record<string, unknown>>)
+    .filter((m) => typeof m.id === "string" && m.active !== false)
+    .map((m) => ({ id: String(m.id), ctx: Number(m.context_window) || null, maxOut: Number(m.max_completion_tokens) || null }))
+    .filter((m) => !NON_TEXT.test(m.id) && !/(whisper|tts|guard|safeguard|playai|orpheus|distil|embed|compound)/i.test(m.id))
+    .map((m) => ({ provider: "groq", model: m.id, contextWindow: m.ctx, maxOutputTokens: m.maxOut, costInPerMtok: 0, costOutPerMtok: 0, freeTier: true, source: "provider_api:groq" }));
+}
+
 /** OpenRouter prices are USD per token as strings; we store USD per 1M tokens. */
 export function parseOpenRouterModels(body: unknown, limit = 40): DiscoveredModel[] {
   const data = (body as { data?: unknown[] })?.data ?? [];
@@ -158,6 +172,10 @@ async function listProviders(env: (k: string) => string | undefined): Promise<Pr
       .then((b) => ({ provider: "self_hosted", ok: true, models: parseSelfHostedModels(b) }))
       .catch((e) => ({ provider: "self_hosted", ok: false, models: [], error: String(e) })));
   }
+  const groq = env("GROQ_API_KEY");
+  if (groq) jobs.push(fetchJson("https://api.groq.com/openai/v1/models", { Authorization: `Bearer ${groq}` })
+    .then((b) => ({ provider: "groq", ok: true, models: parseGroqModels(b) }))
+    .catch((e) => ({ provider: "groq", ok: false, models: [], error: String(e) })));
   jobs.push(fetchJson("https://openrouter.ai/api/v1/models", {})
     .then((b) => ({ provider: "openrouter", ok: true, models: parseOpenRouterModels(b) }))
     .catch((e) => ({ provider: "openrouter", ok: false, models: [], error: String(e) })));
@@ -169,7 +187,7 @@ async function accessStates(db: Db, env: (k: string) => string | undefined): Pro
   const { data } = await db.from("provider_health_state").select("provider,failure_category,status");
   const noCredit = new Set(((data ?? []) as Array<{ provider: string; failure_category: string | null; status: string }>)
     .filter((h) => h.failure_category === "credit_exhaustion" && h.status !== "available").map((h) => h.provider));
-  const key: Record<string, string> = { gemini: "GEMINI_API_KEY", anthropic: "ANTHROPIC_API_KEY", openai: "OPENAI_API_KEY", openrouter: "OPENROUTER_API_KEY", self_hosted: "SELF_HOSTED_LLM_BASE_URL" };
+  const key: Record<string, string> = { gemini: "GEMINI_API_KEY", anthropic: "ANTHROPIC_API_KEY", openai: "OPENAI_API_KEY", openrouter: "OPENROUTER_API_KEY", groq: "GROQ_API_KEY", self_hosted: "SELF_HOSTED_LLM_BASE_URL" };
   const out: Record<string, string> = {};
   for (const [p, k] of Object.entries(key)) out[p] = !env(k) ? "no_credential" : noCredit.has(p) ? "no_credit" : "configured";
   return out;
