@@ -17,7 +17,8 @@ type Question = {
   explanation_prompt?: string;
   selection_instruction?: string;
   source_block?: string;
-  parts?: Array<{ id: string; label: string; instruction: string; selection_mode: "single" | "multiple"; max_selections?: number; options: Array<{ value: string; label: string }> }>;
+  parts?: Array<{ id: string; label: string; instruction: string; selection_mode: "single" | "multiple"; max_selections?: number; optional?: boolean; options: Array<{ value: string; label: string }> }>;
+  explanation_part_ids?: string[];
   service_options?: Array<{ value: string; label: string }>;
   status_options?: Array<{ value: string; label: string }>;
   service_instruction?: string;
@@ -88,7 +89,7 @@ function hasAnswer(question: Question, raw: string) {
   if (question.type === "multiple_choice") return parseChoiceAnswer(raw).choices.length > 0;
   if (question.type === "multi_part") {
     const saved = parsePartAnswer(raw);
-    return Boolean(question.parts?.length) && question.parts!.every((part) => (saved[part.id] ?? []).length > 0);
+    return Boolean(question.parts?.length) && question.parts!.some((part) => (saved[part.id] ?? []).length > 0) && question.parts!.every((part) => part.optional === true || (saved[part.id] ?? []).length > 0);
   }
   if (question.type === "service_status") {
     const value = parseStructuredAnswer(raw);
@@ -574,7 +575,7 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
                   </div>
                 </fieldset>;
               })}
-              {question.optional_explanation && (question.parts ?? []).some((part) => part.options.some((option) => option.label.trim().toLowerCase().startsWith("other") && (parsePartAnswer(currentAnswer)[part.id] ?? []).includes(option.value))) && <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/5 p-4">
+              {question.optional_explanation && ((question.parts ?? []).some((part) => part.options.some((option) => option.label.trim().toLowerCase().startsWith("other") && (parsePartAnswer(currentAnswer)[part.id] ?? []).includes(option.value))) || (question.explanation_part_ids ?? []).some((partId) => (parsePartAnswer(currentAnswer)[partId] ?? []).length > 0)) && <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/5 p-4">
                 <label htmlFor={`multipart-other-${question.id}`} className="mb-2 block text-sm text-slate-200">{question.explanation_prompt ?? "If you selected Other, please specify (optional)."}</label>
                 <textarea id={`multipart-other-${question.id}`} value={parsePartExplanation(currentAnswer)} onChange={(e) => setAnswers((a) => { const raw = a[question.id] ?? ""; return { ...a, [question.id]: encodePartAnswer(parsePartAnswer(raw), e.target.value) }; })} rows={3} maxLength={2000} placeholder="Add details for the Other option (optional)…" className="w-full resize-y rounded-xl border border-white/15 bg-slate-950/70 px-3 py-3 text-white" />
               </div>}
