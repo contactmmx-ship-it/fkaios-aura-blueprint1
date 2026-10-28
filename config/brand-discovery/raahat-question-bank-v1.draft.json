@@ -3217,9 +3217,10 @@
             },
             {
               "id": "rate_5",
-              "label": "Other category",
-              "instruction": "Select the closest range for this category.",
+              "label": "Other category (if applicable)",
+              "instruction": "Select one only if you have an additional room category; otherwise leave this blank.",
               "selection_mode": "single",
+              "optional": true,
               "options": [
                 {
                   "value": "s5_q3_cat5_o1",
@@ -3252,7 +3253,10 @@
               ]
             }
           ],
-          "help_text": "Select one rate range for each room category. If a listed category does not apply, use the closest applicable category and explain in the follow-up discussion."
+          "help_text": "Select one rate range for each applicable room category. Leave Other category blank if Raahat has no additional room category. If you enter a rate for Other category, use the optional clarification to name that category.",
+          "optional_explanation": true,
+          "explanation_prompt": "If you entered a rate for Other category, please name that category (optional).",
+          "explanation_part_ids": ["rate_5"]
         },
         {
           "id": "s5_q4",
