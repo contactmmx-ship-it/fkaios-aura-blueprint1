@@ -65,6 +65,8 @@ const respondentUiSource = await readFile(new URL("../src/app/brand-discovery/[t
 const respondentSource = await readFile(new URL("../supabase/functions/brand-discovery-respondent/index.ts", import.meta.url), "utf8");
 assert.ok(activationSource.includes("--confirm-activate") && activationSource.includes("I_APPROVE_TEMPLATE_RELEASE"),
   "Template activation must require explicit approval flags.");
+assert.ok(inviteSource.includes("template_identity_mismatch") && activationSource.includes("Template JSON identity does not match"),
+  "Database and JSON slug/version/category must match before invite or activation.");
 assert.ok(inviteSource.includes("validateBrandDiscoveryTemplate(version.questionnaire)"),
   "Invite endpoint must apply the generic release gate to every brand.");
 assert.ok(inviteSource.includes('Deno.env.get("FK_BRAND_DISCOVERY_EMAIL_SENDING_ENABLED") === "true"'),
