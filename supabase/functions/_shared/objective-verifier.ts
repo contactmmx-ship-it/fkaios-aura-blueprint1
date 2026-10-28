@@ -145,6 +145,7 @@ function norm(s: string): string {
     .replace(/\\"/g, '"')
     .replace(/\[([^\]]+)\]\((?:[^()]|\([^()]*\))*\)/g, "$1")
     .replace(/[*_~\`]/g, "")
+    .replace(/[\[\]]/g, "")
     .toLowerCase()
     .replace(/[“”"'’]/g, "")
     .replace(/\s+/g, " ")
@@ -212,10 +213,13 @@ export function isRecoverableOutputBlocker(summary: string, completedRectificati
 }
 
 /** Parses and hardens the verifier's answer. A quote that is not in the deliverable turns a "met" into "not met". */
-export function parseVerdict(text: string, deliverable: string, deterministic: { ok: boolean; problems: string[] }): Omit<Verdict, "verifierRef" | "independence" | "available"> | null {
+export function parseVerdict(text: string, deliverable: string, deterministic: { ok: boolean; problems: string[] }, evidence = ""): Omit<Verdict, "verifierRef" | "independence" | "available"> | null {
   const obj = extractJson(text);
   if (!obj || !Array.isArray(obj.criteria)) return null;
   const hay = norm(deliverable);
+  // 28 Oct 2026: for the evidence-support criterion the natural proof is a verbatim quote of the recorded
+  // evidence; accept it there (still verbatim). Every other criterion must quote the deliverable.
+  const evidenceHay = evidence ? norm(evidence) : "";
   const criteria: CriterionResult[] = (obj.criteria as Array<Record<string, unknown>>).map((c) => {
     const criterion = String(c.criterion ?? "").slice(0, 400);
     const quote = typeof c.evidence_quote === "string" && c.evidence_quote.trim() ? c.evidence_quote.trim() : null;
@@ -223,7 +227,9 @@ export function parseVerdict(text: string, deliverable: string, deterministic: {
     let issue = typeof c.issue === "string" && c.issue.trim() ? c.issue.trim() : null;
     if (met) {
       const q = quote ? norm(quote) : "";
-      if (!q || q.length < 8 || !quoteFoundInOrder(hay, q)) {
+      const evidenceCriterion = /unsupported by the recorded evidence|supported by (the )?(recorded )?evidence/i.test(criterion);
+      const found = !!q && q.length >= 8 && (quoteFoundInOrder(hay, q) || (evidenceCriterion && !!evidenceHay && quoteFoundInOrder(evidenceHay, q)));
+      if (!found) {
         met = false;
         issue = `verifier's supporting quote was not found in the deliverable${quote ? `: "${quote.slice(0, 120)}"` : ""}`;
       }
@@ -320,7 +326,7 @@ export async function verifyObjective(db: Db, input: {
   if (result.status !== "success") {
     return { passed: false, quality: 0, criteria: [], issues: [`verifier unavailable: ${result.log.failure_reason ?? result.status}`], needsHumanDecision: false, humanDecisionReason: null, deterministic, verifierRef, independence, available: false };
   }
-  const parsed = parseVerdict(result.content ?? "", input.deliverable, deterministic);
+  const parsed = parseVerdict(result.content ?? "", input.deliverable, deterministic, input.evidence.slice(0, 12000));
   if (!parsed) {
     return { passed: false, quality: 0, criteria: [], issues: ["verifier returned no parseable verdict"], needsHumanDecision: false, humanDecisionReason: null, deterministic, verifierRef, independence, available: false };
   }
