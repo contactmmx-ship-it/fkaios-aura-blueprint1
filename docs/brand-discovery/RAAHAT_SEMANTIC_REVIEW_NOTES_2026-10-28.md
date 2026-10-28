@@ -76,7 +76,7 @@ The missing-secret workflow failure is a pre-migration block. Do not bypass it, 
 
 ## Current evidence snapshot
 
-At the latest inspected PR metadata, PR #191 is draft/open/unmerged, with head SHA `08d1ad60d0a561e540061e6633c587f07ecc4d88`. The PR description reports validation runs on an earlier head (`4a19862966d77b4dc9ea4fe5f91e3f3a13d4344b)); current-head checks must be re-verified. The Supabase migration workflow previously failed at the required-secret check before applying a migration. This is not evidence of a successful migration or end-to-end journey. Vercel quota blocks and unrelated GoMax checks are not evidence of Raahat readiness.
+At the latest evidence refresh before this note update, PR #191 remained draft/open/unmerged. Questionnaire source validation passed on head `b37f37077425976b1e25f8ca503ede80577823db`; frontend and Edge Function validation were still in progress and must be checked again after this documentation commit. The Supabase migration workflow failed at the required-secret check before applying a migration. This is not evidence of a successful migration or end-to-end journey. Vercel quota blocks and unrelated GoMax checks are not evidence of Raahat readiness.
 
 No production migration, deployment, activation, invitation/email sending, or paid AI use is authorized by these semantic decisions.
 
@@ -84,3 +84,8 @@ No production migration, deployment, activation, invitation/email sending, or pa
 ## Implementation follow-up — room-rate Other category
 
 A targeted draft-branch fix has now been committed: the “Other category” room-rate row is marked optional, the instructions tell the respondent to leave it blank when no additional category exists, and an optional separate clarification is shown only when that row is answered. The respondent completion check and Edge Function multipart validator were adjusted to allow that optional part, and the source validator now asserts the behavior. **This is code presence, not yet verified acceptance.** Current-head CI and non-production persistence/submit tests must pass before this fix can be accepted.
+
+
+## Implementation follow-up — private evidence report
+
+The draft branch now formats selected option IDs as their human-readable labels in the private report, including multipart and service-status answers. The document checklist report separates respondent-reported availability from receipt confirmation, review status and verification status. This code has not yet passed the latest Edge Function validation or non-production report/access-control tests; do not treat it as release accepted.
