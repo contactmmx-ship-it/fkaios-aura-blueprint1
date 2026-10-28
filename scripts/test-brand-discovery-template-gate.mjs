@@ -5,6 +5,7 @@ import { validateBrandDiscoveryTemplate, validateBrandDiscoveryDraft, brandDisco
 const release_readiness = Object.fromEntries(brandDiscoveryReleaseChecks.map((key) => [key, true]));
 const validTemplate = {
   slug: "sample-brand-discovery",
+  version: 1,
   brand: { name: "Sample Brand", category: "retail" },
   status: "active",
   question_count: 2,
