@@ -6,6 +6,8 @@ on:
       - "config/brand-discovery/raahat-question-bank-v1.draft.json"
       - "scripts/validate-brand-discovery-questionnaire.mjs"
       - "scripts/test-brand-discovery-template-gate.mjs"
+      - "scripts/test-brand-discovery-answer-validation.mjs"
+      - "supabase/functions/_shared/brand-discovery-answer-validation.mjs"
       - "scripts/seed-brand-discovery-questionnaire.mjs"
       - "scripts/activate-brand-discovery-template.mjs"
       - "scripts/validate-brand-discovery-template.mjs"
@@ -36,6 +38,8 @@ jobs:
         run: node scripts/validate-brand-discovery-questionnaire.mjs
       - name: Test reusable template release gate and email policy
         run: node scripts/test-brand-discovery-template-gate.mjs
+      - name: Test answer and closure validation edge cases
+        run: node scripts/test-brand-discovery-answer-validation.mjs
       - name: Check reusable draft seeder syntax
         run: node --check scripts/seed-brand-discovery-questionnaire.mjs
       - name: Check release-gated activation script syntax
