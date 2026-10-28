@@ -77,8 +77,12 @@ function parseStructuredAnswer(raw: string): any {
   catch { return {}; }
 }
 function encodeStructuredAnswer(value: unknown) { return JSON.stringify(value); }
-function encodePartAnswer(parts: Record<string, string[]>) {
-  return JSON.stringify({ parts: Object.fromEntries(Object.entries(parts).map(([id, choices]) => [id, { choices }])) });
+function parsePartExplanation(raw: string): string {
+  try { const value = JSON.parse(raw); return typeof value?.explanation === "string" ? value.explanation : ""; }
+  catch { return ""; }
+}
+function encodePartAnswer(parts: Record<string, string[]>, explanation = "") {
+  return JSON.stringify({ parts: Object.fromEntries(Object.entries(parts).map(([id, choices]) => [id, { choices }])), explanation });
 }
 function hasAnswer(question: Question, raw: string) {
   if (question.type === "multiple_choice") return parseChoiceAnswer(raw).choices.length > 0;
@@ -507,7 +511,7 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
                         const next = selected ? current.filter((id) => id !== option.value) : [...current, option.value];
                         const nextStatuses = { ...(value.statuses ?? {}) };
                         if (selected) delete nextStatuses[option.value];
-                        return { ...a, [question.id]: encodeStructuredAnswer({ services: next, statuses: nextStatuses }) };
+                        return { ...a, [question.id]: encodeStructuredAnswer({ ...value, services: next, statuses: nextStatuses }) };
                       })} className="mt-1 accent-cyan-300" />
                       <span className="font-medium">{option.label}</span>
                     </label>
@@ -522,6 +526,10 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
                     </div>}
                   </div>;
                 })}
+                {question.optional_explanation && services.some((id) => (question.service_options ?? []).some((option) => option.value === id && option.label.trim().toLowerCase().startsWith("other"))) && <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/5 p-4">
+                  <label htmlFor={`service-other-${question.id}`} className="mb-2 block text-sm text-slate-200">{question.explanation_prompt ?? "If you selected Other, please specify (optional)."}</label>
+                  <textarea id={`service-other-${question.id}`} value={typeof saved.explanation === "string" ? saved.explanation : ""} onChange={(e) => setAnswers((a) => { const value = parseStructuredAnswer(a[question.id] ?? ""); return { ...a, [question.id]: encodeStructuredAnswer({ ...value, explanation: e.target.value }) }; })} rows={3} maxLength={2000} placeholder="Describe the other service (optional)…" className="w-full resize-y rounded-xl border border-white/15 bg-slate-950/70 px-3 py-3 text-white" />
+                </div>}
               </div>;
             })() : question.type === "repeatable_choice" ? <div className="space-y-4">
               <p className="text-sm text-slate-400">{question.row_prompt}</p>
@@ -558,7 +566,7 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
                             next = selected ? next.filter((v) => v !== option.value) : [...next, option.value];
                             if (part.max_selections && next.length > part.max_selections) return a;
                           } else next = [option.value];
-                          return { ...a, [question.id]: encodePartAnswer({ ...all, [part.id]: next }) };
+                          return { ...a, [question.id]: encodePartAnswer({ ...all, [part.id]: next }, parsePartExplanation(a[question.id] ?? "")) };
                         })} className="mt-1 accent-cyan-300" />
                         <span>{option.label}</span>
                       </label>;
@@ -566,6 +574,10 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
                   </div>
                 </fieldset>;
               })}
+              {question.optional_explanation && (question.parts ?? []).some((part) => part.options.some((option) => option.label.trim().toLowerCase().startsWith("other") && (parsePartAnswer(currentAnswer)[part.id] ?? []).includes(option.value))) && <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/5 p-4">
+                <label htmlFor={`multipart-other-${question.id}`} className="mb-2 block text-sm text-slate-200">{question.explanation_prompt ?? "If you selected Other, please specify (optional)."}</label>
+                <textarea id={`multipart-other-${question.id}`} value={parsePartExplanation(currentAnswer)} onChange={(e) => setAnswers((a) => { const raw = a[question.id] ?? ""; return { ...a, [question.id]: encodePartAnswer(parsePartAnswer(raw), e.target.value) }; })} rows={3} maxLength={2000} placeholder="Add details for the Other option (optional)…" className="w-full resize-y rounded-xl border border-white/15 bg-slate-950/70 px-3 py-3 text-white" />
+              </div>}
             </div> : question.type === "multiple_choice" ? <div className="space-y-3">
               <p className="text-xs text-slate-400">{question.selection_instruction ?? (question.selection_mode === "multiple" ? (question.max_selections ? `Select up to ${question.max_selections}.` : "Select all that apply.") : "Select one.")}</p>
               {(!question.options || question.options.length === 0) ? <p role="alert" className="rounded-xl border border-amber-300/20 bg-amber-300/5 p-4 text-sm text-amber-100">This choice question has no reviewed options yet. Please contact Franchise Kart rather than guessing an answer.</p> : question.options.map((option) => {
