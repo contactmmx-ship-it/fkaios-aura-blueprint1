@@ -83,3 +83,16 @@ The earlier handoff snapshot above predates the latest mapping work. The runtime
 4. Complete semantic review of inferred room-category and monthly occupancy controls and questions where options may not capture the full business fact requested.
 5. Complete keyboard/screen-reader/mobile review and approve privacy/email settings.
 6. Configure authorized secrets and obtain explicit approval before any non-production migration/deployment or email test. Production remains untouched.
+
+
+## Latest verification correction — 28 October 2026
+
+The latest observed branch head is `4a19862966d77b4dc9ea4fe5f91e3f3a13d4344b`.
+
+- Brand Discovery Questionnaire Validation: **PASS** (run `40637468872`).
+- Brand Discovery Edge Function Validation: **PASS** (run `40637469062`).
+- Brand Discovery Frontend Validation: **PASS** (run `40637469032`, TypeScript check and Next.js production build).
+- Production migration drift check: **PASS** (run `40637468876`).
+- Supabase migration workflow: **BLOCKED/FAILED at required-secret preflight** (run `40637468869`); CLI setup, project link, preview and apply steps were skipped. No migration was applied.
+
+The automated checks pass for the latest observed head, including the new optional “Other” clarification controls. This is not end-to-end acceptance. The PR remains draft/open/unmerged; the template remains inactive; no deployment, email or paid AI call occurred. The non-production integration/security journey and human semantic/accessibility review remain release blockers.
