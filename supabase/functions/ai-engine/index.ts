@@ -1559,6 +1559,21 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
     if (researchEvidence) {
       return { ...sanitizedParsed, capability: "research.run", capability_result: researchResultData, capability_attempts: researchResultAttempts };
     }
+    // 28 Oct 2026: the generic path used to DROP a requested capability (e.g. knowledge.search) without
+    // running it, so objective tasks that asked for founder memory got no evidence. Run it exactly as the
+    // agent path does (same authorization in executeRequestedCapability; paid research is also stopped
+    // by research-engine's spend gate).
+    if (typeof parsed.capability === "string" && parsed.capability) {
+      const requestable = { ...parsed } as Record<string, unknown>;
+      delete requestable.capability_result;
+      delete requestable.capability_attempts;
+      delete requestable.prior_evidence;
+      const requestedResult = await executeRequestedCapability(job, requestable, cid);
+      if (priorSummary.verified && requestedResult && typeof requestedResult === "object" && !Array.isArray(requestedResult) && !(typeof (requestedResult as Record<string, unknown>).capability === "string")) {
+        return { ...(requestedResult as Record<string, unknown>), prior_evidence: priorSummary };
+      }
+      return requestedResult;
+    }
     return resultWithPriorEvidence;
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
