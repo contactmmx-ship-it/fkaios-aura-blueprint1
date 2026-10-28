@@ -5,6 +5,7 @@ on:
     paths:
       - "supabase/functions/brand-discovery-*/**"
       - "supabase/functions/_shared/**"
+      - "scripts/test-brand-discovery-answer-validation.mjs"
       - "supabase/config.toml"
       - ".github/workflows/brand-discovery-edge-validation.yml"
   push:
@@ -31,6 +32,8 @@ jobs:
           deno-version: v2.x
       - name: Type-check shared template release gate
         run: deno check supabase/functions/_shared/brand-discovery-template-gate.mjs
+      - name: Type-check shared answer validators
+        run: deno check supabase/functions/_shared/brand-discovery-answer-validation.mjs
       - name: Type-check invite function
         run: deno check --node-modules-dir=auto supabase/functions/brand-discovery-create-invite/index.ts
       - name: Type-check respondent function
