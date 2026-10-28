@@ -757,6 +757,8 @@ const OUTAGE_STATUS_MIN = 500;
  * intelligence success — callers must check for empty/invalid content
  * separately (see isEmptyOrInvalidContent) before treating a 200 as real.
  */
+const REQUEST_TOO_LARGE_PATTERNS = [/request too large/i, /context[_ ]length/i, /maximum context/i, /too many tokens/i, /tokens per minute/i, /reduce (the length|your message)/i, /input is too long/i];
+
 export function classifyLLMFailure(response: RawProviderResponse | null, error?: unknown): ClassifiedFailure {
   if (!response) {
     // Thrown before any response was received (connection failure, DNS, etc.)
@@ -780,6 +782,13 @@ export function classifyLLMFailure(response: RawProviderResponse | null, error?:
   }
 
   if (response.httpStatus === 429) {
+    return { category: "rate_limit", detail: bodyText.slice(0, 300), shouldFailover: true };
+  }
+
+  // 28 Oct 2026: "Request too large for model X" (free-tier tokens-per-minute cap) or a prompt over one
+  // model's context window is a limit of THAT model, not a malformed request: another model (bigger limit
+  // or context) can still answer it. Seen live on Groq free tier; previously this stopped all fallback.
+  if (response.httpStatus === 413 || (response.httpStatus >= 400 && response.httpStatus < 500 && REQUEST_TOO_LARGE_PATTERNS.some((p) => p.test(bodyText)))) {
     return { category: "rate_limit", detail: bodyText.slice(0, 300), shouldFailover: true };
   }
 

@@ -970,3 +970,12 @@ Deno.test("free-tier routing: a free-tier marker alone does not enable a disable
     assert(names.length === 0, `Expected no configured providers, got ${names.join(", ")}`);
   });
 });
+
+Deno.test("classifyLLMFailure: 'request too large' is a per-model limit, so fallback continues", () => {
+  const groq = classifyLLMFailure({ ok: false, httpStatus: 413, rawBody: { error: { message: "Request too large for model `openai/gpt-oss-120b` ... tokens per minute (TPM): Limit 8000" } }, latencyMs: 1, model: "openai/gpt-oss-120b" });
+  if (groq.category !== "rate_limit" || !groq.shouldFailover) throw new Error(JSON.stringify(groq));
+  const ctx = classifyLLMFailure({ ok: false, httpStatus: 400, rawBody: { error: { message: "This model's maximum context length is 8192 tokens" } }, latencyMs: 1, model: "m" });
+  if (ctx.category !== "rate_limit" || !ctx.shouldFailover) throw new Error(JSON.stringify(ctx));
+  const bad = classifyLLMFailure({ ok: false, httpStatus: 400, rawBody: { error: { message: "messages: field required" } }, latencyMs: 1, model: "m" });
+  if (bad.category !== "invalid_request" || bad.shouldFailover) throw new Error(JSON.stringify(bad));
+});
