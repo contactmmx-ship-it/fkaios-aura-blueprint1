@@ -140,12 +140,32 @@ function norm(s: string): string {
   // This verifies source citations when a quote includes the visible source
   // label but not the URL target.
   return s
+    // 28 Oct 2026: JSON-rendered deliverables carry literal escape sequences (\n, \") — compare visible text.
+    .replace(/\\[nrt]/g, " ")
+    .replace(/\\"/g, '"')
     .replace(/\[([^\]]+)\]\((?:[^()]|\([^()]*\))*\)/g, "$1")
     .replace(/[*_~\`]/g, "")
+    .replace(/[\[\]]/g, "")
     .toLowerCase()
     .replace(/[“”"'’]/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+// A quote counts when it is in the deliverable verbatim (after norm). If the verifier joined excerpts with an
+// ellipsis, every excerpt of 8+ characters must appear, in order, and together they must be at least 20
+// characters — still copied text, never a paraphrase (28 Oct 2026).
+export function quoteFoundInOrder(hay: string, q: string): boolean {
+  if (hay.includes(q)) return true;
+  const parts = q.split(/\s*(?:\.{3,}|…)\s*/).map((p) => p.trim().replace(/^[,:;{}\[\]]+|[,:;{}\[\]]+$/g, "").trim()).filter((p) => p.length > 0);
+  if (parts.length < 2) return false;
+  if (parts.some((p) => p.length < 8) || parts.join("").length < 20) return false;
+  let from = 0;
+  for (const p of parts) {
+    const at = hay.indexOf(p, from);
+    if (at < 0) return false;
+    from = at + p.length;
+  }
+  return true;
 }
 function extractJson(text: string): Record<string, unknown> | null {
   const t = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
@@ -193,18 +213,28 @@ export function isRecoverableOutputBlocker(summary: string, completedRectificati
 }
 
 /** Parses and hardens the verifier's answer. A quote that is not in the deliverable turns a "met" into "not met". */
-export function parseVerdict(text: string, deliverable: string, deterministic: { ok: boolean; problems: string[] }): Omit<Verdict, "verifierRef" | "independence" | "available"> | null {
+export function parseVerdict(text: string, deliverable: string, deterministic: { ok: boolean; problems: string[] }, evidence = "", noPaidResearch = false): Omit<Verdict, "verifierRef" | "independence" | "available"> | null {
   const obj = extractJson(text);
   if (!obj || !Array.isArray(obj.criteria)) return null;
   const hay = norm(deliverable);
+  // 28 Oct 2026: for the evidence-support criterion the natural proof is a verbatim quote of the recorded
+  // evidence; accept it there (still verbatim). Every other criterion must quote the deliverable.
+  const evidenceHay = evidence ? norm(evidence) : "";
   const criteria: CriterionResult[] = (obj.criteria as Array<Record<string, unknown>>).map((c) => {
     const criterion = String(c.criterion ?? "").slice(0, 400);
     const quote = typeof c.evidence_quote === "string" && c.evidence_quote.trim() ? c.evidence_quote.trim() : null;
     let met = c.met === true;
     let issue = typeof c.issue === "string" && c.issue.trim() ? c.issue.trim() : null;
+    // 28 Oct 2026: "no paid research" is a PROCESS criterion — no sentence in a deliverable can prove it.
+    // It is decided by measurement (no research.run in this objective's tasks), never by the model.
+    if (/\bpaid\b[^.]{0,20}\b(web\s+)?research\b/i.test(criterion)) {
+      return { criterion, met: noPaidResearch, evidence_quote: noPaidResearch ? "(measured: no research.run dispatch in this objective's tasks)" : null, issue: noPaidResearch ? null : "paid research (research.run) was used by this objective" };
+    }
     if (met) {
       const q = quote ? norm(quote) : "";
-      if (!q || q.length < 8 || !hay.includes(q)) {
+      const evidenceCriterion = /unsupported by the recorded evidence|supported by (the )?(recorded )?evidence/i.test(criterion);
+      const found = !!q && q.length >= 8 && (quoteFoundInOrder(hay, q) || (evidenceCriterion && !!evidenceHay && quoteFoundInOrder(evidenceHay, q)));
+      if (!found) {
         met = false;
         issue = `verifier's supporting quote was not found in the deliverable${quote ? `: "${quote.slice(0, 120)}"` : ""}`;
       }
@@ -271,6 +301,8 @@ export async function persistVerificationEvidence(
 export async function verifyObjective(db: Db, input: {
   /** null only for self-tests (evidence key self_test:...). */
   objectiveId: string | null;
+  /** 28 Oct 2026: measured — true when no task of this objective ran paid research (research.run). */
+  noPaidResearch?: boolean;
   requirementKey?: string;
   projectId: string | null;
   objective: string;
@@ -301,7 +333,7 @@ export async function verifyObjective(db: Db, input: {
   if (result.status !== "success") {
     return { passed: false, quality: 0, criteria: [], issues: [`verifier unavailable: ${result.log.failure_reason ?? result.status}`], needsHumanDecision: false, humanDecisionReason: null, deterministic, verifierRef, independence, available: false };
   }
-  const parsed = parseVerdict(result.content ?? "", input.deliverable, deterministic);
+  const parsed = parseVerdict(result.content ?? "", input.deliverable, deterministic, input.evidence.slice(0, 12000), input.noPaidResearch === true);
   if (!parsed) {
     return { passed: false, quality: 0, criteria: [], issues: ["verifier returned no parseable verdict"], needsHumanDecision: false, humanDecisionReason: null, deterministic, verifierRef, independence, available: false };
   }

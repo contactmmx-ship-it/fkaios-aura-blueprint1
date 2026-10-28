@@ -4,7 +4,7 @@ import { planObjective } from "./executive-planner.ts";
 import { allocateProjectWork, createRectificationTask, resumeTaskFromCheckpoint, returnCompletedWork } from "./work-engine.ts";
 import { contractCriteria, isIndependentVerificationLevel, isRecoverableOutputBlocker, verifyObjective } from "./objective-verifier.ts";
 import { readObjectiveState, syncObjectiveState } from "./objective-state.ts";
-import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, type TaskEvidenceRecord } from "./fact-grounding.ts";
+import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, founderMemoryEvidenceText, researchedSourceUrls, type TaskEvidenceRecord } from "./fact-grounding.ts";
 import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP } from "./objective-rerun.ts";
 import { classifyObjective, completionContract, planContractMismatch, projectOutputType, measuredProductCapabilityEvidence, hasMeasuredProductBuild, hasMeasuredProductVerification, hasVerifiedLiveProductEvidence } from "./objective-contract.ts";
 import { objectiveDeadline, objectiveDeadlineMinutes, objectiveRunStartedAt } from "./objective-deadline.ts";
@@ -174,6 +174,7 @@ async function syncDeterministicVerificationEvidence(
   objectiveId: string,
   projects: Record<string, unknown>[],
   tasks: Record<string, unknown>[],
+  independent?: { passed: boolean; independence: unknown; evidenceId?: string | null },
 ): Promise<{ passed: number; required: number }> {
   const supabase = getSupabaseAdmin();
   const { data: contract } = await supabase
@@ -199,6 +200,9 @@ async function syncDeterministicVerificationEvidence(
   const hasSource = outputs.some(({ output }) =>
     /github\.com|gitlab\.com|repository|source code|commit/i.test(output)
   );
+  // 28 Oct 2026: sources a capability actually retrieved (research.run URLs fetched, or founder-memory chats
+  // returned by knowledge.search at/above the relevance bar) — measured, not model-asserted.
+  const retrievedSources = researchedSourceUrls(evidenceTasks as TaskEvidenceRecord[]);
 
   const hasMeasuredBuild = hasMeasuredProductBuild(evidenceTasks);
   const hasMeasuredFunctionalVerification = hasMeasuredProductVerification(evidenceTasks);
@@ -217,7 +221,10 @@ async function syncDeterministicVerificationEvidence(
     // Only deterministic observations are admitted here. We deliberately do
     // NOT convert an LLM assertion such as "visual verification passed" into
     // evidence.
-    if (/source|repository/.test(key) && hasSource) {
+    if (/source/.test(key) && retrievedSources.size > 0) {
+      ok = true; evidenceType = "retrieved_source_observation";
+      notes = `Observed ${retrievedSources.size} source(s) actually retrieved by research.run or knowledge.search (founder memory).`;
+    } else if (/source|repository/.test(key) && hasSource) {
       ok = true; evidenceType = "repository_observation";
       notes = "Observed repository/source evidence in persisted task output.";
     } else if (/live.*url/.test(key) && hasLiveUrl) {
@@ -232,6 +239,12 @@ async function syncDeterministicVerificationEvidence(
     } else if (/verification|tests/.test(key) && allTasksTerminalVerified && hasMeasuredFunctionalVerification) {
       ok = true; evidenceType = "deterministic_task_verification";
       notes = "All persisted objective tasks are terminal-success and measured product verification exists.";
+    } else if (/^verification$/.test(key) && allTasksTerminalVerified && independent?.passed === true && isIndependentVerificationLevel(independent.independence)) {
+      // 28 Oct 2026: an information/report objective has no product to test. Its "verification" is the
+      // independent model's pass (different model/provider from the producers, quotes checked against the
+      // deliverable) with every task terminal-success. Before this, no information objective could complete.
+      ok = true; evidenceType = "independent_objective_verification";
+      notes = `Independent verifier (${String(independent.independence)}) passed all criteria${independent.evidenceId ? `; evidence ${independent.evidenceId}` : ""}; all tasks terminal-success.`;
     }
 
     if (!ok) continue;
@@ -436,12 +449,16 @@ async function evaluateObjective(
     ? await supabase.from("fkaios_execution_steps").select("resource_ref").in("task_id", taskIds).eq("outcome", "completed").like("resource_ref", "model:%")
     : { data: [] };
   const producerRefs = [...new Set(((producerSteps ?? []) as Array<{ resource_ref: string }>).map((r) => r.resource_ref))];
-  const evidence = currentTasks
+  // ONE BRAIN (28 Oct 2026): founder-memory sources first, so the 2,500-char per-task cut cannot hide them.
+  const memoryEvidence = founderMemoryEvidenceText(currentTasks as TaskEvidenceRecord[]);
+  const evidence = (memoryEvidence ? memoryEvidence + "\n\n" : "") + currentTasks
     .filter((t) => !/^Rectify:/i.test(String(t.title ?? "")))
     .map((t) => `[${String(t.title ?? "task")}]\n${String(t.output ?? "").slice(0, 2500)}`)
     .join("\n\n");
+  const noPaidResearch = !tasks.some((t) => /"capability"\s*:\s*"research\.run"/.test(String(t.output ?? "")));
   const verdict = await verifyObjective(supabase, {
     objectiveId: String(objective.id),
+    noPaidResearch,
     projectId: latestProjectId || null,
     objective: String(objective.raw_request ?? ""),
     criteria: contractCriteria((objectiveContract as Record<string, unknown> | null)?.acceptance_criteria),
@@ -474,10 +491,13 @@ async function evaluateObjective(
   };
 
   // Contract evidence requirements (deterministic observations) still apply.
-  const evidenceState = await syncDeterministicVerificationEvidence(String(objective.id), projects, tasks);
+  const evidenceState = await syncDeterministicVerificationEvidence(String(objective.id), projects, tasks, { passed: verdict.passed, independence: verdict.independence, evidenceId: verdict.evidenceId ?? null });
   if (evidenceState.required > 0) {
+    // 28 Oct 2026: check EVIDENCE readiness here. fkaios_objective_completion_allowed also requires the
+    // contract to be 'verified', which only fkaios_objective_terminal_transition sets (it then re-checks
+    // completion_allowed itself) — so calling it here could never pass for a fresh contract.
     const { data: completionAllowed } = await getSupabaseAdmin()
-      .rpc("fkaios_objective_completion_allowed", { p_objective_id: String(objective.id) });
+      .rpc("fkaios_objective_verification_ready", { p_objective_id: String(objective.id) });
     if (completionAllowed !== true) {
       return {
         achieved: false, blocked: false, failed: false, verificationUnavailable: true, verification,
@@ -874,6 +894,18 @@ async function createContinuationProject(
   objective: Record<string, unknown>,
   correlationId?: string,
 ) {
+  // 28 Oct 2026: race guard. Ticks overlap (cron every minute, a run can take longer), so the objective row
+  // loaded at the start of this run may be stale. Objective eb8c19d4 was completed by one run at 12:46:08 and
+  // a new plan was created by another run at 12:46:14. Re-read the live status before planning anything.
+  const { data: live, error: liveError } = await getSupabaseAdmin()
+    .from("orchestrator_requests").select("status").eq("id", String(objective.id)).maybeSingle();
+  if (liveError || !live || live.status !== "processing") {
+    return {
+      projectId: null,
+      tasksCreated: 0,
+      error: liveError ? `could not re-check objective status: ${liveError.message}` : `objective is now '${live?.status ?? "missing"}'; not replanning`,
+    };
+  }
   const plan = await planObjective(
     {
       id: String(objective.id),

@@ -52,6 +52,7 @@ Deno.serve(async (req) => {
     const heartbeat = Deno.env.get('HEARTBEAT_SECRET');
     const providedHeartbeat = req.headers.get('x-heartbeat-secret');
     const heartbeatOk = !!heartbeat && !!providedHeartbeat && timingSafeEqual(providedHeartbeat, heartbeat);
+    let callerKind: 'scheduler' | 'service' | 'user' = 'scheduler';
     if (!heartbeatOk) {
       const anon = Deno.env.get('SUPABASE_ANON_KEY')!;
       const authClient = createClient(supabaseUrl, anon, { auth: { persistSession: false } });
@@ -63,6 +64,7 @@ Deno.serve(async (req) => {
         },
       });
       if (!auth.ok) return err('Unauthorized', 401);
+      callerKind = auth.caller.kind;
     }
 
     const db = createClient(supabaseUrl, serviceKey);
@@ -89,6 +91,17 @@ Deno.serve(async (req) => {
       const query: string = body.query ?? '';
       if (!query.trim()) return err('query is required', 400);
       const actor = body.actor ?? DEFAULT_ACTOR;
+
+      // SPEND GATE (28 Oct 2026, founder rule: no paid AI/API/service without approval).
+      // A search the founder starts while signed in runs. Automatic callers (agents, objectives,
+      // schedules) run only while fkaios_spend_controls 'paid_research_auto' is enabled.
+      if (callerKind !== 'user') {
+        const { data: ctl } = await db.from('fkaios_spend_controls').select('enabled').eq('key', 'paid_research_auto').maybeSingle();
+        if (!ctl?.enabled) {
+          await logExec('run_blocked', 'blocked', query, `paid research blocked for ${callerKind} caller (requested_by ${body.requested_by ?? 'unknown'}): founder approval required`);
+          return new Response(JSON.stringify({ error: 'paid_research_blocked', message: 'Paid web research (Apify) needs founder approval. Use founder memory (knowledge.search) or ask the founder to enable paid_research_auto.' }), { status: 403, headers: CORS });
+        }
+      }
 
       const token = await getActiveToken(db);
       if (!token) return err('No active Apify connection configured', 400);

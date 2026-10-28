@@ -1046,7 +1046,7 @@ You may optionally invoke ONE approved capability instead of only describing the
 
 APPROVED CAPABILITIES:
 
-- "knowledge.search" — search the company knowledge vault for relevant documents/context.
+- "knowledge.search" — search the company knowledge vault AND the founder's own past-work memory (622 past ChatGPT work chats, organised by brand/project) for relevant documents/context. Use this FIRST for anything about our own past work, clients, brands, plans or chats.
   Payload: { "query": "string (required)", "match_count"?: number, "brand_id"?: "string or null" }
 
 - "research.status" — check whether the research engine's external data connection is alive.
@@ -1092,6 +1092,16 @@ export async function performSystemHealthCheck(config: SystemHealthCheckConfig, 
   }));
   return { checked_at: new Date().toISOString(), healthy: checks.length === 2 && checks.every((check) => check.reachable), checks: checks.sort((a, b) => a.target.localeCompare(b.target)) };
 }
+// ONE BRAIN (28 Oct 2026): the server-verified sources from prior tasks (fetched web URLs and founder-memory
+// chats, see summarizePriorEvidence) are listed FIRST, so the 18,000-character cut of the raw prior evidence
+// can never hide the exact URLs a report is allowed to cite.
+function verifiedPriorSourcesBlock(priorCompletedTasks: unknown): string {
+  const summary = summarizePriorEvidence(priorCompletedTasks);
+  if (!summary.verified) return "";
+  return "\n\n[VERIFIED PRIOR SOURCES — the ONLY sources you may cite. Use these exact URLs in sources[].url and verified_facts[].source_url. fkaios-memory:// URLs are the founder's own past work chats: in any visible text always NAME the chat by its title (e.g. \"ChatGPT: Franchise plan for Chaat (2025-10-10)\") and put the URL only in sources/source_url fields; never show a bare UUID. Follow the objective's requested format (e.g. a one-page brief with the sections it lists), not a generic report.]\n" +
+    JSON.stringify(summary.sources.slice(0, 20)) + "\n[/VERIFIED PRIOR SOURCES]";
+}
+
 async function executeRequestedCapability(job: AIJob, parsed: Record<string, unknown>, cid: string): Promise<Record<string, unknown>> {
   const requestedCapability = typeof parsed.capability === "string" ? parsed.capability : "";
   const taskText = [job.payload?.title, job.payload?.description].filter((v) => typeof v === "string").join(" ").toLowerCase();
@@ -1150,6 +1160,9 @@ async function executeRequestedCapability(job: AIJob, parsed: Record<string, unk
   return {
     status: "success",
     capability,
+    // 28 Oct 2026: keep the request payload. work-engine's returnCompletedWork re-dispatches non-measured
+    // capabilities with resultObj.payload; without it knowledge.search failed with "query required".
+    payload,
     capability_result: dispatch.data ?? null,
   };
 }
@@ -1412,7 +1425,13 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
   const taskNeedsExternalFacts = requiresExternalFacts({ title: job.payload?.title, description: job.payload?.description });
   const isInfrastructureAuditTask = /\b(infrastructure|rls|row.level security|cron execution|database schema|security audit|production health check|system connectivity)\b/i.test(taskText) && /\b(verify|audit|validate|health|security|connectivity)\b/i.test(taskText);
   // Infrastructure audits must use live system evidence, not spend research credits on web articles.
-  const researchNeeded = !isInfrastructureAuditTask && !isRectification && !isDownstreamSynthesisTask && (needsResearchBeforeAnswer({ title: job.payload?.title, description: job.payload?.description }) || taskNeedsExternalFacts);
+  // ONE BRAIN (28 Oct 2026): work about our OWN past work (chats, past work, founder memory, vault) is answered
+  // from founder memory via knowledge.search, not paid web research. And an explicit "no paid (web) research"
+  // instruction is always obeyed. Both only ever REMOVE a paid research call; they never add one.
+  const isInternalMemoryTask = /\b(past work|our (own )?(past |previous )?(work|chats?|conversations?|documents?)|founder('s)? memory|fkaios memory|past chats?|previous chats?|chat history|knowledge vault|internal (documents?|records?|memory))\b/i.test(taskText);
+  const paidResearchForbidden = /\b(no|not|without|don'?t|do not|never)\b[^.\n]{0,40}\bpaid\b[^.\n]{0,20}\b(web\s+)?(research|search(es)?)\b/i.test(taskText);
+  const researchNeeded = !isInternalMemoryTask && !paidResearchForbidden && !isInfrastructureAuditTask && !isRectification && !isDownstreamSynthesisTask && (needsResearchBeforeAnswer({ title: job.payload?.title, description: job.payload?.description }) || taskNeedsExternalFacts);
+  if (isInternalMemoryTask || paidResearchForbidden) structuredLog("INFO", "Paid research skipped for founder task", { objectiveId: job.payload?.objective_id ?? null, taskId: job.payload?.task_id ?? null, internalMemory: isInternalMemoryTask, paidForbidden: paidResearchForbidden }, cid);
   if (researchNeeded && taskText) {
     const researchTitle = typeof job.payload?.title === "string" ? job.payload.title : taskText;
     const researchDescription = typeof job.payload?.description === "string" ? job.payload.description : "";
@@ -1422,15 +1441,24 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
       const researchStartedAt = Date.now();
       const research = await executeCapability("research.run", { query: researchQuery, requested_by: "fkaios-orchestrator" }, cid);
       await recordToolStep("research.run", research.status, researchStartedAt, research.status === "success" ? null : String(research.error ?? research.status));
+      if (research.status !== "success" && /paid_research_blocked/.test(String(research.error ?? ""))) {
+        // 28 Oct 2026: the founder's spend gate refused paid web research. Do not fail the task: answer from
+        // founder memory instead — the model is told to request knowledge.search (see capability block).
+        structuredLog("INFO", "Paid research blocked by spend gate; task continues on founder memory", { objectiveId: job.payload?.objective_id ?? null, taskId: job.payload?.task_id ?? null }, cid);
+        researchResults.length = 0;
+        break;
+      }
       if (research.status !== "success") {
         throw new NonRetryableJobError(`Founder research task could not acquire real external evidence for query '${researchQuery}': ${research.error ?? research.status}`, "NO_DATA_SOURCE");
       }
       researchResults.push(compactResearchEvidence(research.data ?? null, researchQuery));
       researchResultAttempts += research.attempts;
     }
+    if (researchResults.length > 0) {
     researchResultData = researchResults.length === 1 ? researchResults[0] : { queries: researchResults };
     researchEvidence = `\n\n[REAL EXTERNAL RESEARCH EVIDENCE — USE ONLY THIS DATA; DO NOT FABRICATE]\n${JSON.stringify(researchResultData).slice(0, 12000)}\n[/REAL EXTERNAL RESEARCH EVIDENCE]`;
     structuredLog("INFO", "Founder research evidence acquired before task generation", { objectiveId: job.payload?.objective_id ?? null, taskId: job.payload?.task_id ?? null, capability: "research.run", queryCount: researchQueries.length }, cid);
+    }
   }
 }
 
@@ -1458,7 +1486,7 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
         : "";
       const priorTasks = parsePriorCompletedTasks(job.payload?.prior_completed_tasks);
       const priorEvidence = priorTasks.length > 0
-        ? "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(priorTasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
+        ? verifiedPriorSourcesBlock(job.payload?.prior_completed_tasks) + "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(priorTasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
         : "";
       const verificationContract = !isRectification && priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)
         ? "\n\nThis is a downstream verification/report task. Return ONLY JSON with verified_facts (at least 3 when the objective asks for three facts), report, and sources. Every verified_fact must include fact, source_url, source_title, and verification_note. Every source_url must appear in the supplied prior evidence. Do not include unsupported facts. If prior evidence lacks suitable sources, state the exact missing evidence."
@@ -1483,6 +1511,10 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
       if (!isRectification && priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)) {
         const facts = Array.isArray(parsed.verified_facts) ? parsed.verified_facts : [];
         const sourceUrls = new Set(priorEvidence.split(/\s+/).filter((u) => u.startsWith("http://") || u.startsWith("https://")).map((u) => u.replace(/[),.;\]}"]+$/, "")));
+        // ONE BRAIN (28 Oct 2026): founder-memory sources the server verified (prior_evidence from
+        // summarizePriorEvidence) and any fkaios-memory:// id present in the prior evidence text.
+        for (const m of priorEvidence.matchAll(/fkaios-memory:\/\/[0-9a-f-]{36}/gi)) sourceUrls.add(m[0]);
+        for (const s of summarizePriorEvidence(job.payload?.prior_completed_tasks).sources) sourceUrls.add(s.url);
         const validFacts = facts.filter((f) => {
           if (!f || typeof f !== "object") return false;
           const row = f as Record<string, unknown>;
@@ -1521,7 +1553,7 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
   const principlesBlock = await getFounderPrinciplesBlock("ai-engine");
   const priorTasks = parsePriorCompletedTasks(job.payload?.prior_completed_tasks);
   const priorEvidence = priorTasks.length > 0
-    ? "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(priorTasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
+    ? verifiedPriorSourcesBlock(job.payload?.prior_completed_tasks) + "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(priorTasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
     : "";
   const verificationContract = !isRectification && priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)
     ? "\n\nThis is a downstream verification/report task. Return ONLY JSON with verified_facts, report, and sources. Every verified_fact must include fact, source_url, source_title, and verification_note. Every source_url must appear in the supplied prior evidence. Do not include unsupported facts. If prior evidence lacks suitable sources, say so clearly and list the exact missing evidence instead of substituting unrelated sources."
@@ -1552,6 +1584,21 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
     const resultWithPriorEvidence = !researchEvidence && priorSummary.verified ? { ...sanitizedParsed, prior_evidence: priorSummary } : sanitizedParsed;
     if (researchEvidence) {
       return { ...sanitizedParsed, capability: "research.run", capability_result: researchResultData, capability_attempts: researchResultAttempts };
+    }
+    // 28 Oct 2026: the generic path used to DROP a requested capability (e.g. knowledge.search) without
+    // running it, so objective tasks that asked for founder memory got no evidence. Run it exactly as the
+    // agent path does (same authorization in executeRequestedCapability; paid research is also stopped
+    // by research-engine's spend gate).
+    if (typeof parsed.capability === "string" && parsed.capability) {
+      const requestable = { ...parsed } as Record<string, unknown>;
+      delete requestable.capability_result;
+      delete requestable.capability_attempts;
+      delete requestable.prior_evidence;
+      const requestedResult = await executeRequestedCapability(job, requestable, cid);
+      if (priorSummary.verified && requestedResult && typeof requestedResult === "object" && !Array.isArray(requestedResult) && !(typeof (requestedResult as Record<string, unknown>).capability === "string")) {
+        return { ...(requestedResult as Record<string, unknown>), prior_evidence: priorSummary };
+      }
+      return requestedResult;
     }
     return resultWithPriorEvidence;
   } catch (err) {
