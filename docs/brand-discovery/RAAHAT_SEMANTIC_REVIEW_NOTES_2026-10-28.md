@@ -76,7 +76,7 @@ The missing-secret workflow failure is a pre-migration block. Do not bypass it, 
 
 ## Current evidence snapshot
 
-At the latest evidence refresh before this note update, PR #191 remained draft/open/unmerged. Questionnaire source validation passed on head `b37f37077425976b1e25f8ca503ede80577823db`; frontend and Edge Function validation were still in progress and must be checked again after this documentation commit. The Supabase migration workflow failed at the required-secret check before applying a migration. This is not evidence of a successful migration or end-to-end journey. Vercel quota blocks and unrelated GoMax checks are not evidence of Raahat readiness.
+At the latest completed evidence refresh, PR #191 remained draft/open/unmerged. Questionnaire validation, frontend TypeScript/production build, and Edge Function type-check passed on head `e1b577837e4809b879f0fe98241a9826179d28e0`. Subsequent commits must be rechecked. The Supabase migration workflow failed at the required-secret check before applying a migration. This is not evidence of a successful migration or end-to-end journey. Vercel quota blocks and unrelated GoMax checks are not evidence of Raahat readiness.
 
 No production migration, deployment, activation, invitation/email sending, or paid AI use is authorized by these semantic decisions.
 
