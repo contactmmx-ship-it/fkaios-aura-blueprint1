@@ -6,6 +6,7 @@ on:
       - "config/brand-discovery/raahat-question-bank-v1.draft.json"
       - "scripts/validate-brand-discovery-questionnaire.mjs"
       - "scripts/test-brand-discovery-template-gate.mjs"
+      - "scripts/seed-brand-discovery-questionnaire.mjs"
       - "supabase/functions/_shared/brand-discovery-template-gate.mjs"
       - ".github/workflows/brand-discovery-validation.yml"
   push:
@@ -33,3 +34,5 @@ jobs:
         run: node scripts/validate-brand-discovery-questionnaire.mjs
       - name: Test reusable template release gate and email policy
         run: node scripts/test-brand-discovery-template-gate.mjs
+      - name: Check reusable draft seeder syntax
+        run: node --check scripts/seed-brand-discovery-questionnaire.mjs
