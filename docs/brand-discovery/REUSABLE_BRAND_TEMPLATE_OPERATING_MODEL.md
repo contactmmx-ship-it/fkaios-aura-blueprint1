@@ -1,0 +1,44 @@
+# Reusable FK Brand Discovery Template — Operating Model
+
+**Status:** implementation contract for the draft branch; not a declaration that production is ready.
+
+## Design principle
+
+Raahat is the first source-reconciled pilot, not the schema for every future brand. Each brand receives an immutable, versioned questionnaire definition. Shared respondent, answer, checklist, evidence-report, privacy, and approval rules are reusable; brand-specific wording, question counts, categories, and evidence checklist contents remain in that version's JSON definition.
+
+## Template lifecycle
+
+1. **Create a draft** from the canonical FK core and the selected business-category modules. Never edit an active version in place.
+2. **Record provenance per question.** Preserve source prompt, source block/reference, source status, option labels/order, selection mode, and any multipart mapping. Do not invent facts or silently rewrite source choices.
+3. **Validate structure**: unique section/question/part/option/checklist IDs; supported question types; valid selection rules; declared question count equals the actual number of questions; all answer controls match the saved answer shape.
+4. **Review semantics**: distinguish self-reported facts from records available; never infer a number, occupancy percentage, evidence receipt, review, or verification state. Keep any Other clarification separate from the canonical answer.
+5. **Test the journey** in non-production: invite, open, save, close, resume, back/edit, checklist, acknowledgement, submit, completion status and private report. Test invalid/expired tokens and malformed answers.
+6. **Complete all release checks** in `release_readiness`: `source_mapping_reviewed`, `question_semantics_reviewed`, `answer_controls_tested`, `privacy_review_complete`, `accessibility_review_complete`, `security_review_complete`, `end_to_end_test_complete`, and `owner_release_approved`.
+7. **Record a human release approval** in `release_approval` with `approved_by`, `approval_reference`, and ISO timestamp `approved_at`. The invite endpoint independently checks this metadata and the checklist/question structure.
+8. **Activate only through an approved release process**. A database status flip alone is not sufficient. For Raahat, the additional source-specific gate also requires the exact 16 sections, 235 canonical questions, 20 source checklist items and its source/semantic review flags.
+9. **Retain old versions** for sessions already invited. Create a new version for wording, options, module, checklist, or logic changes and preserve historical answer interpretation.
+
+## Supported question controls
+
+- `text`, `long_text`, `file_or_text`, `repeatable_list`
+- `multiple_choice` with single/multiple selection and optional maximum
+- `multi_part` with independently validated parts
+- `service_status` with separately selected services and a status for each
+- `repeatable_choice` for named rows with a choice per row
+
+The release gate checks question IDs, prompt, required flag, type-specific option structure, uniqueness, count reconciliation, checklist structure, review flags, and human approval. The Raahat-specific validator remains stricter and verifies source wording and source order.
+
+## Security and delivery defaults
+
+- Respondent tokens are random, high entropy and stored as hashes.
+- Respondent API responses never contain the FK private report.
+- FK endpoints require a valid Supabase JWT and a server-side email allowlist.
+- CORS is exact-origin only; no wildcard production origin.
+- Invitation and completion emails are **disabled by default**. Sending requires `FK_BRAND_DISCOVERY_EMAIL_SENDING_ENABLED=true` plus the approved provider configuration. This switch is not set by this change.
+- Model/AI use remains separately opt-in and is not required for the questionnaire, validation, or evidence report.
+- The checklist records respondent-reported availability; it is not a secure upload system and does not prove receipt, review, or verification.
+- The report remains an evidence inventory and draft follow-up list, not a verified business diagnosis or approved execution plan.
+
+## Current release truth
+
+The reusable release gate and automated tests are in this draft PR. They do not substitute for the still-required non-production database migration, deployed Edge Functions, invite-to-report end-to-end tests, staff access matrix, accessibility/device QA, secure document-upload implementation if uploads are required, and explicit release approval. Do not activate, email respondents, or apply production migrations on the strength of a green unit test alone.
