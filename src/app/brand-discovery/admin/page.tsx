@@ -163,7 +163,7 @@ export default function BrandDiscoveryAdminPage() {
             <div><h2 className="text-xl font-semibold">Create a brand invitation</h2><p className="mt-1 text-sm text-slate-400">Choose an approved active template. A new brand cannot use an unapproved draft.</p></div>
             <span className="rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-400">{templates.length} active template(s)</span>
           </div>
-          {templates.length === 0 && <p className="mt-4 rounded-xl border border-amber-300/20 bg-amber-300/5 p-4 text-sm text-amber-100">No active templates are available. This is expected until the canonical Raahat source is reconciled and an approved template is activated. Do not bypass this gate.</p>}
+          {templates.length === 0 && <p className="mt-4 rounded-xl border border-amber-300/20 bg-amber-300/5 p-4 text-sm text-amber-100">No approved active templates are available yet. Create and review a brand-specific draft, complete all release checks, and record explicit owner approval before invitations can be issued.</p>}
           <form onSubmit={createInvite} className="mt-5 grid gap-4 md:grid-cols-2">
             <label className="block text-sm text-slate-300">Approved questionnaire template
               <select required value={templateId} onChange={(e) => setTemplateId(e.target.value)} disabled={!templates.length || loading} className="mt-2 w-full rounded-xl border border-white/15 bg-slate-950 px-3 py-3 text-white">
