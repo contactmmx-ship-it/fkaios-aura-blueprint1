@@ -1046,7 +1046,7 @@ You may optionally invoke ONE approved capability instead of only describing the
 
 APPROVED CAPABILITIES:
 
-- "knowledge.search" — search the company knowledge vault for relevant documents/context.
+- "knowledge.search" — search the company knowledge vault AND the founder's own past-work memory (622 past ChatGPT work chats, organised by brand/project) for relevant documents/context. Use this FIRST for anything about our own past work, clients, brands, plans or chats.
   Payload: { "query": "string (required)", "match_count"?: number, "brand_id"?: "string or null" }
 
 - "research.status" — check whether the research engine's external data connection is alive.
@@ -1412,7 +1412,13 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
   const taskNeedsExternalFacts = requiresExternalFacts({ title: job.payload?.title, description: job.payload?.description });
   const isInfrastructureAuditTask = /\b(infrastructure|rls|row.level security|cron execution|database schema|security audit|production health check|system connectivity)\b/i.test(taskText) && /\b(verify|audit|validate|health|security|connectivity)\b/i.test(taskText);
   // Infrastructure audits must use live system evidence, not spend research credits on web articles.
-  const researchNeeded = !isInfrastructureAuditTask && !isRectification && !isDownstreamSynthesisTask && (needsResearchBeforeAnswer({ title: job.payload?.title, description: job.payload?.description }) || taskNeedsExternalFacts);
+  // ONE BRAIN (28 Oct 2026): work about our OWN past work (chats, past work, founder memory, vault) is answered
+  // from founder memory via knowledge.search, not paid web research. And an explicit "no paid (web) research"
+  // instruction is always obeyed. Both only ever REMOVE a paid research call; they never add one.
+  const isInternalMemoryTask = /\b(past work|our (own )?(past |previous )?(work|chats?|conversations?|documents?)|founder('s)? memory|fkaios memory|past chats?|previous chats?|chat history|knowledge vault|internal (documents?|records?|memory))\b/i.test(taskText);
+  const paidResearchForbidden = /\b(no|not|without|don'?t|do not|never)\b[^.\n]{0,40}\bpaid\b[^.\n]{0,20}\b(web\s+)?(research|search(es)?)\b/i.test(taskText);
+  const researchNeeded = !isInternalMemoryTask && !paidResearchForbidden && !isInfrastructureAuditTask && !isRectification && !isDownstreamSynthesisTask && (needsResearchBeforeAnswer({ title: job.payload?.title, description: job.payload?.description }) || taskNeedsExternalFacts);
+  if (isInternalMemoryTask || paidResearchForbidden) structuredLog("INFO", "Paid research skipped for founder task", { objectiveId: job.payload?.objective_id ?? null, taskId: job.payload?.task_id ?? null, internalMemory: isInternalMemoryTask, paidForbidden: paidResearchForbidden }, cid);
   if (researchNeeded && taskText) {
     const researchTitle = typeof job.payload?.title === "string" ? job.payload.title : taskText;
     const researchDescription = typeof job.payload?.description === "string" ? job.payload.description : "";
