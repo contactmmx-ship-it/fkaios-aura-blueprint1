@@ -28,7 +28,10 @@ function validOptions(options) {
 function validQuestion(question) {
   if (!question || typeof question.id !== "string" || !question.id.trim() ||
       typeof question.prompt !== "string" || !question.prompt.trim() ||
-      typeof question.required !== "boolean" || !SUPPORTED_TYPES.has(question.type)) return false;
+      typeof question.required !== "boolean" || !SUPPORTED_TYPES.has(question.type) ||
+      typeof question.source_status !== "string" || !question.source_status.trim() ||
+      !((typeof question.source_block === "string" && question.source_block.trim()) ||
+        (typeof question.source_reference === "string" && question.source_reference.trim()))) return false;
   if (question.type === "multiple_choice") {
     return validOptions(question.options) &&
       ["single", "multiple"].includes(question.selection_mode) &&
@@ -111,6 +114,8 @@ export function validateBrandDiscoveryTemplate(questionnaire) {
       for (const question of section.questions) {
         total++;
         if (!validQuestion(question)) errors.push("question_invalid:" + String(question?.id ?? "unknown"));
+        const approvedProvenance = new Set(["CANONICAL_SOURCE_VERIFIED", "FK_AUTHORED_AND_APPROVED", "BRAND_OWNER_APPROVED"]);
+        if (question && !approvedProvenance.has(question.source_status)) errors.push("question_provenance_not_approved:" + String(question.id ?? "unknown"));
         if (question && typeof question.id === "string") {
           if (questionIds.has(question.id)) errors.push("question_id_duplicate:" + question.id);
           questionIds.add(question.id);
@@ -149,6 +154,15 @@ export function validateBrandDiscoveryDraft(questionnaire) {
   const structuralCandidate = {
     ...questionnaire,
     status: "active",
+    sections: Array.isArray(questionnaire.sections) ? questionnaire.sections.map((section) => ({
+      ...section,
+      questions: Array.isArray(section.questions) ? section.questions.map((question) => ({
+        ...question,
+        // Structural checks require provenance to exist; draft status is evaluated separately.
+        source_status: typeof question?.source_status === "string" && question.source_status.trim()
+          ? "FK_AUTHORED_AND_APPROVED" : question?.source_status,
+      })) : section.questions,
+    })) : questionnaire.sections,
     release_readiness: Object.fromEntries(REQUIRED_RELEASE_CHECKS.map((key) => [key, true])),
     release_approval: {
       approved_by: "STRUCTURAL_VALIDATION_ONLY",
