@@ -140,12 +140,31 @@ function norm(s: string): string {
   // This verifies source citations when a quote includes the visible source
   // label but not the URL target.
   return s
+    // 28 Oct 2026: JSON-rendered deliverables carry literal escape sequences (\n, \") — compare visible text.
+    .replace(/\\[nrt]/g, " ")
+    .replace(/\\"/g, '"')
     .replace(/\[([^\]]+)\]\((?:[^()]|\([^()]*\))*\)/g, "$1")
     .replace(/[*_~\`]/g, "")
     .toLowerCase()
     .replace(/[“”"'’]/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+// A quote counts when it is in the deliverable verbatim (after norm). If the verifier joined excerpts with an
+// ellipsis, every excerpt of 8+ characters must appear, in order, and together they must be at least 20
+// characters — still copied text, never a paraphrase (28 Oct 2026).
+export function quoteFoundInOrder(hay: string, q: string): boolean {
+  if (hay.includes(q)) return true;
+  const parts = q.split(/\s*(?:\.{3,}|…)\s*/).map((p) => p.trim().replace(/^[,:;{}\[\]]+|[,:;{}\[\]]+$/g, "").trim()).filter((p) => p.length > 0);
+  if (parts.length < 2) return false;
+  if (parts.some((p) => p.length < 8) || parts.join("").length < 20) return false;
+  let from = 0;
+  for (const p of parts) {
+    const at = hay.indexOf(p, from);
+    if (at < 0) return false;
+    from = at + p.length;
+  }
+  return true;
 }
 function extractJson(text: string): Record<string, unknown> | null {
   const t = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
@@ -204,7 +223,7 @@ export function parseVerdict(text: string, deliverable: string, deterministic: {
     let issue = typeof c.issue === "string" && c.issue.trim() ? c.issue.trim() : null;
     if (met) {
       const q = quote ? norm(quote) : "";
-      if (!q || q.length < 8 || !hay.includes(q)) {
+      if (!q || q.length < 8 || !quoteFoundInOrder(hay, q)) {
         met = false;
         issue = `verifier's supporting quote was not found in the deliverable${quote ? `: "${quote.slice(0, 120)}"` : ""}`;
       }
