@@ -594,14 +594,17 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
                     choices = selected ? choices.filter((v) => v !== option.value) : [...choices, option.value];
                     if (question.max_selections && choices.length > question.max_selections) return a;
                   } else choices = [option.value];
-                  return { ...a, [question.id]: encodeChoiceAnswer(choices, previous.explanation) };
+                  const hasOther = choices.some((value) =>
+                    (question.options ?? []).some((candidate) =>
+                      candidate.value === value && candidate.label.trim().toLowerCase().startsWith("other")));
+                  return { ...a, [question.id]: encodeChoiceAnswer(choices, hasOther ? previous.explanation : "") };
                 });
                 return <label key={option.value} className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-4 transition ${selected ? "border-cyan-300 bg-cyan-300/10" : "border-white/15 bg-slate-950/50 hover:bg-white/5"}`}>
                   <input type={inputType} name={question.id} value={option.value} checked={selected} onChange={changeChoice} className="mt-1 accent-cyan-300" />
                   <span>{option.label}</span>
                 </label>;
               })}
-              {question.optional_explanation && (question.options ?? []).some((option) => option.label.trim().toLowerCase() === "other" && parseChoiceAnswer(currentAnswer).choices.includes(option.value)) && <div className="pt-2">
+              {question.optional_explanation && (question.options ?? []).some((option) => option.label.trim().toLowerCase().startsWith("other") && parseChoiceAnswer(currentAnswer).choices.includes(option.value)) && <div className="pt-2">
                 <label htmlFor={`explanation-${question.id}`} className="mb-2 block text-sm text-slate-300">{question.explanation_prompt ?? "Optional explanation (if you wish)"}</label>
                 <textarea id={`explanation-${question.id}`} value={parseChoiceAnswer(currentAnswer).explanation} onChange={(e) => setAnswers((a) => { const previous = parseChoiceAnswer(a[question.id] ?? ""); return { ...a, [question.id]: encodeChoiceAnswer(previous.choices, e.target.value) }; })} rows={3} placeholder="Add context if helpful…" className="w-full resize-y rounded-2xl border border-white/15 bg-slate-950/70 px-4 py-3 text-base leading-7 outline-none transition focus:border-cyan-300 focus:ring-2 focus:ring-cyan-300/20" />
               </div>}
