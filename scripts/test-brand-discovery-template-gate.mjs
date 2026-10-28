@@ -92,6 +92,8 @@ for (const [label, source] of [["Next.js preview", raahatPreviewSource], ["stand
   assert.ok(source.includes("other-service-clarification-"),
     label + " must show a separate optional clarification for the Other service row.");
 }
+assert.ok(raahatPreviewSource.includes("otherOptionValues.includes(value)") && staticPreviewSource.includes("otherOptionValues.includes(value)"),
+  "Both Raahat preview surfaces must clear clarification text when Other is no longer selected.");
 assert.ok(respondentUiSource.includes('toLowerCase().startsWith("other")') &&
   respondentUiSource.includes("hasOther ? previous.explanation : \"\""),
   "Live respondent UI must support all Other-labelled choices and clear stale clarification when Other is deselected.");
