@@ -71,6 +71,16 @@ export function summarizePriorEvidence(value: unknown): PriorEvidenceSummary {
     if (!output) continue;
     const dispatch = output.companyOsDispatch && typeof output.companyOsDispatch === "object" ? output.companyOsDispatch as Record<string, unknown> : null;
     const llm = output.llmResult && typeof output.llmResult === "object" ? output.llmResult as Record<string, unknown> : null;
+    // ONE BRAIN (28 Oct 2026): founder-memory chats returned by knowledge.search at/above the relevance bar
+    // are verified prior sources (fkaios-memory://<id>), exactly like fetched research URLs.
+    if (dispatch?.status === "success" && dispatch.capability === KNOWLEDGE_SEARCH) {
+      for (const m of knowledgeMatches(dispatch)) {
+        if (!m.source_url || m.similarity < KNOWLEDGE_MATCH_MIN_SIMILARITY) continue;
+        const title = /^\[([^\]]+)\]/.exec(m.excerpt)?.[1] ?? m.source_url;
+        unique.set(m.source_url, { url: m.source_url, title });
+      }
+      continue;
+    }
     if (dispatch?.status !== "success" || dispatch.capability !== "research.run" || !llm) continue;
     const excerpt = typeof dispatch.data_excerpt === "string" ? parsePriorTaskOutput(dispatch.data_excerpt) : null;
     if (!excerpt) continue;

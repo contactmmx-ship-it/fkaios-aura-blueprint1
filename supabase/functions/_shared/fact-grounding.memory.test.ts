@@ -40,3 +40,18 @@ Deno.test("report citing a memory chat that search never returned stays unground
   const v = assessTaskEvidence(tasks[1], researchedSourceUrls(tasks));
   assert(v.verdict !== "verified", "invented memory url must not verify");
 });
+
+import { checkWorkerGrounding, summarizePriorEvidence } from "./fact-grounding.ts";
+
+Deno.test("summarizePriorEvidence lists founder-memory sources from a knowledge.search task", () => {
+  const prior = [{ title: "Examine memory", status: "done", output: searchTask(0.875).output }];
+  const sum = summarizePriorEvidence(prior);
+  assert(sum.verified && sum.sources.some((s) => s.url === founderMemoryUrl(MEM)), "memory source summarized");
+});
+
+Deno.test("worker grounding accepts a report citing only summarized memory sources", () => {
+  const prior = summarizePriorEvidence([{ title: "Examine memory", status: "done", output: searchTask(0.875).output }]);
+  const result = { report: "brief", sources: [{ title: "Chaat Masters Franchise Model", url: founderMemoryUrl(MEM) }], prior_evidence: prior };
+  const g = checkWorkerGrounding({ title: "Compile the brief", description: "franchise sales figures" }, result);
+  assert(g.ok, "grounded by memory");
+});

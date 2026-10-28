@@ -1492,6 +1492,10 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
       if (!isRectification && priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)) {
         const facts = Array.isArray(parsed.verified_facts) ? parsed.verified_facts : [];
         const sourceUrls = new Set(priorEvidence.split(/\s+/).filter((u) => u.startsWith("http://") || u.startsWith("https://")).map((u) => u.replace(/[),.;\]}"]+$/, "")));
+        // ONE BRAIN (28 Oct 2026): founder-memory sources the server verified (prior_evidence from
+        // summarizePriorEvidence) and any fkaios-memory:// id present in the prior evidence text.
+        for (const m of priorEvidence.matchAll(/fkaios-memory:\/\/[0-9a-f-]{36}/gi)) sourceUrls.add(m[0]);
+        for (const s of summarizePriorEvidence(job.payload?.prior_completed_tasks).sources) sourceUrls.add(s.url);
         const validFacts = facts.filter((f) => {
           if (!f || typeof f !== "object") return false;
           const row = f as Record<string, unknown>;
