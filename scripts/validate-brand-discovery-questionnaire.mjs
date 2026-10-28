@@ -93,6 +93,11 @@ for (let index = 0; index < source.sections.length; index++) {
             ? ["Standard", "Deluxe", "Executive", "Suite", "Other category"].map((name, index) => ({ id: "rate_" + (index + 1), label: name, options: expectedOptions, mode: "single" }))
             : ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((name, index) => ({ id: "month_" + (index + 1), label: name, options: expectedOptions, mode: "single" }));
       assert.equal(question.parts.length, expectedDefinitions.length, "Custom part count mismatch: " + label);
+      if (customKey === "5:3") {
+        assert.equal(question.parts[4].optional, true, "Other-category rate row must be optional so owners without that category are not forced to answer.");
+        assert.deepEqual(question.explanation_part_ids, ["rate_5"], "Other-category clarification must be shown only when that optional row is answered.");
+        assert.match(question.parts[4].instruction, /leave this blank/i, "Optional Other-category row must clearly tell respondents it may be left blank.");
+      }
       for (let partIndex = 0; partIndex < expectedDefinitions.length; partIndex++) {
         const expected = expectedDefinitions[partIndex];
         const actual = question.parts[partIndex];
