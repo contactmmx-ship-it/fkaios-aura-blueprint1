@@ -209,3 +209,15 @@ These branch-only changes address several reusable-product gaps discovered durin
 - [x] Latest CI on `93b04dbfa7a8cff1c691d02f52b05ea418ea11f1`: questionnaire source validation, frontend type-check/build/tests, Edge Function type-check and migration drift all PASS.
 
 This is a Raahat-specific source-mapped questionnaire. The generic schema/release engine is only infrastructure; it does not mean future brands should reuse Raahat's questions. Raahat remains a draft/inactive pilot until the non-production end-to-end, security, accessibility, semantic and owner-approval gates are genuinely complete.
+
+
+## Raahat respondent length correction — 28 October 2026
+
+- [x] Created a separate Raahat-only guided-core draft with 71 source-traceable questions across all 16 sections.
+- [x] Retained the full 235-question canonical source-mapped bank separately and unchanged for deeper follow-up.
+- [x] Retained all 20 supporting-document checklist items.
+- [x] Updated both Next.js and standalone static previews to display the 71-question guided core rather than presenting all 235 headings as the first respondent journey.
+- [x] Added regression tests for 71-question count, 16-section coverage, exact prompt/source-block/choice preservation, original source numbering and unchanged 235-question full bank.
+- [ ] Run the new guided-core CI checks and verify the current preview build.
+- [ ] Conduct human review of why these 71 prompts are the right initial intake and which remaining questions should be triggered in follow-up sessions.
+- [ ] Keep both Raahat templates inactive until semantic, privacy, security, accessibility, end-to-end and owner-release gates pass.
