@@ -49,8 +49,11 @@ assert.ok(validateBrandDiscoveryTemplate(inactive).errors.includes("questionnair
 console.log("Brand Discovery reusable-template release-gate tests passed (7 scenarios).");
 
 const inviteSource = await readFile(new URL("../supabase/functions/brand-discovery-create-invite/index.ts", import.meta.url), "utf8");
+const activationSource = await readFile(new URL("./activate-brand-discovery-template.mjs", import.meta.url), "utf8");
 const respondentUiSource = await readFile(new URL("../src/app/brand-discovery/[token]/BrandDiscoveryRespondent.tsx", import.meta.url), "utf8");
 const respondentSource = await readFile(new URL("../supabase/functions/brand-discovery-respondent/index.ts", import.meta.url), "utf8");
+assert.ok(activationSource.includes("--confirm-activate") && activationSource.includes("I_APPROVE_TEMPLATE_RELEASE"),
+  "Template activation must require explicit approval flags.");
 assert.ok(inviteSource.includes("validateBrandDiscoveryTemplate(version.questionnaire)"),
   "Invite endpoint must apply the generic release gate to every brand.");
 assert.ok(inviteSource.includes('Deno.env.get("FK_BRAND_DISCOVERY_EMAIL_SENDING_ENABLED") === "true"'),
