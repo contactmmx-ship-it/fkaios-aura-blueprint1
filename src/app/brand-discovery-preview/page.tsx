@@ -1,4 +1,4 @@
-"use client";
+ "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import bank from "../../../config/brand-discovery/raahat-question-bank-v1.draft.json";
@@ -39,6 +39,8 @@ function Icon({ name, className = "" }: { name: string; className?: string }) {
 
 export default function BrandDiscoveryPreviewPage() {
   const [index, setIndex] = useState(0);
+  const [welcomeOpen, setWelcomeOpen] = useState(true);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [helpOpen, setHelpOpen] = useState(false);
@@ -47,7 +49,10 @@ export default function BrandDiscoveryPreviewPage() {
   const [savedAt, setSavedAt] = useState("");
   const [showReset, setShowReset] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [resumeAvailable, setResumeAvailable] = useState(false);
+  const [validationMessage, setValidationMessage] = useState("");
   const [voiceMessage, setVoiceMessage] = useState("Voice guide is optional.");
+  const [dictationMessage, setDictationMessage] = useState("");
   const [stage, setStage] = useState<"questions" | "documents" | "ack" | "complete">("questions");
 
   useEffect(() => {
@@ -58,6 +63,8 @@ export default function BrandDiscoveryPreviewPage() {
         if (saved.answers) setAnswers(saved.answers);
         if (saved.notes) setNotes(saved.notes);
         if (typeof saved.index === "number") setIndex(Math.max(0, Math.min(questions.length - 1, saved.index)));
+        if (["questions", "documents", "ack", "complete"].includes(saved.stage)) setStage(saved.stage);
+        if (saved.answers && Object.keys(saved.answers).length) { setResumeAvailable(true); setWelcomeOpen(false); }
       }
     } catch { /* Preview must still work if local storage is unavailable. */ }
     setHydrated(true);
@@ -66,10 +73,10 @@ export default function BrandDiscoveryPreviewPage() {
   useEffect(() => {
     if (!hydrated) return;
     try {
-      window.localStorage.setItem(STORE_KEY, JSON.stringify({ answers, notes, index, savedAt: new Date().toISOString() }));
+      window.localStorage.setItem(STORE_KEY, JSON.stringify({ answers, notes, index, stage, savedAt: new Date().toISOString() }));
       setSavedAt(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
     } catch { setSavedAt("session only"); }
-  }, [answers, notes, index, hydrated]);
+  }, [answers, notes, index, stage, hydrated]);
 
   const currentQuestion = questions[index];
   const isDoc = stage === "documents";
@@ -108,8 +115,42 @@ export default function BrandDiscoveryPreviewPage() {
     const first = questions.findIndex((q) => q.sectionIndex === sectionIndex);
     if (first >= 0) { setIndex(first); setStage("questions"); setShowMap(false); setGuideMessage(""); }
   };
+  const hasMeaningfulAnswer = (value: any) => !blank(value) && !(Array.isArray(value) && value.every((item) => blank(item) || (typeof item === "object" && Object.values(item).every((v) => blank(v)))));
+  const questionHasAnswer = (q: Question) => {
+    if (q.type === "multi_part") return (q.parts ?? []).every((part) => part.optional || hasMeaningfulAnswer(answers[q.id + ":" + part.id]));
+    if (q.type === "service_status") return (q.service_options ?? []).every((service) => !q.required || hasMeaningfulAnswer(answers[q.id + ":" + service.value]));
+    return hasMeaningfulAnswer(answers[q.id]);
+  };
+  const exportPreview = () => {
+    const payload = {
+      title: "Raahat Brand Discovery — Preview Response Export",
+      environment: "LOCAL PREVIEW ONLY — NOT SUBMITTED OR VERIFIED",
+      exported_at: new Date().toISOString(),
+      brand: config.brand,
+      answers,
+      clarifications: notes,
+      questions_answered: questions.filter((q) => questionHasAnswer(q)).length,
+      total_questions: questions.length,
+      document_statuses: Object.fromEntries(config.document_checklist.map((d) => [d.id, answers[d.id] ?? "Not answered"])),
+      acknowledgement_checked: !!answers.acknowledged,
+      notice: "This file is a local preview export. It has not been submitted to Franchise Kart, emailed, reviewed, or verified."
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url; link.download = "raahat-brand-discovery-preview-response.json";
+    document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+  };
   const next = () => {
-    setHelpOpen(false); setGuideMessage("");
+    setHelpOpen(false); setGuideMessage(""); setValidationMessage("");
+    if (stage === "questions" && currentQuestion?.required && !questionHasAnswer(currentQuestion)) {
+      setValidationMessage("Please answer this required question before continuing. If the available options do not fit, use an offered “Other”, “Not sure”, or “Prefer to discuss personally” option where available.");
+      return;
+    }
+    if (stage === "ack" && !answers.acknowledged) {
+      setValidationMessage("Please tick the acknowledgement box before finishing this preview.");
+      return;
+    }
     if (stage === "questions") {
       if (index < questions.length - 1) setIndex(index + 1);
       else { setStage("documents"); setIndex(questions.length); }
@@ -127,7 +168,7 @@ export default function BrandDiscoveryPreviewPage() {
     else if (stage === "complete") setStage("ack");
   };
   const resetPreview = () => {
-    setAnswers({}); setNotes({}); setIndex(0); setStage("questions"); setShowReset(false);
+    setAnswers({}); setNotes({}); setIndex(0); setStage("questions"); setShowReset(false); setWelcomeOpen(true); setResumeAvailable(false); setReviewOpen(false); setValidationMessage("");
     try { window.localStorage.removeItem(STORE_KEY); } catch { /* no-op */ }
   };
   const getGuideText = () => {
@@ -138,6 +179,26 @@ export default function BrandDiscoveryPreviewPage() {
     return "Aap apne actual experience ke hisaab se jawab dein. Agar koi option bilkul fit nahi hota, 'Other' choose karein aur neeche optional clarification de sakte hain. Guess karna zaroori nahi hai.";
   };
   const speakCurrent = () => say(stage === "questions" && currentQuestion ? currentQuestion.prompt + ". " + (currentQuestion.selection_instruction ?? "") : stage === "documents" && currentDoc ? currentDoc.label : stage === "ack" ? "Please review the confidentiality and acknowledgement before continuing." : "Preview complete. Thank you.");
+  const startDictation = (existingText: string, onText: (value: string) => void) => {
+    const w = window as any;
+    const Recognition = w.SpeechRecognition || w.webkitSpeechRecognition;
+    if (!Recognition) { setDictationMessage("Voice typing is not supported in this browser. You can continue typing normally."); return; }
+    try {
+      const recognition = new Recognition();
+      recognition.lang = "hi-IN";
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      setDictationMessage("Listening… speak your answer, then wait for the text to appear.");
+      recognition.onresult = (event: any) => {
+        const transcript = Array.from(event.results as ArrayLike<any>).map((result: any) => result[0]?.transcript ?? "").join(" ").trim();
+        if (transcript) { onText([existingText.trim(), transcript].filter(Boolean).join(existingText.trim() ? " " : "")); setDictationMessage("Voice text added. Please review it before continuing."); }
+        else setDictationMessage("No speech was detected. You can try again or type instead.");
+      };
+      recognition.onerror = () => setDictationMessage("Voice input was unavailable or permission was denied. Typing remains available.");
+      recognition.onend = () => {};
+      recognition.start();
+    } catch { setDictationMessage("Could not start voice input. You can continue typing normally."); }
+  };
 
   const optionButton = (key: string, option: Option, mode: string | undefined, max?: number) => {
     const selected = Array.isArray(answers[key]) && answers[key].includes(option.value);
@@ -151,6 +212,7 @@ export default function BrandDiscoveryPreviewPage() {
 
   return (
     <main className="min-h-screen bg-[#f4f1e9] text-[#202c27] selection:bg-[#d7c59d]">
+      {welcomeOpen && <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-[#10271f]/95 p-4 backdrop-blur-md"><div className="my-6 w-full max-w-3xl overflow-hidden rounded-[32px] border border-[#c9ad72]/35 bg-[#f8f6ef] shadow-[0_30px_100px_rgba(0,0,0,.35)]"><div className="bg-[#173329] px-7 py-8 text-white sm:px-11 sm:py-10"><div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#c6ad78]/50 font-serif text-lg text-[#e2c98e]">FK</div><div><p className="text-[10px] font-semibold uppercase tracking-[.27em] text-[#d4bd87]">Franchise Kart · Brand Intelligence</p><p className="mt-1 text-xs text-white/60">Private discovery preview for Raahat</p></div></div><p className="mt-10 text-[10px] font-bold uppercase tracking-[.28em] text-[#d5bd86]">A guided owner conversation</p><h1 className="mt-3 max-w-2xl font-serif text-4xl leading-tight tracking-[-.03em] sm:text-5xl">Your story first.<br/><span className="italic text-[#d7c18e]">The right growth plan follows.</span></h1><p className="mt-5 max-w-2xl text-sm leading-7 text-white/70">This discovery journey helps us understand the people, property, guest experience, operating realities and ambitions behind Raahat. Move at your own pace, revisit chapters and save progress in this browser.</p></div><div className="grid gap-4 px-7 py-7 sm:grid-cols-3 sm:px-11"><div className="rounded-2xl border border-[#e7e0d1] bg-white p-4"><p className="font-serif text-2xl text-[#2c513b]">01</p><p className="mt-2 text-sm font-semibold text-[#33463a]">Tell your story</p><p className="mt-1 text-xs leading-5 text-[#7b8177]">One question at a time, with plain-language guidance.</p></div><div className="rounded-2xl border border-[#e7e0d1] bg-white p-4"><p className="font-serif text-2xl text-[#2c513b]">02</p><p className="mt-2 text-sm font-semibold text-[#33463a]">Share what you know</p><p className="mt-1 text-xs leading-5 text-[#7b8177]">Honest answers are better than guesses.</p></div><div className="rounded-2xl border border-[#e7e0d1] bg-white p-4"><p className="font-serif text-2xl text-[#2c513b]">03</p><p className="mt-2 text-sm font-semibold text-[#33463a]">Review before finishing</p><p className="mt-1 text-xs leading-5 text-[#7b8177]">Edit answers and export your local preview.</p></div></div><div className="flex flex-wrap items-center justify-between gap-4 px-7 pb-8 sm:px-11"><p className="max-w-md text-[11px] leading-5 text-[#8a8b80]">Preview only: no response is submitted, no email is sent and no live AI service is connected.</p><button type="button" onClick={() => setWelcomeOpen(false)} className="inline-flex items-center gap-3 rounded-full bg-[#1b3b2b] px-6 py-4 text-sm font-semibold text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-[#2a5540]">Begin the discovery <Icon name="arrow"/></button></div></div></div>}
       <div className="relative overflow-hidden bg-[#142d25] text-white">
         <div className="pointer-events-none absolute -right-24 -top-36 h-[420px] w-[420px] rounded-full border border-white/10" />
         <div className="pointer-events-none absolute -right-4 -top-16 h-[300px] w-[300px] rounded-full border border-[#b99a60]/30" />
@@ -237,7 +299,7 @@ export default function BrandDiscoveryPreviewPage() {
 
                 {currentQuestion.type === "repeatable_choice" && <div className="space-y-3"><p className="mb-3 text-xs leading-5 text-[#727a70]">{currentQuestion.row_prompt}</p>{(Array.isArray(currentAnswer) ? currentAnswer : [{ name: "", choice: "" }]).map((row: any, rowIndex: number) => <div key={rowIndex} className="rounded-2xl border border-[#e7e2d7] bg-[#fdfcf9] p-4"><div className="mb-3 flex items-center justify-between"><p className="text-xs font-semibold uppercase tracking-[.12em] text-[#927b4e]">Space {String(rowIndex+1).padStart(2,"0")}</p>{rowIndex > 0 && <button type="button" onClick={() => updateAnswer(currentQuestion.id, currentAnswer.filter((_: any, i: number) => i !== rowIndex))} className="text-xs text-[#9b5e4e]">Remove</button>}</div><input value={row.name} onChange={(e) => {const old = Array.isArray(currentAnswer) ? [...currentAnswer] : [{name:"",choice:""}];old[rowIndex]={...old[rowIndex],name:e.target.value};updateAnswer(currentQuestion.id,old);}} placeholder={currentQuestion.row_label ?? "Hall or event space name"} className="mb-3 w-full rounded-xl border border-[#e3ded3] bg-white px-3 py-3 text-sm outline-none focus:border-[#a68b56]"/><div className="space-y-2">{(currentQuestion.options ?? []).map((o) => <button key={o.value} type="button" aria-pressed={row.choice === o.value} onClick={() => {const old = Array.isArray(currentAnswer) ? [...currentAnswer] : [{name:"",choice:""}];old[rowIndex]={...old[rowIndex],choice:o.value};updateAnswer(currentQuestion.id,old);}} className={"w-full rounded-xl border px-3 py-2.5 text-left text-xs " + (row.choice === o.value ? "border-[#b9904d] bg-[#f8f1e4] font-semibold" : "border-[#e7e2d7] hover:bg-white")}>{row.choice === o.value ? "✓ " : "○ "}{o.label}</button>)}</div></div>)}<button type="button" onClick={() => updateAnswer(currentQuestion.id, [...(Array.isArray(currentAnswer) ? currentAnswer : [{name:"",choice:""}]), {name:"",choice:""}])} className="rounded-xl border border-dashed border-[#c9b990] px-4 py-3 text-xs font-semibold text-[#816c43] hover:bg-[#faf7ef]">+ Add another hall or event space</button></div>}
 
-                {["text","long_text","file_or_text","repeatable_list"].includes(currentQuestion.type) && <div><label className="mb-2 block text-xs font-semibold text-[#667166]">{currentQuestion.explanation_prompt ?? "Your response"}</label>{currentQuestion.type === "repeatable_list" ? <div className="space-y-2">{(Array.isArray(currentAnswer) ? currentAnswer : [""]).map((v: string, i: number) => <div key={i} className="flex gap-2"><input value={v} onChange={(e) => {const old = Array.isArray(currentAnswer) ? [...currentAnswer] : [""];old[i]=e.target.value;updateAnswer(currentQuestion.id,old);}} className="min-w-0 flex-1 rounded-xl border border-[#e3ded3] px-3 py-3 text-sm outline-none focus:border-[#a68b56]"/>{i>0 && <button type="button" onClick={() => updateAnswer(currentQuestion.id,currentAnswer.filter((_: any,j: number)=>j!==i))} className="px-2 text-xs text-[#9b5e4e]">Remove</button>}</div>)}<button type="button" onClick={() => updateAnswer(currentQuestion.id,[...(Array.isArray(currentAnswer)?currentAnswer:[""]), ""])} className="mt-2 text-xs font-semibold text-[#816c43]">+ Add another</button></div> : <textarea rows={currentQuestion.type === "long_text" ? 5 : 3} value={typeof currentAnswer === "string" ? currentAnswer : ""} onChange={(e) => updateAnswer(currentQuestion.id,e.target.value)} placeholder="Write in Hindi, English or natural Hinglish…" className="w-full rounded-2xl border border-[#e3ded3] bg-[#fdfcf9] px-4 py-3.5 text-sm leading-6 outline-none transition focus:border-[#a68b56] focus:bg-white focus:ring-4 focus:ring-[#c5a66b]/10"/>}{currentQuestion.type === "file_or_text" && <p className="mt-2 text-xs text-[#85877c]">For this preview, use a note only. Secure file upload is not connected.</p>}</div>}
+                {["text","long_text","file_or_text","repeatable_list"].includes(currentQuestion.type) && <div><label className="mb-2 block text-xs font-semibold text-[#667166]">{currentQuestion.explanation_prompt ?? "Your response"}</label>{currentQuestion.type === "repeatable_list" ? <div className="space-y-2">{(Array.isArray(currentAnswer) ? currentAnswer : [""]).map((v: string, i: number) => <div key={i} className="flex gap-2"><input value={v} onChange={(e) => {const old = Array.isArray(currentAnswer) ? [...currentAnswer] : [""];old[i]=e.target.value;updateAnswer(currentQuestion.id,old);}} className="min-w-0 flex-1 rounded-xl border border-[#e3ded3] px-3 py-3 text-sm outline-none focus:border-[#a68b56]"/>{i>0 && <button type="button" onClick={() => updateAnswer(currentQuestion.id,currentAnswer.filter((_: any,j: number)=>j!==i))} className="px-2 text-xs text-[#9b5e4e]">Remove</button>}</div>)}<button type="button" onClick={() => updateAnswer(currentQuestion.id,[...(Array.isArray(currentAnswer)?currentAnswer:[""]), ""])} className="mt-2 text-xs font-semibold text-[#816c43]">+ Add another</button></div> : <><textarea rows={currentQuestion.type === "long_text" ? 5 : 3} value={typeof currentAnswer === "string" ? currentAnswer : ""} onChange={(e) => updateAnswer(currentQuestion.id,e.target.value)} placeholder="Write in Hindi, English or natural Hinglish…" className="w-full rounded-2xl border border-[#e3ded3] bg-[#fdfcf9] px-4 py-3.5 text-sm leading-6 outline-none transition focus:border-[#a68b56] focus:bg-white focus:ring-4 focus:ring-[#c5a66b]/10"/><button type="button" onClick={() => startDictation(typeof currentAnswer === "string" ? currentAnswer : "", (value) => updateAnswer(currentQuestion.id, value))} className="mt-2 inline-flex items-center gap-2 rounded-full border border-[#d9d2c3] bg-white px-3 py-2 text-xs font-semibold text-[#52675a] hover:border-[#a99a76]"><Icon name="mic"/> Dictate answer</button></>}{currentQuestion.type === "file_or_text" && <p className="mt-2 text-xs text-[#85877c]">For this preview, use a note only. Secure file upload is not connected.</p>}{dictationMessage && <p role="status" aria-live="polite" className="mt-2 text-xs leading-5 text-[#68766b]">{dictationMessage}</p>}</div>}
 
                 {(currentQuestion.optional_explanation || currentQuestion.explanation_prompt) && currentQuestion.type !== "multi_part" && <div className="mt-5"><label className="mb-2 block text-xs font-semibold text-[#667166]">{currentQuestion.explanation_prompt ?? "Anything else you would like to add? (Optional)"}</label><textarea rows={3} value={notes[currentQuestion.id] ?? ""} onChange={(e) => setNotes((old) => ({...old,[currentQuestion.id]:e.target.value}))} placeholder="Optional context or clarification…" className="w-full rounded-2xl border border-[#e3ded3] bg-white px-4 py-3 text-sm leading-6 outline-none focus:border-[#a68b56]"/></div>}
                 {currentQuestion.type === "multiple_choice" && (currentQuestion.options ?? []).some(o => /other/i.test(o.label) && (Array.isArray(currentAnswer) ? currentAnswer.includes(o.value) : false)) && <div className="mt-4 rounded-2xl border border-[#e6ddc8] bg-[#faf7ef] p-4"><label className="mb-2 block text-xs font-semibold text-[#79633c]">Optional clarification for “Other”</label><textarea rows={2} value={notes[currentQuestion.id + ":other"] ?? ""} onChange={(e) => setNotes((old) => ({...old,[currentQuestion.id + ":other"]:e.target.value}))} placeholder="Please describe, if you wish…" className="w-full rounded-xl border border-[#e1d8c4] bg-white px-3 py-3 text-sm outline-none focus:border-[#a68b56]"/></div>}
@@ -247,14 +309,16 @@ export default function BrandDiscoveryPreviewPage() {
 
               {stage === "documents" && currentDoc && <div className="animate-[fadeIn_.25s_ease-out]"><div className="mb-5 inline-flex items-center gap-2 rounded-full bg-[#f3f0e7] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[.15em] text-[#8e784c]"><Icon name="book" className="h-3.5 w-3.5"/> Supporting documents</div><p className="text-xs text-[#85877c]">Checklist item {docIndex+1} of {config.document_checklist.length}</p><h2 className="mt-3 font-serif text-3xl leading-tight text-[#233b2e]">{currentDoc.label}</h2><p className="mt-4 text-sm leading-7 text-[#747b72]">Please indicate whether this record is available. This is a self-reported status only—it does not mean Franchise Kart has received or verified the document.</p><div className="mt-7 space-y-3">{currentDoc.status_options.map((status) => <button key={status} type="button" aria-pressed={answers[currentDoc.id] === status} onClick={() => updateAnswer(currentDoc.id, answers[currentDoc.id] === status ? "" : status)} className={"flex w-full items-center gap-3 rounded-2xl border p-4 text-left text-sm transition " + (answers[currentDoc.id] === status ? "border-[#b9904d] bg-[#f8f1e4] font-semibold" : "border-[#e8e3d9] hover:bg-[#fbfcfa]")}>{answers[currentDoc.id] === status ? <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#967139] text-xs text-white">✓</span> : <span className="h-5 w-5 rounded-full border border-[#c9c6bd]"/>}{status}</button>)}</div><div className="mt-5 rounded-2xl border border-[#e7e2d7] bg-[#fdfcf9] p-4"><p className="text-xs font-semibold text-[#4b5c4e]">Evidence status stays separate</p><p className="mt-1 text-xs leading-5 text-[#81847b]">Available (self-reported) · Received · Reviewed · Verified are distinct statuses in the internal workflow.</p></div></div>}
 
+              {validationMessage && <div role="alert" aria-live="polite" className="mb-5 rounded-2xl border border-[#d7a59a] bg-[#fff4f1] px-4 py-3 text-sm leading-6 text-[#8e4336]">{validationMessage}</div>}
+
               {stage === "ack" && <div><div className="mb-5 inline-flex items-center gap-2 rounded-full bg-[#f3f0e7] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[.15em] text-[#8e784c]"><Icon name="lock" className="h-3.5 w-3.5"/> Confidentiality & acknowledgement</div><h2 className="font-serif text-3xl text-[#233b2e]">Before we move forward</h2><div className="prose prose-sm mt-5 max-w-none whitespace-pre-wrap text-sm leading-7 text-[#626e63]">{config.confidentiality_and_acknowledgement}</div><div className="mt-7 grid gap-4 sm:grid-cols-2"><div><label className="mb-2 block text-xs font-semibold text-[#667166]">Owner name (preview)</label><input value={answers.owner_name ?? config.brand.owner} onChange={(e) => updateAnswer("owner_name",e.target.value)} className="w-full rounded-xl border border-[#e3ded3] px-3 py-3 text-sm outline-none focus:border-[#a68b56]"/></div><div><label className="mb-2 block text-xs font-semibold text-[#667166]">Date</label><input type="date" value={answers.owner_date ?? new Date().toISOString().slice(0,10)} onChange={(e) => updateAnswer("owner_date",e.target.value)} className="w-full rounded-xl border border-[#e3ded3] px-3 py-3 text-sm outline-none focus:border-[#a68b56]"/></div></div><label className="mt-4 flex items-start gap-3 rounded-2xl border border-[#e5dfd2] bg-[#faf8f2] p-4 text-sm leading-6"><input type="checkbox" checked={!!answers.acknowledged} onChange={(e) => updateAnswer("acknowledged",e.target.checked)} className="mt-1 h-4 w-4 accent-[#315b43]"/>I have reviewed the confidentiality and acknowledgement wording above. <span className="text-[#a45d4d]">*</span></label><p className="mt-3 text-xs leading-5 text-[#85877c]">This is a preview only. It does not create a legal signature or submit an acknowledgement.</p></div>}
 
-              {stage === "complete" && <div className="py-8 text-center"><div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full border border-[#cbb47e] bg-[#f7f0df] text-[#967139]"><Icon name="spark" className="h-9 w-9"/></div><p className="mt-6 text-[10px] font-bold uppercase tracking-[.25em] text-[#9a8354]">Preview journey complete</p><h2 className="mt-3 font-serif text-4xl text-[#233b2e]">Thank you for sharing your story.</h2><p className="mx-auto mt-4 max-w-lg text-sm leading-7 text-[#747b72]">You have reached the end of the experience preview. No response has been sent to Franchise Kart, no report has been generated, and no email has been sent.</p><div className="mx-auto mt-7 grid max-w-md grid-cols-2 gap-3"><div className="rounded-2xl bg-[#f5f3ed] p-4"><p className="font-serif text-3xl text-[#365a43]">{answerCount}</p><p className="mt-1 text-xs text-[#81847b]">Questions with preview answers</p></div><div className="rounded-2xl bg-[#f5f3ed] p-4"><p className="font-serif text-3xl text-[#365a43]">{config.document_checklist.length}</p><p className="mt-1 text-xs text-[#81847b]">Checklist items explored</p></div></div><button type="button" onClick={resetPreview} className="mt-6 rounded-full bg-[#1c3b2c] px-5 py-3 text-xs font-semibold text-white hover:bg-[#2c5740]">Restart preview</button></div>}
+              {stage === "complete" && <div className="py-8 text-center"><div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full border border-[#cbb47e] bg-[#f7f0df] text-[#967139]"><Icon name="spark" className="h-9 w-9"/></div><p className="mt-6 text-[10px] font-bold uppercase tracking-[.25em] text-[#9a8354]">Preview journey complete</p><h2 className="mt-3 font-serif text-4xl text-[#233b2e]">Thank you for sharing your story.</h2><p className="mx-auto mt-4 max-w-lg text-sm leading-7 text-[#747b72]">You have reached the end of the experience preview. No response has been sent to Franchise Kart, no report has been generated, and no email has been sent.</p><div className="mx-auto mt-7 grid max-w-md grid-cols-2 gap-3"><div className="rounded-2xl bg-[#f5f3ed] p-4"><p className="font-serif text-3xl text-[#365a43]">{answerCount}</p><p className="mt-1 text-xs text-[#81847b]">Questions with preview answers</p></div><div className="rounded-2xl bg-[#f5f3ed] p-4"><p className="font-serif text-3xl text-[#365a43]">{config.document_checklist.length}</p><p className="mt-1 text-xs text-[#81847b]">Checklist items explored</p></div></div><div className="mt-6 flex flex-wrap justify-center gap-3"><button type="button" onClick={() => setReviewOpen(!reviewOpen)} className="rounded-full border border-[#dcd6c9] px-5 py-3 text-xs font-semibold text-[#58665a] hover:bg-white">{reviewOpen ? "Hide answer review" : "Review / edit answers"}</button><button type="button" onClick={exportPreview} className="rounded-full bg-[#1c3b2c] px-5 py-3 text-xs font-semibold text-white hover:bg-[#2c5740]">Export my preview answers</button><button type="button" onClick={() => window.print()} className="rounded-full border border-[#dcd6c9] px-5 py-3 text-xs font-semibold text-[#58665a] hover:bg-white">Print / save as PDF</button><button type="button" onClick={resetPreview} className="rounded-full border border-[#dcd6c9] px-5 py-3 text-xs font-semibold text-[#58665a] hover:bg-white">Restart preview</button></div>{reviewOpen && <div className="mx-auto mt-8 max-w-3xl rounded-2xl border border-[#e4ded1] bg-white p-4 text-left sm:p-6"><h3 className="font-serif text-2xl text-[#233b2e]">Your answer review</h3><p className="mt-2 text-xs leading-5 text-[#85877c]">Choose Edit to return to a question. Answers are still stored only in this browser.</p><div className="mt-4 space-y-3">{questions.map((q) => { const raw = answers[q.id]; const value = Array.isArray(raw) ? raw.map((v: any) => typeof v === "object" ? Object.values(v).filter(Boolean).join(" — ") : ((q.options ?? []).find((o) => o.value === v)?.label ?? v)).filter(Boolean).join(", ") : typeof raw === "string" ? ((q.options ?? []).find((o) => o.value === raw)?.label ?? raw) : ""; const subValues = Object.keys(answers).filter((key) => key.startsWith(q.id + ":") && !blank(answers[key])).map((key) => { const v = answers[key]; return q.options?.find((o) => o.value === v)?.label ?? (Array.isArray(v) ? v.map((item: string) => q.parts?.flatMap((p) => p.options).find((o) => o.value === item)?.label ?? item).join(", ") : String(v)); }); const shown = [value, ...subValues].filter(Boolean).join(" · "); return <div key={q.id} className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-[#eee9df] p-3"><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-[#354a3b]">{q.number}. {q.prompt}</p><p className="mt-1 break-words text-xs leading-5 text-[#7b8177]">{shown || "Not answered"}</p></div><button type="button" onClick={() => {setIndex(q.number - 1); setStage("questions"); setReviewOpen(false); setWelcomeOpen(false); window.scrollTo({top:0,behavior:"smooth"});}} className="rounded-full border border-[#dcd6c9] px-3 py-2 text-[11px] font-semibold text-[#52675a] hover:bg-[#faf8f3]">Edit</button></div>;})}</div></div>}</div>}
 
               {stage !== "complete" && <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-[#eee9df] pt-5"><button type="button" onClick={previous} className="inline-flex items-center gap-2 rounded-full border border-[#dcd6c9] px-4 py-3 text-xs font-semibold text-[#58665a] transition hover:bg-[#faf8f3]"><Icon name="back" className="h-4 w-4"/> Previous</button><div className="hidden items-center gap-2 text-[10px] text-[#99988d] sm:flex"><Icon name="save" className="h-4 w-4"/>{hydrated ? "Preview progress stored in this browser only" : "Preparing local preview"}</div><button type="button" onClick={next} className="group inline-flex items-center gap-3 rounded-full bg-[#1b3b2b] px-5 py-3.5 text-xs font-semibold text-white shadow-[0_6px_18px_rgba(27,59,43,.16)] transition hover:-translate-y-0.5 hover:bg-[#2a5540]">{stage === "ack" ? "Finish preview" : "Continue"}<span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/10 transition group-hover:translate-x-0.5"><Icon name="arrow" className="h-3.5 w-3.5"/></span></button></div>}
             </div>
           </div>
-          <p className="mt-4 text-center text-[10px] leading-5 text-[#929187]">This experience preview is not the live respondent service. No backend, invitation token, email, or production data is connected.</p>
+          <p className="mt-4 text-center text-[10px] leading-5 text-[#929187]">Preview mode only · Answers remain in this browser until you export or reset them. No backend, invitation token, email, AI service, or production data is connected.</p>
         </section>
 
         <aside className="space-y-4">
@@ -263,6 +327,7 @@ export default function BrandDiscoveryPreviewPage() {
             <div className="mt-4 rounded-2xl rounded-tl-md bg-[#f5f4ee] p-3.5 text-xs leading-6 text-[#667166]">Namaste. We’ll take this one step at a time. If a question feels unclear, open the explanation below. You can move back and change your answers in this preview.</div>
             <button type="button" onClick={() => {setGuideMessage(getGuideText());setHelpOpen(!helpOpen);}} className="mt-3 flex w-full items-center justify-between rounded-xl border border-[#e4ded1] px-3 py-3 text-left text-xs font-semibold text-[#536a58] hover:bg-[#faf8f3]"><span className="flex items-center gap-2"><Icon name="help"/> Explain this question</span><Icon name="chev" className={helpOpen ? "rotate-180 transition" : "transition"}/></button>
             {helpOpen && <div className="mt-3 rounded-2xl border border-[#dce5d9] bg-[#f3f7f1] p-3.5 text-xs leading-6 text-[#5e705f]">{guideMessage}<p className="mt-2 text-[10px] font-semibold uppercase tracking-[.1em] text-[#8a947f]">Example guidance only · not connected to an AI service</p></div>}
+            {resumeAvailable && <div className="mt-3 rounded-xl border border-[#d8e5d7] bg-[#f1f7ef] p-3 text-xs leading-5 text-[#46624b]"><strong>Welcome back.</strong> Your earlier preview answers were restored from this browser. You can continue, edit chapters, or restart the preview.</div>}
             <div className="mt-4 border-t border-[#eee9df] pt-4"><p className="text-[10px] font-bold uppercase tracking-[.15em] text-[#99917f]">Voice guidance</p><button type="button" onClick={speakCurrent} className="mt-2 flex w-full items-center gap-3 rounded-xl bg-[#1e3d2d] p-3 text-left text-white transition hover:bg-[#2b5740]"><span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10"><Icon name="mic"/></span><span><span className="block text-xs font-semibold">Hear this question</span><span className="mt-1 block text-[10px] text-white/60">Browser speech playback</span></span></button><p className="mt-2 text-[10px] leading-5 text-[#929187]">{voiceMessage} This is not conversational AI or a recorded human voice.</p></div>
           </div>
           <div className="rounded-3xl border border-[#e4ded1] bg-[#f9f7f1] p-5">
@@ -273,7 +338,7 @@ export default function BrandDiscoveryPreviewPage() {
       </div>
 
       {showReset && <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#142d25]/55 p-4 backdrop-blur-sm"><div className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#f8eee4] text-[#9b5e4e]"><Icon name="reset"/></div><h2 className="mt-4 font-serif text-2xl text-[#233b2e]">Restart the preview?</h2><p className="mt-2 text-sm leading-6 text-[#747b72]">This clears only the answers saved in this browser preview. It does not affect production data.</p><div className="mt-6 flex gap-3"><button type="button" onClick={() => setShowReset(false)} className="flex-1 rounded-full border border-[#dcd6c9] px-4 py-3 text-xs font-semibold text-[#58665a]">Cancel</button><button type="button" onClick={resetPreview} className="flex-1 rounded-full bg-[#1b3b2b] px-4 py-3 text-xs font-semibold text-white">Clear preview</button></div></div></div>}
-      <style jsx global>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } } html { scroll-behavior: smooth; } `}</style>
+      <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } } html { scroll-behavior: smooth; } `}</style>
     </main>
   );
 }
