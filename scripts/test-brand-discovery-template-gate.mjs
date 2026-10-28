@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { validateBrandDiscoveryTemplate, brandDiscoveryReleaseChecks } from "../supabase/functions/_shared/brand-discovery-template-gate.mjs";
 
 const release_readiness = Object.fromEntries(brandDiscoveryReleaseChecks.map((key) => [key, true]));
@@ -46,3 +47,14 @@ inactive.status = "draft";
 assert.ok(validateBrandDiscoveryTemplate(inactive).errors.includes("questionnaire_not_active"));
 
 console.log("Brand Discovery reusable-template release-gate tests passed (7 scenarios).");
+
+const inviteSource = await readFile(new URL("../supabase/functions/brand-discovery-create-invite/index.ts", import.meta.url), "utf8");
+const respondentSource = await readFile(new URL("../supabase/functions/brand-discovery-respondent/index.ts", import.meta.url), "utf8");
+assert.ok(inviteSource.includes("validateBrandDiscoveryTemplate(version.questionnaire)"),
+  "Invite endpoint must apply the generic release gate to every brand.");
+assert.ok(inviteSource.includes('Deno.env.get("FK_BRAND_DISCOVERY_EMAIL_SENDING_ENABLED") === "true"'),
+  "Invitation email must require explicit server-side enablement.");
+assert.ok(respondentSource.includes('Deno.env.get("FK_BRAND_DISCOVERY_EMAIL_SENDING_ENABLED") !== "true"'),
+  "Completion emails must be disabled by default.");
+console.log("Invite release gate and email no-send-by-default checks passed.");
+
