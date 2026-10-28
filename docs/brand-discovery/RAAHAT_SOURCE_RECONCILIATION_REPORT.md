@@ -17,6 +17,7 @@ Status: automated source-to-runtime mapping implemented and validated in the fea
 The configuration remains `status: "draft"` and `source_status: "CANONICAL_SOURCE_MAPPED_DRAFT"`. The template must not be activated until semantic review and release gates pass.
 
 - 223 simple choice questions preserve source prompt, option wording/order, and mapped selection mode/limit.
+- Optional “Other” clarification fields appear only after an Other-prefixed option is selected. This is supplemental input; canonical wording and options remain unchanged. The control covers simple choice, multipart, and service-status answers.
 - 10 multi-part questions have separate controls for each independent part, including the six questions explicitly split into A/B/C source subparts.
 - One service inventory question records each selected service and its operational status separately.
 - One hall-capacity question supports repeatable named halls/event spaces with one capacity range per row.
@@ -28,7 +29,7 @@ The configuration remains `status: "draft"` and `source_status: "CANONICAL_SOURC
 
 ## Validation boundaries and review items
 
-Automated validation compares the 235 prompt/source blocks, section-local numbering/order, source options and selection rules, complex control mappings, checklist order, and declaration text. Passing this check establishes source mapping consistency, not business correctness or release readiness.
+Automated validation compares the 235 prompt/source blocks, section-local numbering/order, source options and selection rules, complex control mappings, optional Other-clarification coverage, checklist order, and declaration text. Passing this check establishes source mapping consistency, not business correctness or release readiness.
 
 The following inferred mappings require a human semantic review before activation:
 - Room categories used to capture room-rate ranges.
@@ -48,3 +49,8 @@ The following inferred mappings require a human semantic review before activatio
 - Keep the template inactive, PR draft/open, and production undeployed until release approval.
 
 No production migration, deployment, email delivery, paid AI call, or questionnaire activation is authorized or claimed by this report.
+
+
+## Optional Other clarification update — 28 October 2026
+
+The runtime schema and respondent renderer now capture an optional explanation for Other-prefixed choices in simple-choice questions, multipart questions, and the service inventory. The explanation is stored with the structured answer and is not substituted for the original source text. CI is required to confirm the latest change; non-production persistence, resume and submission still require end-to-end testing.
