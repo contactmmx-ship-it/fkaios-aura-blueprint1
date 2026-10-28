@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import bank from "@/../config/brand-discovery/raahat-question-bank-v1.draft.json";
+import { useState } from "react";
+import bank from "../../../config/brand-discovery/raahat-question-bank-v1.draft.json";
 
 type Option = { value: string; label: string };
 type Question = {
