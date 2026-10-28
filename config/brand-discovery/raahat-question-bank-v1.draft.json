@@ -62,7 +62,9 @@
               "label": "Prefer to discuss personally"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s1_q2",
@@ -100,7 +102,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "single"
+          "selection_mode": "single",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s1_q3",
@@ -138,7 +142,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "single"
+          "selection_mode": "single",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s1_q4",
@@ -180,7 +186,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s1_q5",
@@ -322,7 +330,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s1_q7",
@@ -481,7 +491,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s1_q9",
@@ -532,7 +544,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s1_q10",
@@ -587,7 +601,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s1_q11",
@@ -646,7 +662,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s1_q12",
@@ -697,7 +715,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s1_q13",
@@ -832,7 +852,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         }
       ]
     },
@@ -890,7 +912,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s2_q2",
@@ -944,7 +968,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s2_q3",
@@ -991,7 +1017,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s2_q4",
@@ -1042,7 +1070,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s2_q5",
@@ -1092,7 +1122,9 @@
               "label": "Not sure"
             }
           ],
-          "selection_mode": "single"
+          "selection_mode": "single",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s2_q6",
@@ -1142,7 +1174,9 @@
               "label": "None documented"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s2_q7",
@@ -1226,7 +1260,9 @@
               "label": "None specifically"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s2_q9",
@@ -1272,7 +1308,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s2_q10",
@@ -1314,7 +1352,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "single"
+          "selection_mode": "single",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s2_q11",
@@ -1368,7 +1408,9 @@
               "label": "No records available"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s2_q12",
@@ -1423,7 +1465,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         }
       ]
     },
@@ -1555,7 +1599,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "help_text": "This guided screen uses the source instruction's alternative: select all services that contribute significantly. If an ordered ranking is needed, note that for the follow-up discussion."
+          "help_text": "This guided screen uses the source instruction's alternative: select all services that contribute significantly. If an ordered ranking is needed, note that for the follow-up discussion.",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s3_q3",
@@ -1601,7 +1647,9 @@
               "label": "Not sure"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s3_q4",
@@ -1648,7 +1696,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s3_q5",
@@ -1698,7 +1748,9 @@
               "label": "Not sure"
             }
           ],
-          "selection_mode": "single"
+          "selection_mode": "single",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s3_q6",
@@ -1802,7 +1854,9 @@
               "label": "No decision yet"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s3_q8",
@@ -1932,7 +1986,9 @@
               "label": "Item-wise sales data is not available"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s4_q3",
@@ -1978,7 +2034,9 @@
               "label": "Not calculated"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s4_q4",
@@ -2024,7 +2082,9 @@
               "label": "Not sure"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s4_q5",
@@ -2070,7 +2130,9 @@
               "label": "Not sure"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s4_q6",
@@ -2150,7 +2212,9 @@
               "label": "Customer feedback is not systematically recorded"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s4_q8",
@@ -2204,7 +2268,9 @@
               "label": "Complaints are not systematically recorded"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s4_q9",
@@ -2314,7 +2380,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "single"
+          "selection_mode": "single",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s4_q12",
@@ -2814,7 +2882,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s4_q21",
@@ -3703,7 +3773,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s5_q7",
@@ -3757,7 +3829,9 @@
               "label": "Feedback is not systematically recorded"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s5_q8",
@@ -4062,7 +4136,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         }
       ]
     },
@@ -4163,7 +4239,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s6_q3",
@@ -4513,7 +4591,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "single"
+          "selection_mode": "single",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s6_q11",
@@ -4882,7 +4962,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         }
       ]
     },
@@ -4941,7 +5023,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s7_q2",
@@ -4992,7 +5076,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s7_q3",
@@ -5097,7 +5183,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s7_q5",
@@ -5399,7 +5487,9 @@
               "label": "Not sure"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s7_q11",
@@ -5546,7 +5636,9 @@
               "label": "Not sure"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s7_q14",
@@ -5597,7 +5689,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s7_q15",
@@ -5747,7 +5841,9 @@
               "label": "Some accounts need to be identified"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s8_q3",
@@ -5889,7 +5985,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s8_q6",
@@ -6963,7 +7061,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s9_q17",
@@ -7277,7 +7377,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s10_q4",
@@ -7535,7 +7637,9 @@
               "label": "Not sure"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s10_q11",
@@ -7745,7 +7849,9 @@
               "label": "None"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s10_q16",
@@ -7795,7 +7901,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s10_q17",
@@ -8050,7 +8158,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s11_q5",
@@ -8176,7 +8286,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s11_q8",
@@ -8284,7 +8396,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s11_q10",
@@ -8338,7 +8452,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s11_q11",
@@ -8426,7 +8542,9 @@
               "label": "Not sure"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s11_q13",
@@ -8568,7 +8686,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "single"
+          "selection_mode": "single",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         }
       ]
     },
@@ -8635,7 +8755,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s12_q2",
@@ -8689,7 +8811,9 @@
               "label": "Prefer to discuss confidentially"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s12_q3",
@@ -8735,7 +8859,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "single"
+          "selection_mode": "single",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s12_q4",
@@ -8786,7 +8912,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s12_q5",
@@ -8836,7 +8964,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s12_q6",
@@ -8890,7 +9020,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s12_q7",
@@ -8940,7 +9072,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s12_q8",
@@ -8994,7 +9128,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s12_q9",
@@ -9045,7 +9181,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s12_q10",
@@ -9096,7 +9234,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s12_q11",
@@ -9192,7 +9332,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s12_q13",
@@ -9246,7 +9388,9 @@
               "label": "No delegation at present"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s12_q14",
@@ -9284,7 +9428,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "single"
+          "selection_mode": "single",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         }
       ]
     },
@@ -9356,7 +9502,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 5
+          "max_selections": 5,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s13_q2",
@@ -9457,7 +9605,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s13_q4",
@@ -9520,7 +9670,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 5
+          "max_selections": 5,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s13_q5",
@@ -9628,7 +9780,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s13_q7",
@@ -9687,7 +9841,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 5
+          "max_selections": 5,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s13_q8",
@@ -9830,7 +9986,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 5
+          "max_selections": 5,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s13_q11",
@@ -9923,7 +10081,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         }
       ]
     },
@@ -10141,7 +10301,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s14_q5",
@@ -10195,7 +10357,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s14_q6",
@@ -10452,7 +10616,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s14_q12",
@@ -10503,7 +10669,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         }
       ]
     },
@@ -10557,7 +10725,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s15_q2",
@@ -10616,7 +10786,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 5
+          "max_selections": 5,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s15_q3",
@@ -10674,7 +10846,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s15_q4",
@@ -11022,7 +11196,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "single"
+          "selection_mode": "single",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s15_q12",
@@ -11248,7 +11424,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         }
       ]
     },
@@ -11311,7 +11489,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s16_q2",
@@ -11573,7 +11753,9 @@
               "label": "Other"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s16_q7",
@@ -11628,7 +11810,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s16_q8",
@@ -11753,7 +11937,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 5
+          "max_selections": 5,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s16_q10",
@@ -11808,7 +11994,9 @@
             }
           ],
           "selection_mode": "multiple",
-          "max_selections": 3
+          "max_selections": 3,
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         }
       ]
     }
