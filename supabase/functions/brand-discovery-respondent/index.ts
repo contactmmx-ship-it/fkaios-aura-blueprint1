@@ -126,7 +126,7 @@ function isValidQuestionAnswer(question: any, rawAnswer: unknown): boolean {
 function isValidClosureDraft(questionnaire: any, value: any): boolean {
   if (!value || typeof value !== "object" || !value.documents || typeof value.documents !== "object") return false;
   const checklist = Array.isArray(questionnaire?.document_checklist) ? questionnaire.document_checklist : [];
-  if (checklist.length !== 20) return false;
+  // Checklist length is template-defined; the Raahat-specific source validator checks its 20 items separately.
   if (Object.keys(value.documents).some((id) => !checklist.some((item: any) => item.id === id))) return false;
   for (const item of checklist) {
     const status = value.documents[item.id];
