@@ -8,7 +8,7 @@ Status: requirements baseline; not a release approval.
 - [x] Automated validator compares all 235 exact question prompts/source blocks, source options/order, section-local numbering, and selection instructions; human semantic review remains required.
 - [x] Preserve the original 20-item checklist and declaration/confidentiality/sign-off/next-step wording in runtime configuration; checklist and acknowledgement UI is implemented (end-to-end persistence still needs testing).
 - [x] Encode source selection modes and limits in the runtime mapping; interactive end-to-end testing remains pending.
-- [ ] Preserve optional “Other” and explanation fields wherever present in the source.
+- [x] Preserve source “Other” choices and provide a separate optional clarification field when an “Other” option is selected; the canonical prompt and options remain unchanged. Automated coverage includes simple choices, multipart questions, and service inventory.
 - [x] Automated validator rejects section/question order and count mismatches, missing/duplicate IDs, altered option order/selection limits, and a checklist count other than 20; exact CI result must be confirmed on the latest commit.
 - [x] Keep the current source-mapped draft inactive until semantic review, end-to-end tests, security review, and explicit release approval pass.
 - [x] Record 235 source question headings after comparing against the recovered canonical source.
@@ -104,3 +104,8 @@ Code presence is not the same as release acceptance. Checked items above mean th
 ## Clarification added — 28 October 2026
 
 The runtime mapping is source-complete at the structural/automated level: 16 sections, 235 source questions, 20 checklist rows, 10 multipart controls, one service-status matrix, and one repeatable hall-capacity matrix. This is not equivalent to full product acceptance. The template remains inactive and release approval is withheld until optional “Other” explanations are addressed where required, semantic mappings are approved, CI is confirmed on the latest commit, and the non-production end-to-end/security/accessibility test matrix passes.
+
+
+## Optional clarification control — 28 October 2026
+
+The respondent UI now reveals an optional text field only when an `Other` / `Other…` choice is selected, including the service-status matrix and multipart questions. The response is stored alongside the selected answer; it does not replace or rewrite the source prompt or source options. The automated validator checks that every applicable answer control has the supplemental field. This remains a draft until the current CI run and non-production save/resume/submit journey pass.
