@@ -5,6 +5,8 @@ on:
     paths:
       - "config/brand-discovery/raahat-question-bank-v1.draft.json"
       - "scripts/validate-brand-discovery-questionnaire.mjs"
+      - "scripts/test-brand-discovery-template-gate.mjs"
+      - "supabase/functions/_shared/brand-discovery-template-gate.mjs"
       - ".github/workflows/brand-discovery-validation.yml"
   push:
     branches:
@@ -29,3 +31,5 @@ jobs:
           node-version: "22"
       - name: Validate question bank structure
         run: node scripts/validate-brand-discovery-questionnaire.mjs
+      - name: Test reusable template release gate and email policy
+        run: node scripts/test-brand-discovery-template-gate.mjs
