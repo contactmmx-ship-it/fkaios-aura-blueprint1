@@ -468,7 +468,24 @@ export function formatBlockedSummary(gate: ObjectiveTaskGate): string {
 // independent verifier. Per-task evidence is cut at 2,500 chars, which hid these sources and made the verifier
 // reject correctly cited fkaios-memory:// chats. Only knowledge.search matches at/above the relevance bar,
 // with the retrieved excerpt text (from the measured capability_result when present).
-export function founderMemoryEvidenceText(tasks: TaskEvidenceRecord[], maxChars = 9000): string {
+export function figureCount(text: string): number {
+  return (text.match(/\u20B9|[0-9]+(?:\.[0-9]+)? ?%|[0-9]{1,2}, ?[0-9]{2},[0-9]{3}|[0-9]+ ?(?:lakh|lac|crore|cr)\b/gi) ?? []).length;
+}
+
+// The same founder-memory text for a writer task, built from the prior_completed_tasks payload (no status field).
+export function priorMemoryEvidenceText(priorCompletedTasks: unknown, maxChars = 12000): string {
+  const tasks = parsePriorCompletedTasks(priorCompletedTasks)
+    .filter((t) => t && typeof t === "object")
+    .map((t) => {
+      const row = t as Record<string, unknown>;
+      // prior_completed_tasks carries output as an object; the evidence readers expect stored (string) JSON.
+      const output = row.output && typeof row.output === "object" ? JSON.stringify(row.output) : row.output;
+      return { ...row, output, status: "done" } as TaskEvidenceRecord;
+    });
+  return founderMemoryEvidenceText(tasks, maxChars);
+}
+
+export function founderMemoryEvidenceText(tasks: TaskEvidenceRecord[], maxChars = 16000): string {
   const byUrl = new Map<string, { title: string; excerpts: string[] }>();
   for (const task of tasks) {
     if (!SUCCESS_TASK_STATUSES.has(String(task.status ?? ""))) continue;
@@ -493,6 +510,11 @@ export function founderMemoryEvidenceText(tasks: TaskEvidenceRecord[], maxChars 
     }
   }
   if (byUrl.size === 0) return "";
-  const lines = [...byUrl.entries()].map(([url, e]) => `${url} = ${e.title}\n${e.excerpts.join("\n").replace(/\s+/g, " ").slice(0, 3000)}`);
+  // 28 Oct 2026: chats holding figures (Rs amounts, lakh, %, 1,00,000) go first, so the overall cut never drops
+  // the very numbers a report has to quote.
+  const lines = [...byUrl.entries()]
+    .map(([url, e]) => ({ url, title: e.title, text: e.excerpts.join("\n").replace(/\s+/g, " ").slice(0, 3000) }))
+    .sort((a, b) => figureCount(b.text) - figureCount(a.text))
+    .map((e) => `${e.url} = ${e.title}\n${e.text}`);
   return `[FOUNDER MEMORY RETRIEVED BY THIS OBJECTIVE — fkaios-memory:// sources are the founder's own past-work chats, retrieved by knowledge.search; claims citing them are supported when this text supports them]\n${lines.join("\n\n")}`.slice(0, maxChars);
 }

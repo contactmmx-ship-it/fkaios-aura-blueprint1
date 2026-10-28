@@ -128,7 +128,9 @@ export function taskWorkProduct(output: string): string {
     const parsed = JSON.parse(trimmed);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       let obj = parsed as Record<string, unknown>;
-      if (obj.llmResult && typeof obj.llmResult === "object" && !Array.isArray(obj.llmResult)) obj = obj.llmResult as Record<string, unknown>;
+      const hasTopLevelProduct = ["deliverable", "content", "result", "brief", "final_report", "report"].some((k) => obj[k] != null);
+      // A top-level work product (e.g. a rectified deliverable) wins; otherwise unwrap the model result.
+      if (!hasTopLevelProduct && obj.llmResult && typeof obj.llmResult === "object" && !Array.isArray(obj.llmResult)) obj = obj.llmResult as Record<string, unknown>;
       const product = obj.deliverable ?? obj.content ?? obj.result ?? obj.brief ?? obj.final_report ?? obj.report;
       const sources = renderSources(obj.sources);
       if (typeof product === "string" && product.trim()) return sources && !product.includes("Sources:") ? `${product.trim()}\n\n${sources}` : product.trim();
