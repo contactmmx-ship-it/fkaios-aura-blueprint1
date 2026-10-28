@@ -1441,15 +1441,24 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
       const researchStartedAt = Date.now();
       const research = await executeCapability("research.run", { query: researchQuery, requested_by: "fkaios-orchestrator" }, cid);
       await recordToolStep("research.run", research.status, researchStartedAt, research.status === "success" ? null : String(research.error ?? research.status));
+      if (research.status !== "success" && /paid_research_blocked/.test(String(research.error ?? ""))) {
+        // 28 Oct 2026: the founder's spend gate refused paid web research. Do not fail the task: answer from
+        // founder memory instead — the model is told to request knowledge.search (see capability block).
+        structuredLog("INFO", "Paid research blocked by spend gate; task continues on founder memory", { objectiveId: job.payload?.objective_id ?? null, taskId: job.payload?.task_id ?? null }, cid);
+        researchResults.length = 0;
+        break;
+      }
       if (research.status !== "success") {
         throw new NonRetryableJobError(`Founder research task could not acquire real external evidence for query '${researchQuery}': ${research.error ?? research.status}`, "NO_DATA_SOURCE");
       }
       researchResults.push(compactResearchEvidence(research.data ?? null, researchQuery));
       researchResultAttempts += research.attempts;
     }
+    if (researchResults.length > 0) {
     researchResultData = researchResults.length === 1 ? researchResults[0] : { queries: researchResults };
     researchEvidence = `\n\n[REAL EXTERNAL RESEARCH EVIDENCE — USE ONLY THIS DATA; DO NOT FABRICATE]\n${JSON.stringify(researchResultData).slice(0, 12000)}\n[/REAL EXTERNAL RESEARCH EVIDENCE]`;
     structuredLog("INFO", "Founder research evidence acquired before task generation", { objectiveId: job.payload?.objective_id ?? null, taskId: job.payload?.task_id ?? null, capability: "research.run", queryCount: researchQueries.length }, cid);
+    }
   }
 }
 
