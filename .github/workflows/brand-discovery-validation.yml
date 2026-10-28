@@ -12,6 +12,7 @@ on:
       - "scripts/seed-brand-discovery-questionnaire.mjs"
       - "scripts/activate-brand-discovery-template.mjs"
       - "scripts/validate-brand-discovery-template.mjs"
+      - "scripts/test-raahat-guided-core.mjs"
       - "supabase/functions/_shared/brand-discovery-template-gate.mjs"
       - ".github/workflows/brand-discovery-validation.yml"
   push:
@@ -51,3 +52,5 @@ jobs:
         run: node scripts/validate-brand-discovery-template.mjs raahat-guided-discovery-v1.draft.json
       - name: Check offline template validator syntax
         run: node --check scripts/validate-brand-discovery-template.mjs
+      - name: Test Raahat guided core against canonical full source bank
+        run: node scripts/test-raahat-guided-core.mjs
