@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "config/brand-discovery/raahat-question-bank-v1.draft.json"
+      - "config/brand-discovery/raahat-guided-discovery-v1.draft.json"
       - "scripts/validate-brand-discovery-questionnaire.mjs"
       - "scripts/test-brand-discovery-template-gate.mjs"
       - "scripts/test-brand-discovery-answer-validation.mjs"
@@ -46,5 +47,7 @@ jobs:
         run: node --check scripts/activate-brand-discovery-template.mjs
       - name: Validate Raahat draft structure using the reusable schema
         run: node scripts/validate-brand-discovery-template.mjs raahat-question-bank-v1.draft.json
+      - name: Validate Raahat guided core draft structure
+        run: node scripts/validate-brand-discovery-template.mjs raahat-guided-discovery-v1.draft.json
       - name: Check offline template validator syntax
         run: node --check scripts/validate-brand-discovery-template.mjs
