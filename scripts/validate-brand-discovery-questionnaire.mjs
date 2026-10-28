@@ -3,6 +3,9 @@ import { readFile } from "node:fs/promises";
 
 const bank = JSON.parse(await readFile(new URL("../config/brand-discovery/raahat-question-bank-v1.draft.json", import.meta.url), "utf8"));
 const source = JSON.parse(await readFile(new URL("../docs/brand-discovery/source/RAAHAT_SOURCE_TRANSCRIPTION_V1.json", import.meta.url), "utf8"));
+const respondentUi = await readFile(new URL("../src/app/brand-discovery/[token]/BrandDiscoveryRespondent.tsx", import.meta.url), "utf8");
+const respondentFunction = await readFile(new URL("../supabase/functions/brand-discovery-respondent/index.ts", import.meta.url), "utf8");
+const privateReportFunction = await readFile(new URL("../supabase/functions/brand-discovery-private-report/index.ts", import.meta.url), "utf8");
 
 // This checks exact source-to-runtime mapping. It deliberately does NOT approve or activate the draft.
 assert.equal(bank.status, "draft", "The questionnaire must remain inactive until release approval.");
@@ -171,6 +174,26 @@ assert.equal(bank.source_reconciliation.selection_rules_interactive_verified, fa
   "Do not mark interactive selection rules verified before end-to-end testing.");
 assert.equal(bank.source_reconciliation.checklist_interactive_verified, false,
   "Do not mark the checklist verified before it is implemented and tested.");
+
+// Semantic-decision regression guards. Static checks do not replace browser/database integration tests.
+const roomRateQuestion = bank.sections.flatMap((section) => section.questions).find((question) => question.id === "s5_q3");
+assert.equal(roomRateQuestion.parts[4].optional, true, "The extra room category must be optional.");
+assert.match(respondentUi, /part\\.optional === true \\|\\| \\(saved\\[part\\.id\\] \\?\\? \\[\\]\\)\\.length > 0/,
+  "The respondent completion check must not require an unused optional part.");
+assert.match(respondentUi, /explanation_part_ids \\?\\? \\[\\]/,
+  "Optional clarification must be tied to its selected multipart field.");
+assert.match(respondentUi, /Clear optional selection/,
+  "Respondents must be able to clear an optional category selection.");
+assert.match(respondentFunction, /part\\.optional === true && choices\\.length === 0/,
+  "Server validation must allow an empty optional multipart field.");
+assert.match(privateReportFunction, /respondent_reported_availability/);
+assert.match(privateReportFunction, /receipt_status: "NOT_INDEPENDENTLY_CONFIRMED"/);
+assert.match(privateReportFunction, /review_status: "NOT_REVIEWED_BY_THIS_REPORT_FUNCTION"/);
+assert.match(privateReportFunction, /verification_status: "NOT_VERIFIED"/);
+assert.match(privateReportFunction, /labelFor\\(question\\?\\.options, id\\)/,
+  "Private reports must render human-readable labels instead of raw choice IDs.");
+assert.match(respondentUi, /Voice navigation \\(prototype\\)/);
+assert.match(respondentUi, /not a conversational AI guide/i);
 
 console.log("PASS: source mapping — 16 sections, 235 exact prompt/source blocks, 223 simple choice questions, 10 multi-part questions, 1 per-service status matrix, 1 repeatable hall-capacity matrix, exact choice order/limits, 20 checklist items and acknowledgement text.");
 console.log("RELEASE BLOCKED BY DESIGN: template remains draft; checklist/acknowledgement UI, security, accessibility and end-to-end tests are not yet approved.");
