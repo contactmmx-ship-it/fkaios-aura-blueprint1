@@ -573,6 +573,7 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
                       </label>;
                     })}
                   </div>
+                  {part.optional && selectedChoices.length > 0 && <button type="button" onClick={() => setAnswers((a) => { const raw = a[question.id] ?? ""; const all = parsePartAnswer(raw); return { ...a, [question.id]: encodePartAnswer({ ...all, [part.id]: [] }, parsePartExplanation(raw)) }; })} className="mt-3 rounded-lg border border-white/20 px-3 py-2 text-sm text-slate-300 hover:bg-white/5">Clear optional selection</button>}
                 </fieldset>;
               })}
               {question.optional_explanation && ((question.parts ?? []).some((part) => part.options.some((option) => option.label.trim().toLowerCase().startsWith("other") && (parsePartAnswer(currentAnswer)[part.id] ?? []).includes(option.value))) || (question.explanation_part_ids ?? []).some((partId) => (parsePartAnswer(currentAnswer)[partId] ?? []).length > 0)) && <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/5 p-4">
