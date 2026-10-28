@@ -16,6 +16,7 @@ assert.equal(isValidQuestionAnswer({ type: "text" }, { text: "not a string" }), 
 assert.equal(isValidQuestionAnswer({ type: "text" }, "x".repeat(2_001)), false);
 assert.equal(isValidQuestionAnswer({ type: "long_text" }, "x".repeat(10_000)), true);
 assert.equal(isValidQuestionAnswer({ type: "file_or_text" }, "x".repeat(5_001)), false);
+assert.equal(isValidQuestionAnswer({ type: "multiple_choice", options: [{ value: "a", label: "A" }], selection_mode: "single" }, { choices: ["a"], padding: "x".repeat(25_001) }), false);
 
 const multipart = {
   type: "multi_part",
@@ -66,4 +67,4 @@ assert.equal(isValidClosureAnswer(closureQuestionnaire, { ...closure, documents:
 assert.equal(isValidClosureAnswer(closureQuestionnaire, { ...closure, acknowledged: false }), false);
 assert.equal(isValidClosureAnswer(closureQuestionnaire, { ...closure, owner_date: "28-10-2026" }), false);
 
-console.log("Brand Discovery answer-validation tests passed (25 assertions).");
+console.log("Brand Discovery answer-validation tests passed (26 assertions).");
