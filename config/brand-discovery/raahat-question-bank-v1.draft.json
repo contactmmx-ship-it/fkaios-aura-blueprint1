@@ -1806,7 +1806,9 @@
               "label": "Not sure"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s3_q7",
@@ -6874,7 +6876,9 @@
               "label": "Prefer to discuss confidentially"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s9_q12",
@@ -9290,7 +9294,9 @@
               "label": "Prefer to discuss confidentially"
             }
           ],
-          "selection_mode": "multiple"
+          "selection_mode": "multiple",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s12_q12",
