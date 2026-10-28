@@ -205,6 +205,17 @@ export function researchedSourceUrls(tasks: TaskEvidenceRecord[]): Set<string> {
       }
     }
   }
+  // ONE BRAIN (28 Oct 2026): founder-memory chats that a knowledge.search dispatch actually returned at or
+  // above the relevance bar count as fetched sources too (same rule assessKnowledgeSearch applies).
+  for (const task of tasks) {
+    if (!SUCCESS_TASK_STATUSES.has(String(task.status ?? ""))) continue;
+    const output = parseOutput(task.output);
+    const d = output?.companyOsDispatch && typeof output.companyOsDispatch === "object" ? output.companyOsDispatch as Record<string, unknown> : null;
+    if (!d || d.status !== "success" || d.capability !== KNOWLEDGE_SEARCH) continue;
+    for (const m of knowledgeMatches(d)) {
+      if (m.source_url && m.similarity >= KNOWLEDGE_MATCH_MIN_SIMILARITY) urls.add(normalizeUrl(m.source_url));
+    }
+  }
   return urls;
 }
 
@@ -218,7 +229,12 @@ function citedSourceUrls(output: Record<string, unknown> | null): string[] {
   if (!output) return [];
   const llm = output.llmResult && typeof output.llmResult === "object" ? output.llmResult as Record<string, unknown> : null;
   const list = Array.isArray(output.sources) ? output.sources : Array.isArray(llm?.sources) ? llm!.sources as unknown[] : [];
-  return list.flatMap((s) => s && typeof s === "object" && typeof (s as Record<string, unknown>).url === "string" ? [normalizeUrl((s as Record<string, unknown>).url as string)] : []);
+  return list.flatMap((s) => {
+    if (!s || typeof s !== "object") return [];
+    const r = s as Record<string, unknown>;
+    const url = typeof r.url === "string" ? r.url : typeof r.source_url === "string" ? r.source_url : null;
+    return url ? [normalizeUrl(url)] : [];
+  });
 }
 
 // `researched` is the set of URLs the objective's research tasks fetched
@@ -277,6 +293,14 @@ export interface KnowledgeMatchEvidence {
   document_id: string;
   similarity: number;
   excerpt: string;
+  // ONE BRAIN (28 Oct 2026): a founder-memory match (vault-engine v4+, no chunk id) is citable as
+  // fkaios-memory://<knowledge source id>. Vault chunk matches keep source_url null.
+  source_url: string | null;
+}
+
+export const FOUNDER_MEMORY_URL_PREFIX = "fkaios-memory://";
+export function founderMemoryUrl(documentId: string): string {
+  return `${FOUNDER_MEMORY_URL_PREFIX}${documentId}`;
 }
 
 // Reads matches from either the compact stored form (evidence.matches) or a
@@ -293,11 +317,14 @@ export function knowledgeMatches(dispatch: Record<string, unknown>): KnowledgeMa
     const documentId = typeof r.document_id === "string" ? r.document_id : "";
     const similarity = Number(r.similarity);
     if (!documentId || !Number.isFinite(similarity)) continue;
+    const chunkId = typeof r.chunk_id === "string" ? r.chunk_id : typeof r.id === "string" ? r.id : null;
+    const isMemory = r.source === "founder_memory" || (typeof r.source_url === "string" && r.source_url.startsWith(FOUNDER_MEMORY_URL_PREFIX)) || chunkId === null;
     out.push({
-      chunk_id: typeof r.chunk_id === "string" ? r.chunk_id : typeof r.id === "string" ? r.id : null,
+      chunk_id: chunkId,
       document_id: documentId,
       similarity: Math.round(similarity * 1000) / 1000,
       excerpt: String(r.excerpt ?? r.chunk_text ?? "").slice(0, 240),
+      source_url: isMemory ? founderMemoryUrl(documentId) : null,
     });
   }
   return out;
