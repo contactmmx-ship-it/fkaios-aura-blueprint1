@@ -16,7 +16,7 @@ const config = bank as unknown as { brand: { name: string; owner: string; locati
 const sections = config.sections;
 const questions = sections.flatMap((section, sectionIndex) => section.questions.map((question) => ({ ...question, sectionTitle: section.title, sectionIndex })));
 const steps = questions.length + config.document_checklist.length + 1;
-const STORE_KEY = "fk-raahat-premium-preview-v2";
+const STORE_KEY = "fk-raahat-guided-discovery-v1";
 const blank = (value: unknown) => value === undefined || value === null || value === "" || (Array.isArray(value) && value.length === 0);
 
 function Icon({ name, className = "" }: { name: string; className?: string }) {
