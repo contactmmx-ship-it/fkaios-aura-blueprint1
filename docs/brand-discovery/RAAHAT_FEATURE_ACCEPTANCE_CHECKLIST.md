@@ -138,3 +138,38 @@ The room-rate mapping now marks “Other category” optional, asks the responde
 - The migration workflow still fails before applying anything because repository secrets `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD` are missing. Vercel checks are blocked by the free build-rate limit.
 - No dedicated non-production Supabase branch currently exists. A development branch quote was returned at **US$0.01344/hour**. Do not create it until the user explicitly confirms this recurring cost.
 - Production migration, Edge Function deployment, template activation, invitation/email sending, and merge remain blocked until the missing prerequisites and release checks are satisfied.
+
+
+## Continuation update — 28 October 2026 (guided preview and validation)
+
+The following work was added after the earlier status notes. These are implementation facts, not release approval:
+
+- [x] Premium welcome journey in the preview, with plain-language expectations and an explicit preview-only privacy disclosure.
+- [x] Browser preview persists the journey stage alongside responses and restores it on reload; displays a welcome-back notice when saved responses exist.
+- [x] Required-question gate and final acknowledgement gate in the preview UI.
+- [x] Completion-stage answer review with shortcuts to edit any of the 235 mapped questions.
+- [x] Local JSON export and print/save-as-PDF action; the exported JSON identifies itself as preview-only and not submitted or verified.
+- [x] Optional browser-native speech-to-text dictation for long text answers, with unsupported/permission-denied fallback.
+- [x] Contextual Discovery Guide chat panel in both the Next.js preview and standalone preview.
+- [x] Server-side guide route with a no-spend local guidance mode. A model request is made only if the server-side enable flag, AI Gateway key and explicit model ID are all present. No model default is supplied, and no AI call was made by this code change.
+- [x] Optional browser speech playback for guide replies; this is browser-native speech, not natural AI voice generation.
+- [x] Automated guide-safety test added to the frontend CI workflow; it checks the no-spend gate, server-only credentials, response bounds, timeout and fallback disclosures.
+- [x] Frontend workflow now watches the preview route, guide API and standalone preview paths.
+
+### Latest observed validation — commit `9dd22c4b63a57a346c6fa0c2ea99c301733f3423`
+
+- Questionnaire source validation: **PASS** — [run](https://github.com/contactmmx-ship-it/fkaios-aura-blueprint1/actions/runs/40656784268).
+- Frontend type-check, guide-safety test and Next.js production build: **PASS** — [run](https://github.com/contactmmx-ship-it/fkaios-aura-blueprint1/actions/runs/40656784087).
+- Edge Function type-check: **PASS** — [run](https://github.com/contactmmx-ship-it/fkaios-aura-blueprint1/actions/runs/40656784123).
+- Production migration drift check: **PASS** — [run](https://github.com/contactmmx-ship-it/fkaios-aura-blueprint1/actions/runs/40656784149). This is not a migration application or integration test.
+- Standalone static preview build: **PASS** — [run and downloadable artifact](https://github.com/contactmmx-ship-it/fkaios-aura-blueprint1/actions/runs/40656776221). GitHub Pages deployment itself is unavailable because the GitHub integration cannot create/enable the Pages site; the workflow preserves a downloadable build artifact instead.
+- Vercel deployment remains blocked by the daily free-plan deployment quota. The passing GitHub build is separate from deployment.
+- No production migration, Edge Function deployment, activation, invite/email sending, or paid AI use occurred.
+
+### Still required before release
+
+- Non-production end-to-end persistence, token security, submit/email/private-report access tests.
+- Accessibility and device/browser QA.
+- Approved secure document upload implementation (the current checklist tracks availability only).
+- Human review and completion of evidence-backed diagnosis and transformation plan; the current deterministic report must not be represented as a final diagnosis.
+- Explicit approval before enabling any paid or metered AI model, and before production activation.
