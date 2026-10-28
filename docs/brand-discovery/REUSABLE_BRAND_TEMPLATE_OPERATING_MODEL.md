@@ -38,6 +38,8 @@ The release gate checks question IDs, prompt, required flag, type-specific optio
 
 The seeder only inserts or updates a row that is still `draft`; it refuses to overwrite a non-draft version and never creates a session or invitation. Do not put credentials in a command shared in chat or commit them to the repository.
 
+Activation is a separate operation and is not part of seeding. Only after all checks have genuinely passed in an authorised non-production environment, run `node scripts/activate-brand-discovery-template.mjs <slug> <version> --confirm-activate` with `BRAND_DISCOVERY_ACTIVATE_CONFIRM=I_APPROVE_TEMPLATE_RELEASE` set through the approved secret manager. If an earlier version is active, the operator must also explicitly pass `--retire-existing-active`. The script refuses activation if review flags, recorded human approval, schema checks, or (for Raahat) canonical source verification are incomplete. It does not create invitations or send email. Do not run this command against production without separate explicit release approval.
+
 ## Security and delivery defaults
 
 - Respondent tokens are random, high entropy and stored as hashes.
