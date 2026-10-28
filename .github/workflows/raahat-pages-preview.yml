@@ -37,14 +37,24 @@ jobs:
       - name: Build standalone static preview
         working-directory: preview-static
         run: npm run build
+      - name: Upload built preview as downloadable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: raahat-static-preview-${{ github.sha }}
+          path: preview-static/dist
+          retention-days: 14
       - name: Configure GitHub Pages
+        id: pages
+        continue-on-error: true
         uses: actions/configure-pages@v5
         with:
           enablement: true
-      - name: Upload static preview
+      - name: Prepare GitHub Pages artifact
+        if: steps.pages.outcome == 'success'
         uses: actions/upload-pages-artifact@v3
         with:
           path: preview-static/dist
       - name: Deploy static preview
         id: deployment
+        if: steps.pages.outcome == 'success'
         uses: actions/deploy-pages@v4
