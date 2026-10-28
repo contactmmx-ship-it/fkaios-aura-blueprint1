@@ -178,21 +178,21 @@ assert.equal(bank.source_reconciliation.checklist_interactive_verified, false,
 // Semantic-decision regression guards. Static checks do not replace browser/database integration tests.
 const roomRateQuestion = bank.sections.flatMap((section) => section.questions).find((question) => question.id === "s5_q3");
 assert.equal(roomRateQuestion.parts[4].optional, true, "The extra room category must be optional.");
-assert.match(respondentUi, /part\\.optional === true \\|\\| \\(saved\\[part\\.id\\] \\?\\? \\[\\]\\)\\.length > 0/,
+assert.ok(respondentUi.includes("part.optional === true || (saved[part.id] ?? []).length > 0"),
   "The respondent completion check must not require an unused optional part.");
-assert.match(respondentUi, /explanation_part_ids \\?\\? \\[\\]/,
+assert.ok(respondentUi.includes("explanation_part_ids ?? []"),
   "Optional clarification must be tied to its selected multipart field.");
-assert.match(respondentUi, /Clear optional selection/,
+assert.ok(respondentUi.includes("Clear optional selection"),
   "Respondents must be able to clear an optional category selection.");
-assert.match(respondentFunction, /part\\.optional === true && choices\\.length === 0/,
+assert.ok(respondentFunction.includes("part.optional === true && choices.length === 0"),
   "Server validation must allow an empty optional multipart field.");
-assert.match(privateReportFunction, /respondent_reported_availability/);
-assert.match(privateReportFunction, /receipt_status: "NOT_INDEPENDENTLY_CONFIRMED"/);
-assert.match(privateReportFunction, /review_status: "NOT_REVIEWED_BY_THIS_REPORT_FUNCTION"/);
-assert.match(privateReportFunction, /verification_status: "NOT_VERIFIED"/);
-assert.match(privateReportFunction, /labelFor\\(question\\?\\.options, id\\)/,
+assert.ok(privateReportFunction.includes("respondent_reported_availability"));
+assert.ok(privateReportFunction.includes('receipt_status: "NOT_INDEPENDENTLY_CONFIRMED"'));
+assert.ok(privateReportFunction.includes('review_status: "NOT_REVIEWED_BY_THIS_REPORT_FUNCTION"'));
+assert.ok(privateReportFunction.includes('verification_status: "NOT_VERIFIED"'));
+assert.ok(privateReportFunction.includes("labelFor(question?.options, id)"),
   "Private reports must render human-readable labels instead of raw choice IDs.");
-assert.match(respondentUi, /Voice navigation \\(prototype\\)/);
+assert.ok(respondentUi.includes("Voice navigation (prototype)"));
 assert.match(respondentUi, /not a conversational AI guide/i);
 
 console.log("PASS: source mapping — 16 sections, 235 exact prompt/source blocks, 223 simple choice questions, 10 multi-part questions, 1 per-service status matrix, 1 repeatable hall-capacity matrix, exact choice order/limits, 20 checklist items and acknowledgement text.");
