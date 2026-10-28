@@ -1,78 +1,81 @@
 # Raahat Questionnaire — Semantic Review Notes
 
-**Status:** AI-assisted review completed; **Franchise Kart owner approval still required**. This document is not a release approval.
+**Status:** Owner semantic decisions recorded for SR-01–SR-06; implementation verification and release approval remain outstanding. This document is not a release approval.
 **Reviewed:** 28 October 2026
+**Owner decisions recorded:** 28 October 2026, based on explicit Franchise Kart owner authorization in the project conversation.
 **Canonical source:** `docs/brand-discovery/source/RAAHAT_OWNER_DISCOVERY_QUESTIONNAIRE_ORIGINAL.txt`
 **Runtime template:** `config/brand-discovery/raahat-question-bank-v1.draft.json`
 
 ## Review boundary
 
-This review checks whether the mapped controls can be understood without changing the recovered questionnaire's wording or silently inventing business facts. It does not certify the source as commercially complete, and it does not replace a review by the FK project owner or Mr. Chitwan.
+This review checks whether the mapped controls can be understood without changing the recovered questionnaire's wording or silently inventing business facts. It does not certify the source as commercially complete, and it does not replace technical verification or release approval. The decisions below authorize implementation of the stated handling rules; they do not authorize production changes, invitations, email sending, or release.
 
-## Findings and required decisions
+## Findings and owner decisions
 
 ### SR-01 — Room category and rate capture
 
-**Risk:** The source asks for room rates by category, while the runtime mapping uses a predefined room-category control. The source may not define every category actually used by Raahat.
+**Owner decision: APPROVED.**
 
-**Safe handling:** Preserve every source-defined category and provide an explicit “Other” path with a separate optional clarification. Do not force the owner into a category that does not fit. If the current UI cannot accept an owner-defined category, treat this as a release blocker.
+Preserve all source-defined categories and add an explicit “Other” path with a separate optional clarification. Do not force the owner into a category that does not fit. The UI must retain the canonical selected option and clarification separately.
 
-**Approval required:** FK confirms the category list matches Raahat's actual inventory or approves the “Other” route as sufficient.
+**Verification still required:** Confirm the actual control, persistence, resume/edit behavior, and source validator implement this decision without changing source wording/options.
 
 ### SR-02 — Month-by-month occupancy
 
-**Risk:** The source asks about occupancy for each month, while a short instruction says “Select one.” A single answer for the whole year would lose the requested monthly detail.
+**Owner decision: APPROVED.**
 
-**Safe handling:** Capture one response per month, label each month explicitly, and preserve “Not sure / records unavailable” only where supported by the source choices. Do not infer occupancy percentages from categorical answers. If the source does not supply numeric ranges or a suitable “unknown” choice for a month, flag that gap for FK approval rather than adding a new source option silently.
+Capture each of the 12 months separately and preserve source-defined options. Do not infer or fabricate percentages. If a month lacks a suitable source-defined choice or the available choices cannot represent the answer faithfully, flag that gap for an explicit FK decision rather than silently inventing a choice.
 
-**Approval required:** FK confirms the monthly grid faithfully expresses the source's intent.
+**Verification still required:** Confirm 12 individually labelled month controls, per-month persistence/validation, and no inferred numeric values.
 
-### SR-03 — Questions asking for business facts where choices describe records
+### SR-03 — Business facts versus record availability
 
-**Risk:** Some prompts request detailed numeric or operational facts, but the available choices appear to describe records, categories, or availability. A selected “records available” option is not the underlying financial or operating figure.
+**Owner decision: APPROVED.**
 
-**Safe handling:** Store the chosen source option as a self-reported answer only. Do not treat it as a numeric value, verified evidence, or a basis for margin/occupancy calculations. Where the source requests an actual figure but the form has no way to capture it, list it as a discovery gap for the follow-up interview; do not silently substitute a new field into the canonical source mapping.
+Store source choices as self-reported answers only. “Records available” or similar choices must never be treated as the underlying business figure, verified evidence, or a basis for financial/operational calculations. Flag missing numeric or operational facts for follow-up. Any added field requires an explicit FK decision and a versioned template change; do not silently alter the canonical source mapping.
 
-**Approval required:** FK decides whether a versioned follow-up field should be added in a later template version.
+**Verification still required:** Inspect report generation, data model, and validation for any unsupported conversion from categorical answers to numeric or verified facts.
 
 ### SR-04 — “Other” clarification
 
-**Risk:** A selected “Other” option can be ambiguous without explanation.
+**Owner decision: APPROVED.**
 
-**Safe handling:** The supplemental clarification is optional, appears only after an applicable “Other” choice, and must be stored separately from the canonical choice. It must not replace, reorder, or rewrite the source prompt/options. Do not require a clarification when the owner selects “Prefer to discuss personally” unless FK explicitly approves that behavior.
+Show a separate optional clarification only after an applicable “Other” selection. Store it separately from the canonical selected option and preserve source prompt/options unchanged. Do not require clarification for “Prefer to discuss personally.”
 
-**Verification needed:** Confirm the frontend and server both preserve the clarification across save, resume, edit and submission.
+**Verification still required:** Test simple-choice, multipart and service-status controls, including save, resume, edit and submit. Confirm the clarification never replaces or mutates the canonical answer.
 
 ### SR-05 — Evidence status versus owner statement
 
-**Risk:** Owner answers and document checklist selections may be mistaken for verified facts.
+**Owner decision: APPROVED.**
 
-**Safe handling:** Label questionnaire answers as **owner-reported, not yet verified**. Checklist responses indicate reported availability only—not that a file was received, reviewed, authentic or reconciled. The private report must keep “reported”, “received”, “reviewed” and “verified” as distinct states. Do not generate financial conclusions or brand-specific diagnoses from unverified answers alone.
+Label owner responses as **self-reported / not yet verified**. Keep **reported**, **received**, **reviewed** and **verified** as distinct statuses. A document-availability selection must not imply that a document was received, reviewed, authenticated or reconciled. Do not present unverified answers as proven business conclusions.
 
-**Approval required:** FK approves the private report's evidence labels and follow-up workflow before release.
+**Verification still required:** Review the private report and workflow state transitions; confirm report labels and evidence status are distinct and no unsupported diagnosis is generated.
 
 ### SR-06 — Voice, language and accessibility
 
-**Risk:** Browser-native speech features do not guarantee natural Hindi/Hinglish conversation, accurate speech recognition, or accessible operation across devices.
+**Owner decision: APPROVED.**
 
-**Safe handling:** Describe voice as an optional browser-dependent prototype until tested. Keyboard-only completion, readable focus state, small-screen layout, clear save/error feedback and a non-voice completion path are required. Do not advertise a conversational AI guide as complete.
+Voice is optional. Describe browser-native speech recognition/read-aloud accurately as a browser-dependent voice-input/read-aloud prototype, not a conversational AI guide. The complete questionnaire must work without voice or microphone permission.
 
-**Verification needed:** Test supported desktop/mobile browsers and screen-reader/keyboard use before release.
+**Verification still required:** Test keyboard navigation, visible focus, labels, screen-reader behavior, readable validation/errors, desktop and mobile browsers, save/resume, and clear validation/submission feedback.
 
 ## Release decision
 
-**Not approved for activation.** The following remain hard gates:
+**Not approved for activation or release.** Owner semantic decisions are recorded, but implementation verification and the following gates remain open:
 
-1. FK owner reviews SR-01 through SR-06 and records acceptance or a versioned change decision.
-2. CI is checked against the current PR head, not a previous commit.
-3. In an authorized non-production Supabase project, test invitation, open, answer, autosave, close, exact resume, back/edit, checklist, acknowledgement, submission and private FK report.
+1. Verify the implementation against SR-01 through SR-06, and record any unresolved source gaps for explicit FK decision.
+2. Confirm CI against the current PR head SHA, not an earlier commit.
+3. In an explicitly authorized non-production Supabase project, test invitation, open, answer, autosave, close, exact resume, back/edit, checklist, acknowledgement, submission and private FK report.
 4. Run negative security tests for expired/invalid tokens, altered and duplicate answers, incomplete submissions, unauthorized staff, respondent access to private reports, and restrictive CORS/RLS.
 5. Verify no service-role key is exposed to the browser and no secrets are committed or pasted into chat.
 6. Review email sender/provider, privacy copy, accessibility and the release checklist.
-7. Obtain explicit release approval before migration, deployment, activation or sending invitations.
+7. Obtain separate explicit release approval before migration, deployment, activation or sending invitations.
 
-The existing workflow's missing-secret failure is a pre-migration block. Do not bypass it, add placeholder secrets, apply migrations to production, or use Vercel quota exhaustion as a reason to merge without the required checks.
+The missing-secret workflow failure is a pre-migration block. Do not bypass it, add placeholder secrets, apply migrations to production, or use Vercel quota exhaustion as a reason to merge without required checks. Configure secrets only through the approved secret manager, with authorized access.
 
 ## Current evidence snapshot
 
-At the review point, PR #191 is draft/open/unmerged. The current observed head has passing questionnaire, frontend and Edge Function validation workflows; migration deployment failed at the required-secret check before applying a migration. Vercel deployment checks are pending/blocked by the free daily deployment quota, and an unrelated GoMax deployment check is failing. These statuses do not prove the Raahat end-to-end journey or production readiness.
+At the latest inspected PR metadata, PR #191 is draft/open/unmerged, with head SHA `08d1ad60d0a561e540061e6633c587f07ecc4d88`. The PR description reports validation runs on an earlier head (`4a19862966d77b4dc9ea4fe5f91e3f3a13d4344b)); current-head checks must be re-verified. The Supabase migration workflow previously failed at the required-secret check before applying a migration. This is not evidence of a successful migration or end-to-end journey. Vercel quota blocks and unrelated GoMax checks are not evidence of Raahat readiness.
+
+No production migration, deployment, activation, invitation/email sending, or paid AI use is authorized by these semantic decisions.
