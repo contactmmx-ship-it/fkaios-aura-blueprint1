@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - "src/app/brand-discovery/**"
+      - "src/app/brand-discovery-preview/**"
+      - "src/app/api/brand-discovery-guide/**"
+      - "preview-static/**"
       - "package.json"
       - "package-lock.json"
       - "next.config.*"
@@ -15,6 +18,9 @@ on:
       - "feature/brand-discovery-foundation"
     paths:
       - "src/app/brand-discovery/**"
+      - "src/app/brand-discovery-preview/**"
+      - "src/app/api/brand-discovery-guide/**"
+      - "preview-static/**"
       - "package.json"
       - "package-lock.json"
       - "next.config.*"
