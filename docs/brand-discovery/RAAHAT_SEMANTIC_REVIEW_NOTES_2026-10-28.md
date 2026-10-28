@@ -79,3 +79,8 @@ The missing-secret workflow failure is a pre-migration block. Do not bypass it, 
 At the latest inspected PR metadata, PR #191 is draft/open/unmerged, with head SHA `08d1ad60d0a561e540061e6633c587f07ecc4d88`. The PR description reports validation runs on an earlier head (`4a19862966d77b4dc9ea4fe5f91e3f3a13d4344b)); current-head checks must be re-verified. The Supabase migration workflow previously failed at the required-secret check before applying a migration. This is not evidence of a successful migration or end-to-end journey. Vercel quota blocks and unrelated GoMax checks are not evidence of Raahat readiness.
 
 No production migration, deployment, activation, invitation/email sending, or paid AI use is authorized by these semantic decisions.
+
+
+## Implementation follow-up — room-rate Other category
+
+A targeted draft-branch fix has now been committed: the “Other category” room-rate row is marked optional, the instructions tell the respondent to leave it blank when no additional category exists, and an optional separate clarification is shown only when that row is answered. The respondent completion check and Edge Function multipart validator were adjusted to allow that optional part, and the source validator now asserts the behavior. **This is code presence, not yet verified acceptance.** Current-head CI and non-production persistence/submit tests must pass before this fix can be accepted.
