@@ -2,6 +2,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { validateBrandDiscoveryTemplate } from "../_shared/brand-discovery-template-gate.mjs";
 
 const allowedOrigin = Deno.env.get("BRAND_DISCOVERY_ALLOWED_ORIGIN") ?? "";
 const cors = {
@@ -128,8 +129,13 @@ Deno.serve(async (req: Request) => {
     .select("id,slug,version,brand_category,title,locale,status,questionnaire").eq("id", body.questionnaire_version_id).maybeSingle();
   if (versionError || !version || version.status !== "active")
     return reply(400, { error: "active_questionnaire_version_required" });
-  // Extra server-side release gate for the Raahat pilot. A database status flip
-  // alone must never make the known non-canonical replacement draft inviteable.
+  // Universal release gate for every brand template. An active database flag alone
+  // is insufficient: all reviews and a recorded human approval must be present.
+  const templateGate = validateBrandDiscoveryTemplate(version.questionnaire);
+  if (!templateGate.ok) return reply(409, { error: "template_release_gate_not_passed", failed_checks: templateGate.errors });
+
+  // Additional strict source-fidelity gate for the Raahat pilot; reusable templates
+  // for other brands use the shared gate above and their own versioned source review.
   if (version.slug === "raahat-brand-discovery" && !raahatCanonicalGate(version.questionnaire))
     return reply(409, { error: "raahat_canonical_source_gate_not_passed" });
   const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
@@ -145,11 +151,12 @@ Deno.serve(async (req: Request) => {
 
   // Invitation delivery is opt-in by environment configuration. Without all required
   // settings, no email is sent and the authenticated operator receives the one-time token.
-  let emailDelivery = "not_configured";
+  const emailSendingEnabled = Deno.env.get("FK_BRAND_DISCOVERY_EMAIL_SENDING_ENABLED") === "true";
+  let emailDelivery = emailSendingEnabled ? "not_configured" : "disabled_by_policy";
   const mailKey = Deno.env.get("RESEND_API_KEY");
   const mailFrom = Deno.env.get("BRAND_DISCOVERY_EMAIL_FROM");
   const publicOrigin = Deno.env.get("BRAND_DISCOVERY_PUBLIC_ORIGIN") ?? allowedOrigin;
-  if (mailKey && mailFrom && publicOrigin && session.respondent_email) {
+  if (emailSendingEnabled && mailKey && mailFrom && publicOrigin && session.respondent_email) {
     try {
       const link = `${publicOrigin.replace(/\/$/, "")}/brand-discovery/${token}`;
       const brand = session.brand_name.replace(/[<>]/g, "");
@@ -175,6 +182,8 @@ Deno.serve(async (req: Request) => {
     email_delivery: emailDelivery,
     warning: emailDelivery === "sent"
       ? "Invitation email was accepted by the configured provider. The raw token is returned once; handle it securely."
-      : "No invitation email was confirmed. Configure the approved mail provider or share the one-time secure link manually.",
+      : emailDelivery === "disabled_by_policy"
+        ? "Email sending is disabled by default. No invitation email was sent; use only an explicitly approved delivery process."
+        : "No invitation email was confirmed. Check the approved mail provider configuration or share the one-time secure link manually.",
   });
 });
