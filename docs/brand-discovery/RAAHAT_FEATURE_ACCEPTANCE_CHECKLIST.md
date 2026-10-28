@@ -109,3 +109,21 @@ The runtime mapping is source-complete at the structural/automated level: 16 sec
 ## Optional clarification control — 28 October 2026
 
 The respondent UI now reveals an optional text field only when an `Other` / `Other…` choice is selected, including the service-status matrix and multipart questions. The response is stored alongside the selected answer; it does not replace or rewrite the source prompt or source options. The automated validator checks that every applicable answer control has the supplemental field. This remains a draft until the current CI run and non-production save/resume/submit journey pass.
+
+
+## Owner semantic decisions — 28 October 2026
+
+FK owner decisions SR-01–SR-06 have been explicitly approved and recorded in `RAAHAT_SEMANTIC_REVIEW_NOTES_2026-10-28.md`. This resolves the *decision* gate only; it does not certify that the current code fully implements each decision.
+
+- [x] SR-01 decision: preserve source categories and provide an explicit optional Other path; do not force a category that does not fit.
+- [x] SR-02 decision: capture each of the 12 months separately, retain source-defined choices, and do not infer percentages.
+- [x] SR-03 decision: categorical answers remain self-reported; record availability is not the business figure or verified evidence; any added field needs explicit FK approval and a versioned template change.
+- [x] SR-04 decision: optional Other clarification appears only when applicable, remains separate from the canonical choice, and is not required for “Prefer to discuss personally.”
+- [x] SR-05 decision: reported, received, reviewed and verified remain distinct evidence states.
+- [x] SR-06 decision: voice is optional and described as a browser-dependent prototype; the full flow must work without microphone access.
+- [ ] Verify each decision in UI, persistence, server-side validation and private report; do not mark implementation accepted until tests pass.
+- [ ] Current-head CI and authorized non-production end-to-end/security/accessibility checks remain release gates.
+
+### Implementation audit note
+
+The current room-rate mapping uses a fixed multipart row labelled “Other category” and the generic multipart validator requires a choice for every part. The current optional-clarification trigger detects an option labelled “Other” only when that option is selected. Therefore, the implementation still needs a targeted fix/review so an owner without an additional room category is not forced to supply an “Other category” rate and any extra category name is captured separately when applicable. This is an identified blocker, not a completed fix. Do not change canonical source wording/options to hide the gap.
