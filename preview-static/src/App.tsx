@@ -170,7 +170,7 @@ export default function BrandDiscoveryPreviewPage() {
     else if (stage === "complete") setStage("ack");
   };
   const resetPreview = () => {
-    setAnswers({}); setNotes({}); setIndex(0); setStage("questions"); setShowReset(false); setWelcomeOpen(true); setResumeAvailable(false); setReviewOpen(false); setValidationMessage("");
+    setAnswers({}); setNotes({}); setIndex(0); setStage("questions"); setShowReset(false); setWelcomeOpen(true); setResumeAvailable(false); setReviewOpen(false); setValidationMessage(""); setGuideChat([]); setGuideInput("");
     try { window.localStorage.removeItem(STORE_KEY); } catch { /* no-op */ }
   };
   const getGuideText = () => {
@@ -187,7 +187,7 @@ export default function BrandDiscoveryPreviewPage() {
     const nextChat = [...guideChat, { role: "user" as const, content: text }].slice(-8);
     setGuideChat(nextChat); setGuideInput(""); setGuideBusy(true);
     try {
-      const response = await fetch("/api/brand-discovery-guide", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text, history: nextChat.slice(-6), context: { brand: config.brand.name, section: currentQuestion?.sectionTitle ?? (stage === "documents" ? "Supporting documents" : stage === "ack" ? "Confidentiality" : "Completion"), questionNumber: currentQuestion?.number, question: currentQuestion?.prompt, helpText: currentQuestion?.help_text, questionType: currentQuestion?.type, options: currentQuestion?.options?.map((option) => option.label).slice(0, 24) } }) });
+      const response = await fetch("/api/brand-discovery-guide", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text, history: guideChat.slice(-6), context: { brand: config.brand.name, section: currentQuestion?.sectionTitle ?? (stage === "documents" ? "Supporting documents" : stage === "ack" ? "Confidentiality" : "Completion"), questionNumber: currentQuestion?.number, question: currentQuestion?.prompt, helpText: currentQuestion?.help_text, questionType: currentQuestion?.type, options: currentQuestion?.options?.map((option) => option.label).slice(0, 24) } }) });
       const payload = await response.json();
       setGuideChat((old) => [...old, { role: "assistant", content: typeof payload.answer === "string" ? payload.answer : "I could not prepare guidance just now. Please use the question explanation or continue without the guide." }].slice(-12));
     } catch { const local = [currentQuestion?.help_text, currentQuestion ? `This question asks: ${currentQuestion.prompt}` : `You are in ${stage}.`, "Answer from your actual experience or records. Do not guess. A self-reported answer is not the same as a received, reviewed or verified fact. If no option fits, use Other when offered and add a separate optional clarification."].filter(Boolean).join("\\n\\n"); setGuideChat((old) => [...old, { role: "assistant", content: local }].slice(-12)); }
