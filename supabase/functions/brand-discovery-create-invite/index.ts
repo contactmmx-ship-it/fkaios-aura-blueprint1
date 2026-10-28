@@ -129,6 +129,12 @@ Deno.serve(async (req: Request) => {
     .select("id,slug,version,brand_category,title,locale,status,questionnaire").eq("id", body.questionnaire_version_id).maybeSingle();
   if (versionError || !version || version.status !== "active")
     return reply(400, { error: "active_questionnaire_version_required" });
+  // Bind JSON identity to its database row so a mismatched slug/version cannot bypass
+  // brand-specific checks (especially the stricter Raahat source gate).
+  if (version.questionnaire?.slug !== version.slug || version.questionnaire?.version !== version.version ||
+      version.questionnaire?.brand?.category !== version.brand_category)
+    return reply(409, { error: "template_identity_mismatch" });
+
   // Universal release gate for every brand template. An active database flag alone
   // is insufficient: all reviews and a recorded human approval must be present.
   const templateGate = validateBrandDiscoveryTemplate(version.questionnaire);
