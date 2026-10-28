@@ -4,7 +4,7 @@ import { planObjective } from "./executive-planner.ts";
 import { allocateProjectWork, createRectificationTask, resumeTaskFromCheckpoint, returnCompletedWork } from "./work-engine.ts";
 import { contractCriteria, isIndependentVerificationLevel, isRecoverableOutputBlocker, verifyObjective } from "./objective-verifier.ts";
 import { readObjectiveState, syncObjectiveState } from "./objective-state.ts";
-import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, type TaskEvidenceRecord } from "./fact-grounding.ts";
+import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, founderMemoryEvidenceText, type TaskEvidenceRecord } from "./fact-grounding.ts";
 import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP } from "./objective-rerun.ts";
 import { classifyObjective, completionContract, planContractMismatch, projectOutputType, measuredProductCapabilityEvidence, hasMeasuredProductBuild, hasMeasuredProductVerification, hasVerifiedLiveProductEvidence } from "./objective-contract.ts";
 import { objectiveDeadline, objectiveDeadlineMinutes, objectiveRunStartedAt } from "./objective-deadline.ts";
@@ -436,7 +436,9 @@ async function evaluateObjective(
     ? await supabase.from("fkaios_execution_steps").select("resource_ref").in("task_id", taskIds).eq("outcome", "completed").like("resource_ref", "model:%")
     : { data: [] };
   const producerRefs = [...new Set(((producerSteps ?? []) as Array<{ resource_ref: string }>).map((r) => r.resource_ref))];
-  const evidence = currentTasks
+  // ONE BRAIN (28 Oct 2026): founder-memory sources first, so the 2,500-char per-task cut cannot hide them.
+  const memoryEvidence = founderMemoryEvidenceText(currentTasks as TaskEvidenceRecord[]);
+  const evidence = (memoryEvidence ? memoryEvidence + "\n\n" : "") + currentTasks
     .filter((t) => !/^Rectify:/i.test(String(t.title ?? "")))
     .map((t) => `[${String(t.title ?? "task")}]\n${String(t.output ?? "").slice(0, 2500)}`)
     .join("\n\n");

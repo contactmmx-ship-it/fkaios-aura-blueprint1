@@ -462,3 +462,37 @@ export function formatBlockedSummary(gate: ObjectiveTaskGate): string {
   ];
   return lines.join("\n");
 }
+
+
+// ONE BRAIN (28 Oct 2026): the founder-memory evidence an objective actually retrieved, as plain text for the
+// independent verifier. Per-task evidence is cut at 2,500 chars, which hid these sources and made the verifier
+// reject correctly cited fkaios-memory:// chats. Only knowledge.search matches at/above the relevance bar,
+// with the retrieved excerpt text (from the measured capability_result when present).
+export function founderMemoryEvidenceText(tasks: TaskEvidenceRecord[], maxChars = 8000): string {
+  const byUrl = new Map<string, { title: string; excerpts: string[] }>();
+  for (const task of tasks) {
+    if (!SUCCESS_TASK_STATUSES.has(String(task.status ?? ""))) continue;
+    const output = parseOutput(task.output);
+    const d = output?.companyOsDispatch && typeof output.companyOsDispatch === "object" ? output.companyOsDispatch as Record<string, unknown> : null;
+    if (!d || d.status !== "success" || d.capability !== KNOWLEDGE_SEARCH) continue;
+    const llm = output?.llmResult && typeof output.llmResult === "object" ? output.llmResult as Record<string, unknown> : null;
+    const measured = llm?.capability_result && typeof llm.capability_result === "object" ? llm.capability_result as Record<string, unknown> : null;
+    const fullText = new Map<string, string>();
+    for (const m of Array.isArray(measured?.matches) ? measured!.matches as unknown[] : []) {
+      if (!m || typeof m !== "object") continue;
+      const r = m as Record<string, unknown>;
+      if (typeof r.document_id === "string" && typeof r.chunk_text === "string") fullText.set(r.document_id, r.chunk_text);
+    }
+    for (const m of knowledgeMatches(d)) {
+      if (!m.source_url || m.similarity < KNOWLEDGE_MATCH_MIN_SIMILARITY) continue;
+      const text = fullText.get(m.document_id) ?? m.excerpt;
+      const title = /^\[([^\]]+)\]/.exec(text)?.[1] ?? /^\[([^\]]+)\]/.exec(m.excerpt)?.[1] ?? m.source_url;
+      const entry = byUrl.get(m.source_url) ?? { title, excerpts: [] };
+      if (!entry.excerpts.includes(text)) entry.excerpts.push(text);
+      byUrl.set(m.source_url, entry);
+    }
+  }
+  if (byUrl.size === 0) return "";
+  const lines = [...byUrl.entries()].map(([url, e]) => `${url} = ${e.title}\n${e.excerpts.join("\n").replace(/\s+/g, " ").slice(0, 1200)}`);
+  return `[FOUNDER MEMORY RETRIEVED BY THIS OBJECTIVE — fkaios-memory:// sources are the founder's own past-work chats, retrieved by knowledge.search; claims citing them are supported when this text supports them]\n${lines.join("\n\n")}`.slice(0, maxChars);
+}

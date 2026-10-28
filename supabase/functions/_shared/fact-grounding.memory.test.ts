@@ -55,3 +55,11 @@ Deno.test("worker grounding accepts a report citing only summarized memory sourc
   const g = checkWorkerGrounding({ title: "Compile the brief", description: "franchise sales figures" }, result);
   assert(g.ok, "grounded by memory");
 });
+
+import { founderMemoryEvidenceText } from "./fact-grounding.ts";
+
+Deno.test("verifier evidence lists retrieved memory chats with their text; weak matches excluded", () => {
+  const strong = founderMemoryEvidenceText([searchTask(0.875)]);
+  assert(strong.includes(founderMemoryUrl(MEM)) && strong.includes("ChatGPT: Chaat Masters Franchise Model"), "memory chat listed");
+  assert(founderMemoryEvidenceText([searchTask(0.7)]) === "", "weak match not listed");
+});
