@@ -13,3 +13,13 @@ Deno.test("object report renders as headings and bullets, not JSON", () => {
   assert(!out.trim().startsWith("{"), "not raw JSON");
 });
 Deno.test("plain text output unchanged", () => assert(taskWorkProduct("hello") === "hello", "plain"));
+
+import { buildObjectiveDeliverable } from "./objective-rerun.ts";
+Deno.test("information deliverable = final report task only", () => {
+  const out = buildObjectiveDeliverable("", [
+    { title: "Search memory", status: "done", output: JSON.stringify({ report: "raw search notes" }), created_at: "2026-10-28T10:00:00Z" },
+    { title: "Final Compliance Review", status: "done", output: "review notes", created_at: "2026-10-28T10:01:00Z" },
+    { title: "Compile and verify the final report", status: "done", output: JSON.stringify({ deliverable: "# One-page brief\n1. Built" }), created_at: "2026-10-28T10:02:00Z" },
+  ] as any);
+  assert(out.includes("# One-page brief") && !out.includes("review notes") && !out.includes("raw search notes"), "only final report");
+});

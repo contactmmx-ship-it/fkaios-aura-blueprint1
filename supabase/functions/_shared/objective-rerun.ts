@@ -145,7 +145,19 @@ export function taskWorkProduct(output: string): string {
 // The final_output of a completed objective: the verdict followed by every
 // completed task's actual work product, in execution order. Built only from
 // persisted task outputs, never generated, so it is exactly what was verified.
+// 28 Oct 2026: for information objectives the planner always appends "Compile and verify the final report",
+// whose output IS the founder-facing deliverable. Use it alone (latest completed one) instead of gluing every
+// research/review task together, which made briefs read as long reports and fail format criteria.
+const FINAL_REPORT_TASK = /^compile and verify the final report$/i;
 export function buildObjectiveDeliverable(summary: string, tasks: DeliverableTask[]): string {
+  const finals = tasks
+    .filter((t) => FINAL_REPORT_TASK.test(String(t.title ?? "").trim()) && typeof t.output === "string" && String(t.output).trim() &&
+      ["completed", "done", "verified", "approved"].includes(String(t.status ?? "").toLowerCase()))
+    .sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
+  if (finals.length) {
+    const text = `# Result\n\n${summary.trim() ? summary.trim() + "\n\n" : ""}${taskWorkProduct(String(finals[0].output))}\n`;
+    return text.length > MAX_DELIVERABLE_CHARS ? text.slice(0, MAX_DELIVERABLE_CHARS) : text;
+  }
   const done = tasks
     .filter((t) => typeof t.output === "string" && String(t.output).trim() &&
       ["completed", "done", "verified"].includes(String(t.status ?? "").toLowerCase()))
