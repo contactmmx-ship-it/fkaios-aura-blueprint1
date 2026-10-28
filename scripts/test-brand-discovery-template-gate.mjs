@@ -54,6 +54,8 @@ assert.ok(inviteSource.includes("validateBrandDiscoveryTemplate(version.question
   "Invite endpoint must apply the generic release gate to every brand.");
 assert.ok(inviteSource.includes('Deno.env.get("FK_BRAND_DISCOVERY_EMAIL_SENDING_ENABLED") === "true"'),
   "Invitation email must require explicit server-side enablement.");
+assert.ok(!respondentSource.includes("checklist.length !== 20"),
+  "Respondent closure validation must support brand-specific checklist sizes.");
 assert.ok(respondentSource.includes('Deno.env.get("FK_BRAND_DISCOVERY_EMAIL_SENDING_ENABLED") !== "true"'),
   "Completion emails must be disabled by default.");
 console.log("Invite release gate and email no-send-by-default checks passed.");
