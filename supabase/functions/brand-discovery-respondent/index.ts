@@ -19,6 +19,10 @@ async function hashToken(token: string) {
   return Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, "0")).join("");
 }
 async function sendCompletionEmails(session: any): Promise<{ owner: string; fk: string }> {
+  // Email is deliberately disabled unless the owner explicitly enables the server-side gate.
+  if (Deno.env.get("FK_BRAND_DISCOVERY_EMAIL_SENDING_ENABLED") !== "true") {
+    return { owner: "disabled_by_policy", fk: "disabled_by_policy" };
+  }
   const apiKey = Deno.env.get("RESEND_API_KEY");
   const from = Deno.env.get("BRAND_DISCOVERY_EMAIL_FROM");
   const fkEmail = Deno.env.get("FK_BRAND_DISCOVERY_REPORT_EMAIL");
