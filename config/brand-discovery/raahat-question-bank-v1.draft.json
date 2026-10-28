@@ -276,7 +276,9 @@
             }
           ],
           "options": [],
-          "help_text": "Please answer each part before continuing."
+          "help_text": "Please answer each part before continuing.",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s1_q6",
@@ -437,7 +439,9 @@
             }
           ],
           "options": [],
-          "help_text": "Please answer each part before continuing."
+          "help_text": "Please answer each part before continuing.",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s1_q8",
@@ -1556,7 +1560,9 @@
             }
           ],
           "service_instruction": "Select all that apply.",
-          "status_instruction": "For each selected service, indicate its status:"
+          "status_instruction": "For each selected service, indicate its status:",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s3_q2",
@@ -3009,7 +3015,9 @@
               ]
             }
           ],
-          "help_text": "Answer both the room-count and room-category parts."
+          "help_text": "Answer both the room-count and room-category parts.",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s5_q2",
@@ -11302,7 +11310,9 @@
             }
           ],
           "options": [],
-          "help_text": "Please answer each part before continuing."
+          "help_text": "Please answer each part before continuing.",
+          "optional_explanation": true,
+          "explanation_prompt": "If you selected Other, please specify (optional)."
         },
         {
           "id": "s15_q13",
