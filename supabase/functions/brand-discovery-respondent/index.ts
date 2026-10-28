@@ -112,6 +112,8 @@ function isValidQuestionAnswer(question: any, rawAnswer: unknown): boolean {
   if (suppliedPartIds.some((id) => !parts.some((part: any) => part.id === id))) return false;
   for (const part of parts) {
     const value = answer.parts[part.id];
+    const choices = value && Array.isArray(value.choices) ? value.choices : [];
+    if (part.optional === true && choices.length === 0) continue;
     const pseudoQuestion = { options: part.options, selection_mode: part.selection_mode, max_selections: part.max_selections };
     if (!value || !isValidChoiceSet(pseudoQuestion, value.choices)) return false;
   }
