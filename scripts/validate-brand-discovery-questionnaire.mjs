@@ -123,6 +123,11 @@ for (let index = 0; index < source.sections.length; index++) {
         const expectedMode = selectionMode(original.selection_instruction);
         assert.equal(question.selection_mode, expectedMode.mode, "Selection mode mismatch: " + label);
         assert.equal(question.max_selections, expectedMode.max, "Selection limit mismatch: " + label);
+        if (expectedOptions.some((option) => option.trim().toLowerCase() === "other")) {
+          assert.equal(question.optional_explanation, true, "An optional clarification field is required when 'Other' is selected: " + label);
+          assert.equal(question.explanation_prompt, "If you selected Other, please specify (optional).",
+            "Unexpected supplemental 'Other' clarification prompt: " + label);
+        }
       } else {
         assert.ok(question.type === "text" || question.type === "long_text", "Open-response question has wrong runtime type: " + label);
       }
