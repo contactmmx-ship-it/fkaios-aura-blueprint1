@@ -10,7 +10,7 @@
     "category": "hospitality"
   },
   "language": "Natural Hinglish; respondent may answer in Hindi, English, or a mix.",
-  "critical_notice": "Source-mapped draft generated from the recovered canonical questionnaire. All 16 sections, 235 question headings, source blocks, choice labels/order/selection rules, complex answer controls, 20-item supporting-document checklist, and acknowledgement text are mapped. This is not release-approved: optional explanations/Other follow-ups, semantic suitability of inferred controls, accessibility, security, and the complete non-production end-to-end journey still require review. Keep inactive until all release gates pass.",
+  "critical_notice": "Source-mapped draft generated from the recovered canonical questionnaire. All 16 sections, 235 question headings, source blocks, choice labels/order/selection rules, complex answer controls, 20-item supporting-document checklist, and acknowledgement text are mapped. FK owner semantic decisions SR-01–SR-06 were recorded on 28 October 2026. Implementation verification, accessibility/security checks, current-head CI confirmation, and the complete non-production end-to-end journey remain outstanding. Keep inactive until all release gates pass.",
   "source_status": "CANONICAL_SOURCE_MAPPED_DRAFT",
   "source_file": "docs/brand-discovery/source/RAAHAT_OWNER_DISCOVERY_QUESTIONNAIRE_ORIGINAL.txt",
   "source_blob_sha": "4c8588b88885a049766ea47d22699c1889f7b478",
