@@ -8,9 +8,10 @@ const respondentFunction = await readFile(new URL("../supabase/functions/brand-d
 const answerValidation = await readFile(new URL("../supabase/functions/_shared/brand-discovery-answer-validation.mjs", import.meta.url), "utf8");
 const privateReportFunction = await readFile(new URL("../supabase/functions/brand-discovery-private-report/index.ts", import.meta.url), "utf8");
 
-// This checks exact source-to-runtime mapping. It deliberately does NOT approve or activate the draft.
-assert.equal(bank.status, "draft", "The questionnaire must remain inactive until release approval.");
-assert.equal(bank.source_status, "CANONICAL_SOURCE_MAPPED_DRAFT", "Unexpected source mapping state.");
+// This checks exact source-to-runtime mapping in either state. It never changes or approves a template.
+const draftMapping = bank.status === "draft" && bank.source_status === "CANONICAL_SOURCE_MAPPED_DRAFT";
+const verifiedMapping = bank.status === "active" && bank.source_status === "CANONICAL_SOURCE_VERIFIED";
+assert.ok(draftMapping || verifiedMapping, "Expected a mapped draft or a fully source-verified active candidate.");
 assert.equal(source.sections.length, 16);
 assert.equal(source.question_count, 235);
 assert.equal(source.document_checklist.length, 20);
@@ -69,7 +70,7 @@ for (let index = 0; index < source.sections.length; index++) {
     assert.equal(question.prompt, original.prompt, "Prompt mismatch: " + label);
     assert.equal(question.source_block, original.source_block, "Canonical source block mismatch: " + label);
     assert.equal(question.source_section_number, originalSection.number, "Source section mismatch: " + label);
-    assert.equal(question.source_status, "CANONICAL_SOURCE_MAPPED_DRAFT", "Question is not marked as mapped draft: " + label);
+    assert.equal(question.source_status, bank.source_status, "Question source status must match the template state: " + label);
     assert.equal(question.required, true, "Question must require a response (use a source-provided 'not sure' option when applicable): " + label);
 
     const expectedOptions = optionLabels(original.source_block);
@@ -171,10 +172,13 @@ assert.equal(bank.confidentiality_and_acknowledgement, source.confidentiality_an
   "Confidentiality and acknowledgement text must exactly match source.");
 assert.equal(bank.source_reconciliation.exact_prompt_and_source_block_mapping, true);
 assert.equal(bank.source_reconciliation.options_transcribed, true);
-assert.equal(bank.source_reconciliation.selection_rules_interactive_verified, false,
-  "Do not mark interactive selection rules verified before end-to-end testing.");
-assert.equal(bank.source_reconciliation.checklist_interactive_verified, false,
-  "Do not mark the checklist verified before it is implemented and tested.");
+for (const key of ["selection_rules_interactive_verified", "checklist_interactive_verified",
+  "acknowledgement_ui_verified", "security_review_complete", "semantic_review_complete"]) {
+  assert.equal(bank.source_reconciliation[key], verifiedMapping,
+    verifiedMapping
+      ? "Verified candidate must have completed " + key
+      : "Do not mark " + key + " complete before the real review/test is complete.");
+}
 
 // Semantic-decision regression guards. Static checks do not replace browser/database integration tests.
 const roomRateQuestion = bank.sections.flatMap((section) => section.questions).find((question) => question.id === "s5_q3");
@@ -197,4 +201,8 @@ assert.ok(respondentUi.includes("Voice navigation (prototype)"));
 assert.match(respondentUi, /not a conversational AI guide/i);
 
 console.log("PASS: source mapping — 16 sections, 235 exact prompt/source blocks, 223 simple choice questions, 10 multi-part questions, 1 per-service status matrix, 1 repeatable hall-capacity matrix, exact choice order/limits, 20 checklist items and acknowledgement text.");
-console.log("RELEASE BLOCKED BY DESIGN: template remains draft; checklist/acknowledgement UI, security, accessibility and end-to-end tests are not yet approved.");
+if (draftMapping) {
+  console.log("SOURCE MAPPING PASS ONLY: draft remains inactive; complete interactive, security, semantic and accessibility checks before promoting status.");
+} else {
+  console.log("SOURCE FIDELITY PASS: this validator did not grant approval; the shared release gate and explicit human approval are still required.");
+}
