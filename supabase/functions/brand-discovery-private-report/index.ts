@@ -50,7 +50,8 @@ function answerText(value: unknown, question?: any): string {
     const statuses = Array.isArray(question?.status_options) ? question.status_options : [];
     return parsed.services.map((id: unknown) => {
       const service = labelFor(services, id);
-      const status = labelFor(statuses, parsed.statuses?.[id]);
+      const statusId = typeof id === "string" ? parsed.statuses?.[id] : undefined;
+      const status = labelFor(statuses, statusId);
       return service ? `${service}: ${status || "status not recorded"}` : "";
     }).filter(Boolean).join("; ");
   }
