@@ -376,7 +376,7 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
     const checklist = questionnaire?.document_checklist ?? [];
     const missingDocuments = checklist.filter((item) => !closure.documents[item.id]);
     if (missingDocuments.length) {
-      setError(`Please mark the availability of all ${questionnaire.document_checklist?.length ?? 0} supporting documents or records before submitting.`);
+      setError(`Please mark the availability of all ${questionnaire?.document_checklist?.length ?? 0} supporting documents or records before submitting.`);
       return;
     }
     if (!closure.owner_date || !/^\d{4}-\d{2}-\d{2}$/.test(closure.owner_date)) {
