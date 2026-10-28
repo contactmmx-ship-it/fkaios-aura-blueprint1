@@ -1098,7 +1098,7 @@ export async function performSystemHealthCheck(config: SystemHealthCheckConfig, 
 function verifiedPriorSourcesBlock(priorCompletedTasks: unknown): string {
   const summary = summarizePriorEvidence(priorCompletedTasks);
   if (!summary.verified) return "";
-  return "\n\n[VERIFIED PRIOR SOURCES — the ONLY sources you may cite. Use these exact URLs in sources[].url and verified_facts[].source_url. fkaios-memory:// URLs are the founder's own past work chats.]\n" +
+  return "\n\n[VERIFIED PRIOR SOURCES — the ONLY sources you may cite. Use these exact URLs in sources[].url and verified_facts[].source_url. fkaios-memory:// URLs are the founder's own past work chats: in any visible text always NAME the chat by its title (e.g. \"ChatGPT: Franchise plan for Chaat (2025-10-10)\") and put the URL only in sources/source_url fields; never show a bare UUID. Follow the objective's requested format (e.g. a one-page brief with the sections it lists), not a generic report.]\n" +
     JSON.stringify(summary.sources.slice(0, 20)) + "\n[/VERIFIED PRIOR SOURCES]";
 }
 
