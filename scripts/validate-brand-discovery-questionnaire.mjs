@@ -5,6 +5,7 @@ const bank = JSON.parse(await readFile(new URL("../config/brand-discovery/raahat
 const source = JSON.parse(await readFile(new URL("../docs/brand-discovery/source/RAAHAT_SOURCE_TRANSCRIPTION_V1.json", import.meta.url), "utf8"));
 const respondentUi = await readFile(new URL("../src/app/brand-discovery/[token]/BrandDiscoveryRespondent.tsx", import.meta.url), "utf8");
 const respondentFunction = await readFile(new URL("../supabase/functions/brand-discovery-respondent/index.ts", import.meta.url), "utf8");
+const answerValidation = await readFile(new URL("../supabase/functions/_shared/brand-discovery-answer-validation.mjs", import.meta.url), "utf8");
 const privateReportFunction = await readFile(new URL("../supabase/functions/brand-discovery-private-report/index.ts", import.meta.url), "utf8");
 
 // This checks exact source-to-runtime mapping. It deliberately does NOT approve or activate the draft.
@@ -184,7 +185,7 @@ assert.ok(respondentUi.includes("explanation_part_ids ?? []"),
   "Optional clarification must be tied to its selected multipart field.");
 assert.ok(respondentUi.includes("Clear optional selection"),
   "Respondents must be able to clear an optional category selection.");
-assert.ok(respondentFunction.includes("part.optional === true && choices.length === 0"),
+assert.ok(answerValidation.includes("part.optional === true && choices.length === 0"),
   "Server validation must allow an empty optional multipart field.");
 assert.ok(privateReportFunction.includes("respondent_reported_availability"));
 assert.ok(privateReportFunction.includes('receipt_status: "NOT_INDEPENDENTLY_CONFIRMED"'));
