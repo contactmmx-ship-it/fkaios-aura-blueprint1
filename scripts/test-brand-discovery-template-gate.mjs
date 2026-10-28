@@ -49,11 +49,14 @@ assert.ok(validateBrandDiscoveryTemplate(inactive).errors.includes("questionnair
 console.log("Brand Discovery reusable-template release-gate tests passed (7 scenarios).");
 
 const inviteSource = await readFile(new URL("../supabase/functions/brand-discovery-create-invite/index.ts", import.meta.url), "utf8");
+const respondentUiSource = await readFile(new URL("../src/app/brand-discovery/[token]/BrandDiscoveryRespondent.tsx", import.meta.url), "utf8");
 const respondentSource = await readFile(new URL("../supabase/functions/brand-discovery-respondent/index.ts", import.meta.url), "utf8");
 assert.ok(inviteSource.includes("validateBrandDiscoveryTemplate(version.questionnaire)"),
   "Invite endpoint must apply the generic release gate to every brand.");
 assert.ok(inviteSource.includes('Deno.env.get("FK_BRAND_DISCOVERY_EMAIL_SENDING_ENABLED") === "true"'),
   "Invitation email must require explicit server-side enablement.");
+assert.ok(!respondentUiSource.includes("all 20 supporting documents"),
+  "Respondent UI copy must not hard-code the Raahat checklist count.");
 assert.ok(!respondentSource.includes("checklist.length !== 20"),
   "Respondent closure validation must support brand-specific checklist sizes.");
 assert.ok(respondentSource.includes('Deno.env.get("FK_BRAND_DISCOVERY_EMAIL_SENDING_ENABLED") !== "true"'),
