@@ -210,7 +210,7 @@ export async function selectResources(db: Db, taskClass: string, options: Select
   const env = (key: string) => Deno.env.get(key);
   const configuredProviders = configuredProviderNames(env);
   const explicitlyFreeProviders = ["gemini", "openrouter", "groq", "mistral", "huggingface"]
-    .filter((provider) => env(`PROVIDER_${provider.toUpperCase()}_FREE_TIER`) === "true");
+    .filter((provider) => (env(`PROVIDER_${provider.toUpperCase()}_FREE_TIER`) ?? "").trim().toLowerCase() === "true"); // "TRUE" or " true" also count (28 Oct 2026)
   const allowPaidFallback = env("PROVIDER_ALLOW_PAID_FALLBACK") === "true";
   const allowedProviders = restrictProvidersForFreeTier(
     configuredProviders.map((name) => ({ name })), explicitlyFreeProviders, allowPaidFallback,

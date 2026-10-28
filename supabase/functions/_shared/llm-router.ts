@@ -688,7 +688,7 @@ export function prioritizeFreeProviders(providers: ProviderAdapter[], explicitly
 
 function explicitlyFreeTierProviders(): ProviderName[] {
   const candidates: ProviderName[] = ["gemini", "openrouter", "groq", "mistral", "huggingface"];
-  return candidates.filter((provider) => Deno.env.get("PROVIDER_" + provider.toUpperCase() + "_FREE_TIER") === "true");
+  return candidates.filter((provider) => (Deno.env.get("PROVIDER_" + provider.toUpperCase() + "_FREE_TIER") ?? "").trim().toLowerCase() === "true"); // case-insensitive (28 Oct 2026)
 }
 
 export function getConfiguredDefaultProviders(): ProviderAdapter[] {
