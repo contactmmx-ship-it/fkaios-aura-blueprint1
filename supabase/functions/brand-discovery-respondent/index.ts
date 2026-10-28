@@ -71,7 +71,14 @@ function isValidChoiceSet(question: any, choices: unknown): boolean {
   return true;
 }
 function isValidQuestionAnswer(question: any, rawAnswer: unknown): boolean {
-  if (question?.type !== "multiple_choice" && question?.type !== "multi_part" && question?.type !== "service_status" && question?.type !== "repeatable_choice") return hasMeaningfulAnswer(rawAnswer);
+  if (!question || typeof question.type !== "string") return false;
+  if (["text", "long_text", "repeatable_list", "file_or_text"].includes(question.type)) {
+    if (typeof rawAnswer !== "string") return false;
+    const maxLength = question.type === "text" ? 2_000 : question.type === "file_or_text" ? 5_000 : 20_000;
+    return rawAnswer.trim().length > 0 && rawAnswer.length <= maxLength;
+  }
+  if (!["multiple_choice", "multi_part", "service_status", "repeatable_choice"].includes(question.type)) return false;
+  if (typeof rawAnswer === "string" && rawAnswer.length > 25_000) return false;
   let answer: any = rawAnswer;
   if (typeof rawAnswer === "string") {
     try { answer = JSON.parse(rawAnswer); } catch { return false; }
@@ -159,7 +166,11 @@ Deno.serve(async (req: Request) => {
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!url || !key) return reply(500, { error: "server_not_configured" });
   let body: any;
-  try { body = await req.json(); } catch { return reply(400, { error: "invalid_json" }); }
+  try {
+    const rawBody = await req.text();
+    if (new TextEncoder().encode(rawBody).byteLength > 512_000) return reply(413, { error: "request_too_large" });
+    body = JSON.parse(rawBody);
+  } catch { return reply(400, { error: "invalid_json" }); }
   if (typeof body?.token !== "string" || body.token.length < 32 || body.token.length > 256)
     return reply(401, { error: "invalid_resume_link" });
 
@@ -218,9 +229,12 @@ Deno.serve(async (req: Request) => {
         current_section >= version.questionnaire.sections.length ||
         current_question >= (version.questionnaire.sections[current_section]?.questions?.length ?? 0))
       return reply(400, { error: "invalid_answer_payload" });
-    const section = version.questionnaire.sections.find((s: any) => s.id === section_id);
-    const question = section?.questions?.find((q: any) => q.id === question_id);
-    if (!question) return reply(400, { error: "question_not_in_active_version" });
+    const section = version.questionnaire.sections[current_section];
+    const question = section?.questions?.[current_question];
+    if (!section || section.id !== section_id || !question || question.id !== question_id)
+      return reply(400, { error: "question_position_mismatch" });
+    if (!isValidQuestionAnswer(question, answer))
+      return reply(400, { error: "invalid_answer_shape_or_choice" });
     const { error: saveError } = await db.from("brand_discovery_answers").upsert({
       session_id: session.id, question_id, section_id, answer,
       updated_at: new Date().toISOString(),
