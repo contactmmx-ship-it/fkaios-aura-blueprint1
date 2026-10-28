@@ -21,7 +21,10 @@ export function isValidQuestionAnswer(question, rawAnswer) {
     return rawAnswer.trim().length > 0 && rawAnswer.length <= maxLength;
   }
   if (!["multiple_choice", "multi_part", "service_status", "repeatable_choice"].includes(question.type)) return false;
-  if (typeof rawAnswer === "string" && rawAnswer.length > 25_000) return false;
+  try {
+    const serializedLength = typeof rawAnswer === "string" ? rawAnswer.length : JSON.stringify(rawAnswer).length;
+    if (serializedLength > 25_000) return false;
+  } catch { return false; }
   let answer = rawAnswer;
   if (typeof rawAnswer === "string") {
     try { answer = JSON.parse(rawAnswer); } catch { return false; }
