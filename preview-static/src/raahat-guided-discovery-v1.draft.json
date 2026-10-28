@@ -4654,7 +4654,7 @@
   "source_reconciliation": {
     "source_recovered": true,
     "section_count": 16,
-    "question_count": 235,
+    "question_count": 71,
     "checklist_count": 20,
     "exact_prompt_and_source_block_mapping": true,
     "options_transcribed": true,
@@ -4666,7 +4666,8 @@
     "guided_core_selection_reviewed": false,
     "full_source_question_count": 235,
     "guided_core_question_count": 71,
-    "note": "Questions are selected from the canonical Raahat source bank. Selection is an FK-authored guided subset and requires semantic review before activation."
+    "note": "Questions are selected from the canonical Raahat source bank. Selection is an FK-authored guided subset and requires semantic review before activation.",
+    "canonical_source_question_count": 235
   },
   "review_gates": [
     "Remain inactive until multi-part answers, checklist, acknowledgement, and end-to-end tests are reviewed and approved."
