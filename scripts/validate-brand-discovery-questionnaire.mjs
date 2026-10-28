@@ -132,6 +132,18 @@ for (let index = 0; index < source.sections.length; index++) {
         assert.ok(question.type === "text" || question.type === "long_text", "Open-response question has wrong runtime type: " + label);
       }
     }
+    const hasOtherOption = question.type === "multiple_choice"
+      ? (question.options ?? []).some((option) => option.label.trim().toLowerCase().startsWith("other"))
+      : question.type === "multi_part"
+        ? (question.parts ?? []).some((part) => part.options.some((option) => option.label.trim().toLowerCase().startsWith("other")))
+        : question.type === "service_status"
+          ? (question.service_options ?? []).some((option) => option.label.trim().toLowerCase().startsWith("other"))
+          : false;
+    if (hasOtherOption) {
+      assert.equal(question.optional_explanation, true, "An optional clarification field is required when 'Other' is selected: " + label);
+      assert.equal(question.explanation_prompt, "If you selected Other, please specify (optional).",
+        "Unexpected supplemental 'Other' clarification prompt: " + label);
+    }
     total++;
   }
 }
