@@ -455,8 +455,10 @@ async function evaluateObjective(
     .filter((t) => !/^Rectify:/i.test(String(t.title ?? "")))
     .map((t) => `[${String(t.title ?? "task")}]\n${String(t.output ?? "").slice(0, 2500)}`)
     .join("\n\n");
+  const noPaidResearch = !tasks.some((t) => /"capability"\s*:\s*"research\.run"/.test(String(t.output ?? "")));
   const verdict = await verifyObjective(supabase, {
     objectiveId: String(objective.id),
+    noPaidResearch,
     projectId: latestProjectId || null,
     objective: String(objective.raw_request ?? ""),
     criteria: contractCriteria((objectiveContract as Record<string, unknown> | null)?.acceptance_criteria),

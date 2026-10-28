@@ -213,7 +213,7 @@ export function isRecoverableOutputBlocker(summary: string, completedRectificati
 }
 
 /** Parses and hardens the verifier's answer. A quote that is not in the deliverable turns a "met" into "not met". */
-export function parseVerdict(text: string, deliverable: string, deterministic: { ok: boolean; problems: string[] }, evidence = ""): Omit<Verdict, "verifierRef" | "independence" | "available"> | null {
+export function parseVerdict(text: string, deliverable: string, deterministic: { ok: boolean; problems: string[] }, evidence = "", noPaidResearch = false): Omit<Verdict, "verifierRef" | "independence" | "available"> | null {
   const obj = extractJson(text);
   if (!obj || !Array.isArray(obj.criteria)) return null;
   const hay = norm(deliverable);
@@ -225,6 +225,11 @@ export function parseVerdict(text: string, deliverable: string, deterministic: {
     const quote = typeof c.evidence_quote === "string" && c.evidence_quote.trim() ? c.evidence_quote.trim() : null;
     let met = c.met === true;
     let issue = typeof c.issue === "string" && c.issue.trim() ? c.issue.trim() : null;
+    // 28 Oct 2026: "no paid research" is a PROCESS criterion — no sentence in a deliverable can prove it.
+    // It is decided by measurement (no research.run in this objective's tasks), never by the model.
+    if (/\bpaid\b[^.]{0,20}\b(web\s+)?research\b/i.test(criterion)) {
+      return { criterion, met: noPaidResearch, evidence_quote: noPaidResearch ? "(measured: no research.run dispatch in this objective's tasks)" : null, issue: noPaidResearch ? null : "paid research (research.run) was used by this objective" };
+    }
     if (met) {
       const q = quote ? norm(quote) : "";
       const evidenceCriterion = /unsupported by the recorded evidence|supported by (the )?(recorded )?evidence/i.test(criterion);
@@ -296,6 +301,8 @@ export async function persistVerificationEvidence(
 export async function verifyObjective(db: Db, input: {
   /** null only for self-tests (evidence key self_test:...). */
   objectiveId: string | null;
+  /** 28 Oct 2026: measured — true when no task of this objective ran paid research (research.run). */
+  noPaidResearch?: boolean;
   requirementKey?: string;
   projectId: string | null;
   objective: string;
@@ -326,7 +333,7 @@ export async function verifyObjective(db: Db, input: {
   if (result.status !== "success") {
     return { passed: false, quality: 0, criteria: [], issues: [`verifier unavailable: ${result.log.failure_reason ?? result.status}`], needsHumanDecision: false, humanDecisionReason: null, deterministic, verifierRef, independence, available: false };
   }
-  const parsed = parseVerdict(result.content ?? "", input.deliverable, deterministic, input.evidence.slice(0, 12000));
+  const parsed = parseVerdict(result.content ?? "", input.deliverable, deterministic, input.evidence.slice(0, 12000), input.noPaidResearch === true);
   if (!parsed) {
     return { passed: false, quality: 0, criteria: [], issues: ["verifier returned no parseable verdict"], needsHumanDecision: false, humanDecisionReason: null, deterministic, verifierRef, independence, available: false };
   }

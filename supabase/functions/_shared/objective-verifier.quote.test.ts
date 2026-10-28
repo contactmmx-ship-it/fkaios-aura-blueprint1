@@ -19,3 +19,10 @@ Deno.test("other criteria must still quote the deliverable", () => {
   const v = parseVerdict(verdictJson("Contains proposed franchise numbers", "WO-11 Franchise opening package (₹40,000 per opening, proposed): launch plan,"), deliverable, { ok: true, problems: [] }, evidence);
   assert(v && !v.criteria[0].met, "evidence quote not accepted for content criterion");
 });
+
+Deno.test("paid-research criterion is decided by measurement, not quotes", () => {
+  const ok = parseVerdict(verdictJson("Zero paid web research is used", "nonexistent quote text"), deliverable, { ok: true, problems: [] }, evidence, true);
+  assert(ok && ok.criteria[0].met, "met when measured none");
+  const bad = parseVerdict(verdictJson("Do not use paid web research", "WO-11 opening package priced per opening"), deliverable, { ok: true, problems: [] }, evidence, false);
+  assert(bad && !bad.criteria[0].met, "not met when research ran");
+});
