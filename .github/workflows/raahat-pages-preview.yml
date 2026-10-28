@@ -1,0 +1,48 @@
+name: Raahat Static Preview (GitHub Pages)
+
+on:
+  push:
+    branches:
+      - feature/brand-discovery-foundation
+    paths:
+      - "preview-static/**"
+      - ".github/workflows/raahat-pages-preview.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: raahat-static-preview
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out preview source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install preview dependencies
+        working-directory: preview-static
+        run: npm install --no-audit --no-fund
+      - name: Build standalone static preview
+        working-directory: preview-static
+        run: npm run build
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Upload static preview
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: preview-static/dist
+      - name: Deploy static preview
+        id: deployment
+        uses: actions/deploy-pages@v4
