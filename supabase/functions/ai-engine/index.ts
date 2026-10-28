@@ -56,6 +56,7 @@ import {
   requiresExternalFacts,
   parsePriorCompletedTasks,
   summarizePriorEvidence,
+  priorMemoryEvidenceText,
   buildNoDataSourceResult,
   NO_DATA_SOURCE,
   NO_DATA_SOURCE_DISPOSITION,
@@ -1102,6 +1103,13 @@ function verifiedPriorSourcesBlock(priorCompletedTasks: unknown): string {
     JSON.stringify(summary.sources.slice(0, 20)) + "\n[/VERIFIED PRIOR SOURCES]";
 }
 
+// 28 Oct 2026: the founder-memory text retrieved by earlier tasks, figure-heavy chats first, given to the writer
+// in full (up to 12,000 chars) BEFORE the 18,000-char raw evidence cut, which was hiding figures such as a price table.
+function priorMemoryBlock(priorCompletedTasks: unknown): string {
+  const text = priorMemoryEvidenceText(priorCompletedTasks);
+  return text ? "\n\n" + text + "\nUse the exact figures from this founder-memory text when the objective asks for numbers; do not write 'not found' for a figure that appears here.\n[/FOUNDER MEMORY]" : "";
+}
+
 async function executeRequestedCapability(job: AIJob, parsed: Record<string, unknown>, cid: string): Promise<Record<string, unknown>> {
   const requestedCapability = typeof parsed.capability === "string" ? parsed.capability : "";
   const taskText = [job.payload?.title, job.payload?.description].filter((v) => typeof v === "string").join(" ").toLowerCase();
@@ -1486,7 +1494,7 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
         : "";
       const priorTasks = parsePriorCompletedTasks(job.payload?.prior_completed_tasks);
       const priorEvidence = priorTasks.length > 0
-        ? verifiedPriorSourcesBlock(job.payload?.prior_completed_tasks) + "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(priorTasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
+        ? verifiedPriorSourcesBlock(job.payload?.prior_completed_tasks) + priorMemoryBlock(job.payload?.prior_completed_tasks) + "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(priorTasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
         : "";
       const verificationContract = !isRectification && priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)
         ? "\n\nThis is a downstream verification/report task. Return ONLY JSON with verified_facts (at least 3 when the objective asks for three facts), report, and sources. Every verified_fact must include fact, source_url, source_title, and verification_note. Every source_url must appear in the supplied prior evidence. Do not include unsupported facts. If prior evidence lacks suitable sources, state the exact missing evidence."
@@ -1553,7 +1561,7 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
   const principlesBlock = await getFounderPrinciplesBlock("ai-engine");
   const priorTasks = parsePriorCompletedTasks(job.payload?.prior_completed_tasks);
   const priorEvidence = priorTasks.length > 0
-    ? verifiedPriorSourcesBlock(job.payload?.prior_completed_tasks) + "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(priorTasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
+    ? verifiedPriorSourcesBlock(job.payload?.prior_completed_tasks) + priorMemoryBlock(job.payload?.prior_completed_tasks) + "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(priorTasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
     : "";
   const verificationContract = !isRectification && priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)
     ? "\n\nThis is a downstream verification/report task. Return ONLY JSON with verified_facts, report, and sources. Every verified_fact must include fact, source_url, source_title, and verification_note. Every source_url must appear in the supplied prior evidence. Do not include unsupported facts. If prior evidence lacks suitable sources, say so clearly and list the exact missing evidence instead of substituting unrelated sources."

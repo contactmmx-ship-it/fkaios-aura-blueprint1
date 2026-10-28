@@ -63,3 +63,20 @@ Deno.test("verifier evidence lists retrieved memory chats with their text; weak 
   assert(strong.includes(founderMemoryUrl(MEM)) && strong.includes("ChatGPT: Chaat Masters Franchise Model"), "memory chat listed");
   assert(founderMemoryEvidenceText([searchTask(0.7)]) === "", "weak match not listed");
 });
+
+import { priorMemoryEvidenceText } from "./fact-grounding.ts";
+
+Deno.test("writer memory block: prior tasks without status, object output, figure-heavy chat listed first", () => {
+  const MEM2 = "66666666-7777-8888-9999-000000000000";
+  const matches = [
+    { id: null, chunk_id: null, document_id: MEM, similarity: 0.95, chunk_text: "[ChatGPT: Brand story draft] something for everyone ".repeat(40), source: "founder_memory" },
+    { id: null, chunk_id: null, document_id: MEM2, similarity: 0.83, chunk_text: "[ChatGPT: Franchise pitch deck creation] " + "intro text ".repeat(60) + "Silver: ₹10,000 × 30 = ₹3, 00,000 Gold: ₹5, 00,000 Diamond: ₹7, 50,000 Platinum: ₹10, 00,000+", source: "founder_memory" },
+  ];
+  const dispatch = compactDispatchForStorage({ capability: "knowledge.search", status: "success", attempts: 1, data: { query: "Chaat Masters", matches } });
+  // Real shape: the full measured search result sits in llmResult.capability_result (the dispatch copy is compacted).
+  const prior = [{ id: "x", title: "Audit memory", output: { llmResult: { capability_result: { query: "Chaat Masters", matches } }, companyOsDispatch: dispatch } }];
+  const text = priorMemoryEvidenceText(prior);
+  assert(text.includes("Platinum: ₹10, 00,000+"), "figures reach the writer");
+  assert(text.indexOf("Franchise pitch deck creation") < text.indexOf("Brand story draft"), "figure-heavy chat first");
+  assert(priorMemoryEvidenceText([]) === "", "empty prior gives empty block");
+});
