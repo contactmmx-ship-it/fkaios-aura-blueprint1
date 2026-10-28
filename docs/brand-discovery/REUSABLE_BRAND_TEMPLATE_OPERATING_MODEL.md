@@ -54,3 +54,8 @@ Activation is a separate operation and is not part of seeding. Only after all ch
 ## Current release truth
 
 The reusable release gate and automated tests are in this draft PR. They do not substitute for the still-required non-production database migration, deployed Edge Functions, invite-to-report end-to-end tests, staff access matrix, accessibility/device QA, secure document-upload implementation if uploads are required, and explicit release approval. Do not activate, email respondents, or apply production migrations on the strength of a green unit test alone.
+
+
+## Raahat first-session experience
+
+The Raahat preview uses `config/brand-discovery/raahat-guided-discovery-v1.draft.json`: 71 source-traceable core prompts across 16 sections, plus the 20-item checklist. The full 235-question source-mapped bank remains in `raahat-question-bank-v1.draft.json` for follow-up sessions. This split is Raahat-specific; it does not define the question set for any other brand. The guided-core selection is still a draft and requires human review before activation.
