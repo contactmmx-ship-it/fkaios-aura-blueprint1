@@ -65,3 +65,21 @@ The earlier handoff snapshot above predates the latest mapping work. The runtime
 - Questionnaire validation and Edge Function type-check passed on the latest observed implementation head; the frontend build was still running when this note was prepared.
 - Human semantic review, end-to-end security/access testing, accessibility review and non-production integration testing remain required.
 - The PR remains draft/open; no production migration, deployment, activation or email delivery has occurred.
+
+
+## Current continuation update — 28 October 2026
+
+- Canonical runtime mapping is present: 16 sections, 235 source questions, 20 checklist items; automated source-mapping checks passed on commit `3bf032d36160df95e20aa53347601a4389e56dbe`.
+- The respondent form now supports optional “Other” clarification fields across simple choice, multipart and service-status controls. The canonical question and option labels are not rewritten. The validator was extended to enforce this coverage.
+- The first CI run after that extension (commit `65a099fda954ef0785b1a1fac94c83d01d8b8567`) correctly caught missing clarification metadata for options whose labels start with “Other” plus extra text. The bank was corrected and the docs updated; latest observed head at this addendum is `b433d93978f512e4c6b9b833fc307656eac6d076`. A completed CI result for that exact head has not yet been observed.
+- On commit `3bf032d36160df95e20aa53347601a4389e56dbe`, frontend type-check/build and Edge Function type-check passed; questionnaire mapping validation passed. The migration workflow still fails at the prerequisite check for missing Supabase secrets and skips every migration action. No migration was applied.
+- The template remains `draft`; no merge, activation, production deployment, email delivery or paid AI call occurred.
+
+## Still required before calling the product complete
+
+1. Confirm questionnaire validation, frontend build and Edge Function checks on the newest commit.
+2. Run a full non-production journey: invite, open, answer each answer type, select/deselect Other, autosave, close, resume at the exact point, back/edit, finish checklist, acknowledge, submit, and inspect the private FK report.
+3. Test invalid/expired links, malformed or over-limit choices, missing multipart answers, service-status gaps, incomplete checklist, and respondent denial from private reports.
+4. Complete semantic review of inferred room-category and monthly occupancy controls and questions where options may not capture the full business fact requested.
+5. Complete keyboard/screen-reader/mobile review and approve privacy/email settings.
+6. Configure authorized secrets and obtain explicit approval before any non-production migration/deployment or email test. Production remains untouched.
