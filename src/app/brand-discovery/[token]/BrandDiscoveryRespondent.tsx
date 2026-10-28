@@ -333,14 +333,14 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
     };
     const Recognition = browser.SpeechRecognition ?? browser.webkitSpeechRecognition;
     if (!Recognition) {
-      setVoiceStatus("Voice commands are not supported in this browser. You can use the on-screen controls.");
+      setVoiceStatus("Browser speech recognition is not supported here. This optional voice-navigation prototype is not a conversational AI guide; use the on-screen controls instead.");
       return;
     }
     const recognition = new Recognition();
     recognition.lang = "hi-IN";
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
-    setVoiceStatus("Listening. Say: repeat, previous, next, or stop.");
+    setVoiceStatus("Optional voice-navigation prototype is listening. Say repeat, previous, next, or stop. Browser support and microphone permission may be required.");
     recognition.onresult = (event: any) => {
       const transcript = String(event.results?.[0]?.[0]?.transcript ?? "").toLowerCase();
       if (/repeat|again|dobara|phir se|suniye|sunao/.test(transcript)) repeatCurrentQuestion();
@@ -479,8 +479,9 @@ export default function BrandDiscoveryRespondent({ token }: { token: string }) {
       {resumed && <div className="mb-4 rounded-xl border border-cyan-300/20 bg-cyan-300/5 px-4 py-3 text-sm text-cyan-100" role="status">Welcome back. Your saved answers and last position have been restored.</div>}
       <div className="mb-4 flex flex-wrap gap-2">
         <button type="button" onClick={repeatCurrentQuestion} className="rounded-lg border border-white/15 px-3 py-2 text-sm text-slate-200 hover:bg-white/5">🔊 Read aloud</button>
-        <button type="button" onClick={listenForVoiceCommand} className="rounded-lg border border-cyan-300/30 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-300/10">🎙 Voice command</button>
+        <button type="button" onClick={listenForVoiceCommand} className="rounded-lg border border-cyan-300/30 px-3 py-2 text-sm text-cyan-100 hover:bg-cyan-300/10">🎙 Voice navigation (prototype)</button>
         {voiceStatus && <span className="self-center text-xs text-slate-400" aria-live="polite">{voiceStatus}</span>}
+        <p className="basis-full text-xs leading-5 text-slate-400">Optional browser-based voice navigation for repeat, previous, next, and stop only. It is not a conversational AI guide. Browser support and microphone permission may be required; all questionnaire controls work without voice.</p>
       </div>
       <div className="mb-6 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300 transition-all duration-500" style={{ width: `${progress}%` }} /></div>
       <div className="mb-5 flex items-center justify-between text-sm text-slate-400"><span>Section {sectionIndex + 1} of {sections.length}</span><span>Question {questionIndex + 1} of {section.questions.length}</span></div>
