@@ -135,7 +135,7 @@ The room-rate mapping now marks “Other category” optional, asks the responde
 - The room-rate optional-category behavior and private evidence-report labels/statuses have been implemented on the feature branch; acceptance still depends on CI and non-production integration tests.
 - Voice is optional browser-based navigation for repeat/previous/next/stop, not a conversational AI guide. It must not block keyboard/on-screen use or be required for questionnaire completion.
 - Questionnaire validation, frontend TypeScript/production build, and Edge Function type-check passed on the last observed PR head; recheck after the newest commits.
-- The migration workflow still fails before applying anything because repository secrets `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD` are missing. Vercel checks are blocked by the free build-rate limit.
+- The migration workflow still fails before applying anything because `SUPABASE_DB_PASSWORD` is missing from repository secrets; `SUPABASE_ACCESS_TOKEN` is already present. Vercel deployment checks are blocked by the free build-rate limit.
 - No dedicated non-production Supabase branch currently exists. A development branch quote was returned at **US$0.01344/hour**. Do not create it until the user explicitly confirms this recurring cost.
 - Production migration, Edge Function deployment, template activation, invitation/email sending, and merge remain blocked until the missing prerequisites and release checks are satisfied.
 
@@ -173,3 +173,26 @@ The following work was added after the earlier status notes. These are implement
 - Approved secure document upload implementation (the current checklist tracks availability only).
 - Human review and completion of evidence-backed diagnosis and transformation plan; the current deterministic report must not be represented as a final diagnosis.
 - Explicit approval before enabling any paid or metered AI model, and before production activation.
+
+
+## Reusable template and server-validation update — 28 October 2026
+
+These branch-only changes address several reusable-product gaps discovered during implementation. They are not production acceptance:
+
+- [x] Added a shared generic template release gate for all brands. It validates question/section/checklist structure, supported answer-control schemas, unique IDs, count reconciliation, eight release-readiness checks, and a recorded human approval. Raahat still has its stricter source-specific gate.
+- [x] Added unit tests for generic future-brand templates, missing approval, incomplete review, invalid counts/options, duplicate question IDs, inactive templates, invitation release-gate wiring, and no-send-by-default email policy.
+- [x] Generalised the draft seeder so future brand JSON templates can be validated and seeded as draft without hard-coded Raahat counts. It refuses to overwrite non-draft versions and creates no invitation.
+- [x] Added a separate explicit-confirmation activation script. It refuses activation unless the shared gate passes; Raahat also requires verified canonical source reconciliation. The script has not been run.
+- [x] Invitation and completion emails are now disabled by default and require `FK_BRAND_DISCOVERY_EMAIL_SENDING_ENABLED=true` plus approved provider settings.
+- [x] Removed the Raahat-only 20-item checklist constraint from respondent closure validation and made the user-facing missing-checklist message template-specific.
+- [x] Server now validates answer shape and allowed choices before persistence, verifies the answer matches the supplied section/question position, and rejects oversized respondent request bodies.
+- [x] Added a reusable template operating model covering versioning, provenance, review, release approval, seeding and activation.
+
+### Release status remains blocked
+
+- [ ] Confirm latest CI after the most recent implementation commits; the frontend check previously exposed a nullability issue that was fixed and is being rechecked.
+- [ ] Run non-production migration and Edge Function deployment, then execute the complete invite → save → close/resume → edit → submit → private-report/access-control test matrix. No non-production environment is currently configured.
+- [ ] Complete accessibility/device QA.
+- [ ] Implement and test secure document upload if respondents are expected to submit actual files; the current checklist remains an availability declaration only.
+- [ ] Complete evidence-backed human review workflow for the private report; the generated report is an evidence inventory and draft follow-up list, not a final diagnosis.
+- [ ] Keep the PR draft/unmerged. No production migration, activation, invite/email sending, or paid AI use occurred.
