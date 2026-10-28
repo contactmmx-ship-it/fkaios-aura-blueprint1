@@ -76,17 +76,66 @@ export interface DeliverableTask {
 // are JSON envelopes; when one carries an explicit deliverable, that is the
 // work product. Otherwise the output is kept as written (pretty-printed when
 // it is JSON) so nothing the worker produced is hidden or reworded.
-function taskWorkProduct(output: string): string {
+// 28 Oct 2026: a JSON work product is rendered as readable Markdown (headings, bullets, named sources)
+// instead of being dumped as raw JSON. The founder reads this, and the independent verifier quotes from it;
+// raw JSON made reports fail "one-page brief" criteria and broke verbatim quote matching. Content is
+// rendered 1:1 — nothing is generated or dropped except internal plumbing keys.
+const INTERNAL_KEYS = new Set(["prior_evidence", "capability", "capability_result", "capability_attempts", "payload", "companyOsDispatch", "status", "retryable", "kernel_disposition", "job_id"]);
+function humanizeKey(key: string): string {
+  const k = key.replace(/^section_?\d+_?/i, "").replace(/[_-]+/g, " ").trim() || key;
+  return k.charAt(0).toUpperCase() + k.slice(1);
+}
+function renderSources(list: unknown): string {
+  if (!Array.isArray(list) || !list.length) return "";
+  const lines = list.flatMap((s) => {
+    if (typeof s === "string") return [`- ${s}`];
+    if (!s || typeof s !== "object") return [];
+    const r = s as Record<string, unknown>;
+    const title = typeof r.title === "string" ? r.title : typeof r.source_title === "string" ? r.source_title : "";
+    const url = typeof r.url === "string" ? r.url : typeof r.source_url === "string" ? r.source_url : "";
+    return title || url ? [`- ${title}${title && url ? " — " : ""}${url}`] : [];
+  });
+  return lines.length ? `Sources:\n${lines.join("\n")}` : "";
+}
+function renderValue(value: unknown, depth: number): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      if (item && typeof item === "object" && !Array.isArray(item)) {
+        const parts = Object.entries(item as Record<string, unknown>)
+          .filter(([k, v]) => !INTERNAL_KEYS.has(k) && v !== null && v !== undefined && v !== "")
+          .map(([k, v]) => `${humanizeKey(k)}: ${typeof v === "object" ? renderValue(v, depth + 1).replace(/\n+/g, "; ") : String(v)}`);
+        return `- ${parts.join(" | ")}`;
+      }
+      return `- ${renderValue(item, depth + 1)}`;
+    }).join("\n");
+  }
+  if (typeof value === "object") {
+    const heading = "#".repeat(Math.min(depth + 2, 5));
+    return Object.entries(value as Record<string, unknown>)
+      .filter(([k, v]) => !INTERNAL_KEYS.has(k) && v !== null && v !== undefined && v !== "")
+      .map(([k, v]) => k === "sources" ? renderSources(v) : `${heading} ${humanizeKey(k)}\n\n${renderValue(v, depth + 1)}`)
+      .filter((part) => part.trim())
+      .join("\n\n");
+  }
+  return String(value);
+}
+export function taskWorkProduct(output: string): string {
   const trimmed = output.trim();
   try {
     const parsed = JSON.parse(trimmed);
-    if (parsed && typeof parsed === "object") {
-      const obj = parsed as Record<string, unknown>;
-      const product = obj.deliverable ?? obj.content ?? obj.result;
-      if (typeof product === "string" && product.trim()) return product.trim();
-      if (product && typeof product === "object") return JSON.stringify(product, null, 2);
-      return JSON.stringify(parsed, null, 2);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      let obj = parsed as Record<string, unknown>;
+      if (obj.llmResult && typeof obj.llmResult === "object" && !Array.isArray(obj.llmResult)) obj = obj.llmResult as Record<string, unknown>;
+      const product = obj.deliverable ?? obj.content ?? obj.result ?? obj.brief ?? obj.final_report ?? obj.report;
+      const sources = renderSources(obj.sources);
+      if (typeof product === "string" && product.trim()) return sources && !product.includes("Sources:") ? `${product.trim()}\n\n${sources}` : product.trim();
+      if (product && typeof product === "object") return [renderValue(product, 0), sources].filter(Boolean).join("\n\n");
+      return renderValue(obj, 0) || JSON.stringify(parsed, null, 2);
     }
+    if (Array.isArray(parsed)) return renderValue(parsed, 0);
   } catch {
     // not JSON: plain text output
   }
