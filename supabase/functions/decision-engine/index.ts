@@ -10,6 +10,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // SPRINT 4 (M1-S4): Decision Engine now routes its LLM call through the
 // canonical Founder Brain instead of its own local llmFetch/callClaudeJSON.
 import { reason as founderBrainReason, getFounderPrinciples } from '../_shared/founder-brain.ts';
+// ONE BRAIN step 2 (28 Oct 2026): recall the founder's past work before scoring a decision.
+import { recall, recallBlock } from '../_shared/brain-recall.ts';
 
 // REGRESSION FIX (caught before this migration's first deploy): the pre-Sprint-4
 // live version built a founder-principles block into every scored decision via
@@ -95,7 +97,8 @@ Deno.serve(async (req) => {
     log('info', 'Scoring decision', { title }, id);
 
     const principlesBlock = await getFounderPrinciplesBlock('decision-engine');
-    const systemPrompt = BASE_SYSTEM_PROMPT + principlesBlock;
+    const recalled = await recall(`${title} ${description || ''}`).catch(() => []);
+    const systemPrompt = BASE_SYSTEM_PROMPT + principlesBlock + (recalled.length ? `${recallBlock(recalled)}\nWhere the founder's past work above is relevant (earlier plans, numbers, what was tried), reflect it in the assessments and name the chat.` : '');
 
     const result = await callClaudeJSON<{ dimensions: { name: string; score: number; weight: number; assessment: string; recommendation: string }[]; overall_score: number; summary: string }>(
       systemPrompt,
@@ -113,8 +116,8 @@ Deno.serve(async (req) => {
     const { data: dims, error: dimErr } = await supabase.from('brain_decision_dimensions').insert(dimensionRows).select('*');
     if (dimErr) throw dimErr;
 
-    log('info', 'Decision scored', { decisionId: decision.id, overallScore: result.overall_score, principlesApplied: principlesBlock.length > 0 }, id);
-    return okRes({ decision: { ...decision, summary: result.summary, dimensions: dims } }, id);
+    log('info', 'Decision scored', { decisionId: decision.id, overallScore: result.overall_score, principlesApplied: principlesBlock.length > 0, recalled: recalled.length }, id);
+    return okRes({ decision: { ...decision, summary: result.summary, dimensions: dims, recalled_from: recalled.map((r) => r.title) } }, id);
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Internal server error';
     log('error', 'decision-engine error', { error: msg }, id);

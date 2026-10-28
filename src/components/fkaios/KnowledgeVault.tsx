@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import FounderMemoryPanel from './FounderMemoryPanel';
 
 export default function KnowledgeVault() {
   const [brands, setBrands] = useState<any[]>([]);
@@ -80,6 +81,8 @@ export default function KnowledgeVault() {
           + Add Document
         </button>
       </div>
+
+      <FounderMemoryPanel />
 
       {showUpload && (
         <div className="bg-slate-900 border border-blue-500/30 rounded-xl p-4 space-y-3">

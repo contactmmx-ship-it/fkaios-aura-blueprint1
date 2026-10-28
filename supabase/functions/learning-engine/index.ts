@@ -6,6 +6,9 @@
 // Claude→Gemini fallback.
 // ============================================================
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+// ONE BRAIN step 2 (28 Oct 2026): learn from real work (objectives + outcomes) and the founder's past chats.
+import { recall, recallBlock } from '../_shared/brain-recall.ts';
+import { getObjectiveExperience, experienceText } from '../_shared/experience.ts';
 
 // ── __LLM_FALLBACK__ v1 (injected) ─────────────────────────────────────────
 // Drop-in replacement for the raw Anthropic fetch: primary claude-sonnet-4-6,
@@ -95,14 +98,17 @@ Deno.serve(async (req) => {
     if (body.action !== 'analyze') return errRes(`Unsupported action: ${body.action}`, 400, id);
 
     const sinceIso = new Date(Date.now() - 14 * 86400000).toISOString();
-    const [{ data: decisions }, { data: ideas }, { data: dispatches }, { data: leads }] = await Promise.all([
+    const [{ data: decisions }, { data: ideas }, { data: dispatches }, { data: leads }, experience] = await Promise.all([
       supabase.from('brain_decisions').select('title, overall_score').gte('created_at', sinceIso).limit(20),
       supabase.from('brain_business_ideas').select('title, score, status').gte('created_at', sinceIso).limit(20),
       supabase.from('agent_dispatch_log').select('action, status').gte('created_at', sinceIso).limit(200),
       supabase.from('leads').select('stage, lead_score').gte('created_at', sinceIso).limit(100),
+      getObjectiveExperience(30).catch(() => null),
     ]);
 
-    const hasSignal = (decisions && decisions.length) || (ideas && ideas.length) || (dispatches && dispatches.length) || (leads && leads.length);
+    const hasSignal = (decisions && decisions.length) || (ideas && ideas.length) || (dispatches && dispatches.length) || (leads && leads.length) || (experience && experience.total);
+    const failedText = (experience?.recent || []).filter((r) => r.status === 'failed').map((r) => r.request).join(' ');
+    const recalled = failedText ? await recall(failedText, 3).catch(() => []) : [];
     if (!hasSignal) {
       return okRes({ insights: [], message: 'Not enough real activity in the last 14 days to generate grounded insights yet.' }, id);
     }
@@ -112,8 +118,8 @@ Deno.serve(async (req) => {
     const lostLeads = (leads || []).filter((l) => l.stage === 'lost').length;
 
     const result = await callClaudeJSON<{ insights: { type: 'win' | 'loss' | 'campaign'; title: string; description: string; impact: 'high' | 'medium' | 'low' }[] }>(
-      `You are the Self-Learning system for Franchise Kart's FK AIOS, turning the last 14 days of real operational data into 2-4 concrete learning insights (wins, losses, or campaign observations). Ground every insight in the numbers given — do not invent figures or generic platitudes. If the data is too thin for a real insight, return fewer items rather than padding.\n\nRespond with ONLY valid JSON: {"insights": [{"type":"win"|"loss"|"campaign","title":string,"description":string,"impact":"high"|"medium"|"low"}]}`,
-      `Decisions scored (14d): ${(decisions || []).map((d) => `${d.title}=${d.overall_score}`).join('; ') || 'none'}\nBusiness ideas (14d): ${(ideas || []).map((i) => `${i.title}=${i.score}/${i.status}`).join('; ') || 'none'}\nAgent automation: ${dispatches?.length || 0} runs, ${failRate !== null ? failRate + '% failure rate' : 'no runs'}\nLeads (14d): ${leads?.length || 0} total, ${closedLeads} closed, ${lostLeads} lost`
+      `You are the Self-Learning system for Franchise Kart's FK AIOS, turning the last 14 days of real operational data into 2-4 concrete learning insights (wins, losses, or campaign observations). Ground every insight in the numbers given — do not invent figures or generic platitudes. If the data is too thin for a real insight, return fewer items rather than padding. Also learn from the objectives FKAIOS was given and how they ended: name the real pattern behind failures and what to do differently next time (type \"loss\"), and what made completed ones work (type \"win\"). Use the founder's past work only as background.\n\nRespond with ONLY valid JSON: {"insights": [{"type":"win"|"loss"|"campaign","title":string,"description":string,"impact":"high"|"medium"|"low"}]}`,
+      `Decisions scored (14d): ${(decisions || []).map((d) => `${d.title}=${d.overall_score}`).join('; ') || 'none'}\nBusiness ideas (14d): ${(ideas || []).map((i) => `${i.title}=${i.score}/${i.status}`).join('; ') || 'none'}\nAgent automation: ${dispatches?.length || 0} runs, ${failRate !== null ? failRate + '% failure rate' : 'no runs'}\nLeads (14d): ${leads?.length || 0} total, ${closedLeads} closed, ${lostLeads} lost\n${experienceText(experience, 30)}${recallBlock(recalled)}`
     );
 
     const rows = result.insights.map((ins) => ({ user_id: user.userId, type: ins.type, title: ins.title, description: ins.description, impact: ins.impact }));
