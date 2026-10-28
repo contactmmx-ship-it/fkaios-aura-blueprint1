@@ -54,3 +54,10 @@ No production migration, deployment, email delivery, paid AI call, or questionna
 ## Optional Other clarification update — 28 October 2026
 
 The runtime schema and respondent renderer now capture an optional explanation for Other-prefixed choices in simple-choice questions, multipart questions, and the service inventory. The explanation is stored with the structured answer and is not substituted for the original source text. CI is required to confirm the latest change; non-production persistence, resume and submission still require end-to-end testing.
+
+
+## Respondent-facing guided core — 28 October 2026
+
+The original 235-question bank is preserved unchanged as the canonical source-mapped reference. The preview now uses a separate **Raahat Guided Owner Discovery — Core** draft with 71 selected prompts across the same 16 business chapters and the same 20-item document checklist. This reduces the first respondent journey from 235 question screens to 71 while preserving source question IDs, original source question numbers, prompts, source blocks, choice wording/order and multipart controls for every selected prompt.
+
+The 71 prompts are an FK-authored prioritisation of the original Raahat questionnaire, not a claim that the original source contained only 71 questions. The remaining source questions remain available for later follow-up workshops. The guided selection is explicitly marked `guided_core_selection_reviewed: false`; a human semantic review and owner approval are still required before activation. The new guided template has its own slug, `raahat-guided-discovery`, so it cannot silently replace the full source-mapped `raahat-brand-discovery` template.
