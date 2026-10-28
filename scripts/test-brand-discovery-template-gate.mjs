@@ -55,6 +55,10 @@ assert.ok(inviteSource.includes("validateBrandDiscoveryTemplate(version.question
   "Invite endpoint must apply the generic release gate to every brand.");
 assert.ok(inviteSource.includes('Deno.env.get("FK_BRAND_DISCOVERY_EMAIL_SENDING_ENABLED") === "true"'),
   "Invitation email must require explicit server-side enablement.");
+assert.ok(respondentSource.includes("if (!isValidQuestionAnswer(question, answer))"),
+  "The respondent API must validate each answer before it is persisted.");
+assert.ok(respondentSource.includes("request_too_large"),
+  "The respondent API must reject oversized request bodies.");
 assert.ok(!respondentUiSource.includes("all 20 supporting documents"),
   "Respondent UI copy must not hard-code the Raahat checklist count.");
 assert.ok(!respondentSource.includes("checklist.length !== 20"),
