@@ -3,7 +3,7 @@
 // work chats + future documents) via SQL fkaios_memory_search. Memory matches carry document_id = knowledge
 // source id and similarity = 0.5 + 0.5 x (share of the query's key terms found on the page), so the objective
 // engine's evidence rule (>= 0.8) only accepts pages containing most of the key terms. Vector search unchanged.
-// Source of truth: this file = live version 32 (deployed 28 Oct 2026).
+// Source of truth: this file = live version 33 (deployed 28 Oct 2026).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type, x-vault-secret', 'Content-Type': 'application/json' };
@@ -106,12 +106,15 @@ Deno.serve(async (req) => {
     if (action === 'search') {
       if (!body.query) return err('query required', 400);
       const queryEmbedding = await embed(body.query);
+      // v5 (28 Oct 2026): a non-UUID brand_id (workers sometimes send a slug like "chaat-masters") is ignored
+      // instead of failing the whole search; a vector-search error no longer hides founder-memory results.
+      const brandId = typeof body.brand_id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.brand_id) ? body.brand_id : null;
       const { data: matches, error: mErr } = await db.rpc('match_knowledge_chunks', {
         query_embedding: queryEmbedding,
         match_count: body.match_count ?? 5,
-        filter_brand_id: body.brand_id ?? null,
+        filter_brand_id: brandId,
       });
-      if (mErr) return err(`Search failed: ${mErr.message}`);
+      if (mErr && body.include_memory === false) return err(`Search failed: ${mErr.message}`);
       // Founder memory (ONE BRAIN). Failure here never breaks the vector search.
       let memory: Record<string, unknown>[] = [];
       if (body.include_memory !== false) {
@@ -126,8 +129,8 @@ Deno.serve(async (req) => {
           }));
         }
       }
-      const all = [...(matches ?? []), ...memory].sort((a: any, b: any) => Number(b.similarity) - Number(a.similarity));
-      await logExec('search', 'success', body.query.slice(0, 200), `${matches?.length ?? 0} vault + ${memory.length} memory matches, top similarity ${Number((all[0] as any)?.similarity ?? 0).toFixed(3)}`);
+      const all = [...(mErr ? [] : (matches ?? [])), ...memory].sort((a: any, b: any) => Number(b.similarity) - Number(a.similarity));
+      await logExec('search', 'success', body.query.slice(0, 200), `${mErr ? 'vault error' : (matches?.length ?? 0)} vault + ${memory.length} memory matches, top similarity ${Number((all[0] as any)?.similarity ?? 0).toFixed(3)}`);
       return ok({ query: body.query, matches: all });
     }
 
