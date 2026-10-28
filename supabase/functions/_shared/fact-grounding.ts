@@ -468,7 +468,7 @@ export function formatBlockedSummary(gate: ObjectiveTaskGate): string {
 // independent verifier. Per-task evidence is cut at 2,500 chars, which hid these sources and made the verifier
 // reject correctly cited fkaios-memory:// chats. Only knowledge.search matches at/above the relevance bar,
 // with the retrieved excerpt text (from the measured capability_result when present).
-export function founderMemoryEvidenceText(tasks: TaskEvidenceRecord[], maxChars = 8000): string {
+export function founderMemoryEvidenceText(tasks: TaskEvidenceRecord[], maxChars = 9000): string {
   const byUrl = new Map<string, { title: string; excerpts: string[] }>();
   for (const task of tasks) {
     if (!SUCCESS_TASK_STATUSES.has(String(task.status ?? ""))) continue;
@@ -493,6 +493,6 @@ export function founderMemoryEvidenceText(tasks: TaskEvidenceRecord[], maxChars 
     }
   }
   if (byUrl.size === 0) return "";
-  const lines = [...byUrl.entries()].map(([url, e]) => `${url} = ${e.title}\n${e.excerpts.join("\n").replace(/\s+/g, " ").slice(0, 1200)}`);
+  const lines = [...byUrl.entries()].map(([url, e]) => `${url} = ${e.title}\n${e.excerpts.join("\n").replace(/\s+/g, " ").slice(0, 3000)}`);
   return `[FOUNDER MEMORY RETRIEVED BY THIS OBJECTIVE — fkaios-memory:// sources are the founder's own past-work chats, retrieved by knowledge.search; claims citing them are supported when this text supports them]\n${lines.join("\n\n")}`.slice(0, maxChars);
 }

@@ -894,6 +894,18 @@ async function createContinuationProject(
   objective: Record<string, unknown>,
   correlationId?: string,
 ) {
+  // 28 Oct 2026: race guard. Ticks overlap (cron every minute, a run can take longer), so the objective row
+  // loaded at the start of this run may be stale. Objective eb8c19d4 was completed by one run at 12:46:08 and
+  // a new plan was created by another run at 12:46:14. Re-read the live status before planning anything.
+  const { data: live, error: liveError } = await getSupabaseAdmin()
+    .from("orchestrator_requests").select("status").eq("id", String(objective.id)).maybeSingle();
+  if (liveError || !live || live.status !== "processing") {
+    return {
+      projectId: null,
+      tasksCreated: 0,
+      error: liveError ? `could not re-check objective status: ${liveError.message}` : `objective is now '${live?.status ?? "missing"}'; not replanning`,
+    };
+  }
   const plan = await planObjective(
     {
       id: String(objective.id),
