@@ -1,7 +1,7 @@
  "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import bank from "../../../config/brand-discovery/raahat-question-bank-v1.draft.json";
+import bank from "../../../config/brand-discovery/raahat-guided-discovery-v1.draft.json";
 
 type Option = { value: string; label: string };
 type Part = { id: string; label: string; instruction?: string; selection_mode?: "single" | "multiple"; max_selections?: number; optional?: boolean; options: Option[] };
@@ -363,7 +363,7 @@ export default function BrandDiscoveryPreviewPage() {
           <div className="rounded-3xl border border-[#e4ded1] bg-[#f9f7f1] p-5">
             <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#9a8354]">A little reassurance</p><p className="mt-3 font-serif text-xl leading-snug text-[#344a39]">You don’t need perfect answers.</p><p className="mt-2 text-xs leading-6 text-[#7c8176]">Share what you know today. Unknowns and evidence gaps can be identified separately instead of guessed.</p>
           </div>
-          <div className="rounded-3xl bg-[#e9eee6] p-5"><div className="flex items-center gap-2 text-[#345740]"><Icon name="check"/><p className="text-xs font-semibold">What this preview covers</p></div><ul className="mt-3 space-y-2 text-xs leading-5 text-[#69786a]"><li>• All 16 source chapters</li><li>• 235 source-mapped question headings</li><li>• Complex and multi-part controls</li><li>• 20 supporting-document statuses</li><li>• Local save/resume for review</li><li>• Closing acknowledgement screen</li></ul></div>
+          <div className="rounded-3xl bg-[#e9eee6] p-5"><div className="flex items-center gap-2 text-[#345740]"><Icon name="check"/><p className="text-xs font-semibold">What this preview covers</p></div><ul className="mt-3 space-y-2 text-xs leading-5 text-[#69786a]"><li>• All 16 Raahat business chapters</li><li>• 71 guided core questions</li><li>• Complex and multi-part controls</li><li>• 20 supporting-document status checks</li><li>• Local save/resume for review</li><li>• Closing acknowledgement screen\n            <li>• Full 235-question source bank preserved for deeper follow-up workshops</li></li></ul></div>
         </aside>
       </div>
 
