@@ -196,3 +196,16 @@ These branch-only changes address several reusable-product gaps discovered durin
 - [ ] Implement and test secure document upload if respondents are expected to submit actual files; the current checklist remains an availability declaration only.
 - [ ] Complete evidence-backed human review workflow for the private report; the generated report is an evidence inventory and draft follow-up list, not a final diagnosis.
 - [ ] Keep the PR draft/unmerged. No production migration, activation, invite/email sending, or paid AI use occurred.
+
+
+## Raahat-specific conditional clarification correction — 28 October 2026
+
+- [x] Added a separate optional text field when a Raahat single/multi-select answer chooses an option whose label begins with “Other”.
+- [x] Added the same clarification field for Raahat multipart questions, separately keyed by question part.
+- [x] Added the conditional clarification field for the “Other” service row in Raahat's service-status matrix.
+- [x] Applied the same controls to both the Next.js preview and the standalone static preview.
+- [x] Live respondent UI now recognises all “Other…” labels (not just the exact label “Other”) and clears a stale clarification when the respondent deselects the Other option.
+- [x] Added regression assertions for the Raahat preview and respondent UI.
+- [x] Latest CI on `93b04dbfa7a8cff1c691d02f52b05ea418ea11f1`: questionnaire source validation, frontend type-check/build/tests, Edge Function type-check and migration drift all PASS.
+
+This is a Raahat-specific source-mapped questionnaire. The generic schema/release engine is only infrastructure; it does not mean future brands should reuse Raahat's questions. Raahat remains a draft/inactive pilot until the non-production end-to-end, security, accessibility, semantic and owner-approval gates are genuinely complete.
