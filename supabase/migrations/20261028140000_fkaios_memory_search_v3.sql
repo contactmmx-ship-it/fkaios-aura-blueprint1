@@ -3,7 +3,7 @@
 -- ("What is Apify AI") tied with the real Chaat Masters chats and the pages holding the franchise figures
 -- never reached the top 5. v3:
 --   * weights each word by rarity (a brand name counts more than "plan" or "model");
---   * the rarest word (if it is on <=10% of pages) is an ANCHOR: every result must contain it;
+--   * up to 4 uncommon words (each on <=10% of pages) are ANCHORS: every result contains at least one; a word counts at most 3.5;
 --   * bonus for anchor density, anchor in the chat title, and pages full of figures (Rs, %, lakh, 1,00,000);
 --   * pages with figures are returned in full (3,200 chars) so numbers reach the writer and the verifier;
 --   * at least 8 chats are returned (one best page per chat).
@@ -56,21 +56,25 @@ create trigger fkaios_page_terms_sync after insert or update of text on public.f
 create or replace function public.fkaios_memory_search_v3(p_terms text[], p_limit integer default 5)
 returns table(source_id uuid, title text, pdf_page integer, matched_fraction real, excerpt text)
 language plpgsql stable security definer set search_path to 'public' as $f$
-declare n_pages int; tw jsonb; wsum real; anchor text; qo tsquery; qanc tsquery;
+declare n_pages int; tw jsonb; wsum real; anchors text[]; qo tsquery; qanc tsquery;
 begin
   select count(*) into n_pages from fkaios_page_terms;
   if n_pages = 0 then return; end if;
   select jsonb_object_agg(term, w), sum(w) into tw, wsum from (
-    select term, (ln((n_pages + 1)::real / (df + 1)) + 0.1)::real as w from (
+    select term, least(3.5, ln((n_pages + 1)::real / (df + 1)) + 0.1)::real as w from (
       select u.t as term, (select count(*) from fkaios_page_terms pt where pt.v @@ to_tsquery('english', quote_literal(u.t) || ':*'))::int as df
       from (select distinct lower(t) t from unnest(p_terms) t where length(t) > 1) u
     ) d where df > 0
   ) x;
   if tw is null then return; end if;
-  select e.key into anchor from jsonb_each_text(tw) e order by e.value::real desc limit 1;
-  if (tw->>anchor)::real < ln((n_pages + 1)::real / greatest(50, n_pages * 0.10)) then anchor := null; end if;
+  -- anchors: up to 4 uncommon words (each on <=10% of pages); a page must contain at least one of them
+  anchors := array(select e.key from jsonb_each_text(tw) e
+                   where e.value::real >= ln((n_pages + 1)::real / greatest(50, n_pages * 0.10))
+                   order by e.value::real desc limit 4);
   qo := to_tsquery('english', array_to_string(array(select quote_literal(k) || ':*' from jsonb_object_keys(tw) k), ' | '));
-  if anchor is not null then qanc := to_tsquery('english', quote_literal(anchor) || ':*'); end if;
+  if coalesce(array_length(anchors, 1), 0) > 0 then
+    qanc := to_tsquery('english', array_to_string(array(select quote_literal(a) || ':*' from unnest(anchors) a), ' | '));
+  end if;
 
   return query
   with cand as (
@@ -84,9 +88,9 @@ begin
     from cand c
   ), joined as (
     select p.source_id, p.pdf_page, p.text, s.title as stitle, sc.figs, sc.wcov,
-      (case when anchor is not null and s.title ilike '%' || anchor || '%' then 1 else 0 end)::real as tanc,
-      (case when anchor is null then 0
-            else (length(p.text) - length(replace(lower(p.text), anchor, ''))) / length(anchor) end)::real as amen
+      (case when exists (select 1 from unnest(coalesce(anchors, '{}'::text[])) a where s.title ilike '%' || a || '%') then 1 else 0 end)::real as tanc,
+      (select coalesce(sum((length(p.text) - length(replace(lower(p.text), a, ''))) / length(a)), 0)
+         from unnest(coalesce(anchors, '{}'::text[])) a)::real as amen
     from scored sc join fkaios_knowledge_pages p on p.id = sc.page_id join fkaios_knowledge_sources s on s.id = p.source_id
     where s.title not like 'ChatGPT chats index%'
   ), ranked as (
