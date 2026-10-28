@@ -70,6 +70,9 @@ export function validateBrandDiscoveryTemplate(questionnaire) {
     return { ok: false, errors: ["questionnaire_not_an_object"] };
   }
   if (questionnaire.status !== "active") errors.push("questionnaire_not_active");
+  if (typeof questionnaire.slug !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(questionnaire.slug)) errors.push("slug_invalid");
+  if (!questionnaire.brand || typeof questionnaire.brand.name !== "string" || !questionnaire.brand.name.trim() ||
+      typeof questionnaire.brand.category !== "string" || !questionnaire.brand.category.trim()) errors.push("brand_metadata_missing");
   if (!Array.isArray(questionnaire.sections) || questionnaire.sections.length === 0) {
     errors.push("sections_missing");
   }
@@ -130,6 +133,30 @@ export function validateBrandDiscoveryTemplate(questionnaire) {
     }
   }
   return { ok: errors.length === 0, errors: [...new Set(errors)] };
+}
+
+/**
+ * Draft-time structural validation. Release flags are simulated only in-memory
+ * so authors can validate a draft without pretending its review gates passed.
+ */
+export function validateBrandDiscoveryDraft(questionnaire) {
+  if (!questionnaire || typeof questionnaire !== "object" || Array.isArray(questionnaire)) {
+    return { ok: false, errors: ["questionnaire_not_an_object"] };
+  }
+  const errors = [];
+  if (questionnaire.status !== "draft") errors.push("draft_status_required");
+  const structuralCandidate = {
+    ...questionnaire,
+    status: "active",
+    release_readiness: Object.fromEntries(REQUIRED_RELEASE_CHECKS.map((key) => [key, true])),
+    release_approval: {
+      approved_by: "STRUCTURAL_VALIDATION_ONLY",
+      approval_reference: "NOT_A_RELEASE_APPROVAL",
+      approved_at: "2000-01-01T00:00:00.000Z",
+    },
+  };
+  const result = validateBrandDiscoveryTemplate(structuralCandidate);
+  return { ok: errors.length === 0 && result.ok, errors: [...new Set([...errors, ...result.errors])] };
 }
 
 export const brandDiscoveryReleaseChecks = [...REQUIRED_RELEASE_CHECKS];
