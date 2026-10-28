@@ -45,6 +45,8 @@ export default function BrandDiscoveryPreviewPage() {
   const [savedAt, setSavedAt] = useState("");
   const [showReset, setShowReset] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [resumeAvailable, setResumeAvailable] = useState(false);
+  const [validationMessage, setValidationMessage] = useState("");
   const [voiceMessage, setVoiceMessage] = useState("Voice guide is optional.");
   const [stage, setStage] = useState<"questions" | "documents" | "ack" | "complete">("questions");
 
@@ -56,6 +58,8 @@ export default function BrandDiscoveryPreviewPage() {
         if (saved.answers) setAnswers(saved.answers);
         if (saved.notes) setNotes(saved.notes);
         if (typeof saved.index === "number") setIndex(Math.max(0, Math.min(questions.length - 1, saved.index)));
+        if (["questions", "documents", "ack", "complete"].includes(saved.stage)) setStage(saved.stage);
+        if (saved.answers && Object.keys(saved.answers).length) setResumeAvailable(true);
       }
     } catch { /* Preview must still work if local storage is unavailable. */ }
     setHydrated(true);
@@ -64,10 +68,10 @@ export default function BrandDiscoveryPreviewPage() {
   useEffect(() => {
     if (!hydrated) return;
     try {
-      window.localStorage.setItem(STORE_KEY, JSON.stringify({ answers, notes, index, savedAt: new Date().toISOString() }));
+      window.localStorage.setItem(STORE_KEY, JSON.stringify({ answers, notes, index, stage, savedAt: new Date().toISOString() }));
       setSavedAt(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
     } catch { setSavedAt("session only"); }
-  }, [answers, notes, index, hydrated]);
+  }, [answers, notes, index, stage, hydrated]);
 
   const currentQuestion = questions[index];
   const isDoc = stage === "documents";
@@ -106,8 +110,42 @@ export default function BrandDiscoveryPreviewPage() {
     const first = questions.findIndex((q) => q.sectionIndex === sectionIndex);
     if (first >= 0) { setIndex(first); setStage("questions"); setShowMap(false); setGuideMessage(""); }
   };
+  const hasMeaningfulAnswer = (value: any) => !blank(value) && !(Array.isArray(value) && value.every((item) => blank(item) || (typeof item === "object" && Object.values(item).every((v) => blank(v)))));
+  const questionHasAnswer = (q: Question) => {
+    if (q.type === "multi_part") return (q.parts ?? []).every((part) => part.optional || hasMeaningfulAnswer(answers[q.id + ":" + part.id]));
+    if (q.type === "service_status") return (q.service_options ?? []).every((service) => !q.required || hasMeaningfulAnswer(answers[q.id + ":" + service.value]));
+    return hasMeaningfulAnswer(answers[q.id]);
+  };
+  const exportPreview = () => {
+    const payload = {
+      title: "Raahat Brand Discovery — Preview Response Export",
+      environment: "LOCAL PREVIEW ONLY — NOT SUBMITTED OR VERIFIED",
+      exported_at: new Date().toISOString(),
+      brand: config.brand,
+      answers,
+      clarifications: notes,
+      questions_answered: questions.filter((q) => questionHasAnswer(q)).length,
+      total_questions: questions.length,
+      document_statuses: Object.fromEntries(config.document_checklist.map((d) => [d.id, answers[d.id] ?? "Not answered"])),
+      acknowledgement_checked: !!answers.acknowledged,
+      notice: "This file is a local preview export. It has not been submitted to Franchise Kart, emailed, reviewed, or verified."
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url; link.download = "raahat-brand-discovery-preview-response.json";
+    document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+  };
   const next = () => {
-    setHelpOpen(false); setGuideMessage("");
+    setHelpOpen(false); setGuideMessage(""); setValidationMessage("");
+    if (stage === "questions" && currentQuestion?.required && !questionHasAnswer(currentQuestion)) {
+      setValidationMessage("Please answer this required question before continuing. If the available options do not fit, use an offered “Other”, “Not sure”, or “Prefer to discuss personally” option where available.");
+      return;
+    }
+    if (stage === "ack" && !answers.acknowledged) {
+      setValidationMessage("Please tick the acknowledgement box before finishing this preview.");
+      return;
+    }
     if (stage === "questions") {
       if (index < questions.length - 1) setIndex(index + 1);
       else { setStage("documents"); setIndex(questions.length); }
@@ -245,14 +283,16 @@ export default function BrandDiscoveryPreviewPage() {
 
               {stage === "documents" && currentDoc && <div className="animate-[fadeIn_.25s_ease-out]"><div className="mb-5 inline-flex items-center gap-2 rounded-full bg-[#f3f0e7] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[.15em] text-[#8e784c]"><Icon name="book" className="h-3.5 w-3.5"/> Supporting documents</div><p className="text-xs text-[#85877c]">Checklist item {docIndex+1} of {config.document_checklist.length}</p><h2 className="mt-3 font-serif text-3xl leading-tight text-[#233b2e]">{currentDoc.label}</h2><p className="mt-4 text-sm leading-7 text-[#747b72]">Please indicate whether this record is available. This is a self-reported status only—it does not mean Franchise Kart has received or verified the document.</p><div className="mt-7 space-y-3">{currentDoc.status_options.map((status) => <button key={status} type="button" aria-pressed={answers[currentDoc.id] === status} onClick={() => updateAnswer(currentDoc.id, answers[currentDoc.id] === status ? "" : status)} className={"flex w-full items-center gap-3 rounded-2xl border p-4 text-left text-sm transition " + (answers[currentDoc.id] === status ? "border-[#b9904d] bg-[#f8f1e4] font-semibold" : "border-[#e8e3d9] hover:bg-[#fbfcfa]")}>{answers[currentDoc.id] === status ? <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#967139] text-xs text-white">✓</span> : <span className="h-5 w-5 rounded-full border border-[#c9c6bd]"/>}{status}</button>)}</div><div className="mt-5 rounded-2xl border border-[#e7e2d7] bg-[#fdfcf9] p-4"><p className="text-xs font-semibold text-[#4b5c4e]">Evidence status stays separate</p><p className="mt-1 text-xs leading-5 text-[#81847b]">Available (self-reported) · Received · Reviewed · Verified are distinct statuses in the internal workflow.</p></div></div>}
 
+              {validationMessage && <div role="alert" aria-live="polite" className="mb-5 rounded-2xl border border-[#d7a59a] bg-[#fff4f1] px-4 py-3 text-sm leading-6 text-[#8e4336]">{validationMessage}</div>}
+
               {stage === "ack" && <div><div className="mb-5 inline-flex items-center gap-2 rounded-full bg-[#f3f0e7] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[.15em] text-[#8e784c]"><Icon name="lock" className="h-3.5 w-3.5"/> Confidentiality & acknowledgement</div><h2 className="font-serif text-3xl text-[#233b2e]">Before we move forward</h2><div className="prose prose-sm mt-5 max-w-none whitespace-pre-wrap text-sm leading-7 text-[#626e63]">{config.confidentiality_and_acknowledgement}</div><div className="mt-7 grid gap-4 sm:grid-cols-2"><div><label className="mb-2 block text-xs font-semibold text-[#667166]">Owner name (preview)</label><input value={answers.owner_name ?? config.brand.owner} onChange={(e) => updateAnswer("owner_name",e.target.value)} className="w-full rounded-xl border border-[#e3ded3] px-3 py-3 text-sm outline-none focus:border-[#a68b56]"/></div><div><label className="mb-2 block text-xs font-semibold text-[#667166]">Date</label><input type="date" value={answers.owner_date ?? new Date().toISOString().slice(0,10)} onChange={(e) => updateAnswer("owner_date",e.target.value)} className="w-full rounded-xl border border-[#e3ded3] px-3 py-3 text-sm outline-none focus:border-[#a68b56]"/></div></div><label className="mt-4 flex items-start gap-3 rounded-2xl border border-[#e5dfd2] bg-[#faf8f2] p-4 text-sm leading-6"><input type="checkbox" checked={!!answers.acknowledged} onChange={(e) => updateAnswer("acknowledged",e.target.checked)} className="mt-1 h-4 w-4 accent-[#315b43]"/>I have reviewed the confidentiality and acknowledgement wording above. <span className="text-[#a45d4d]">*</span></label><p className="mt-3 text-xs leading-5 text-[#85877c]">This is a preview only. It does not create a legal signature or submit an acknowledgement.</p></div>}
 
-              {stage === "complete" && <div className="py-8 text-center"><div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full border border-[#cbb47e] bg-[#f7f0df] text-[#967139]"><Icon name="spark" className="h-9 w-9"/></div><p className="mt-6 text-[10px] font-bold uppercase tracking-[.25em] text-[#9a8354]">Preview journey complete</p><h2 className="mt-3 font-serif text-4xl text-[#233b2e]">Thank you for sharing your story.</h2><p className="mx-auto mt-4 max-w-lg text-sm leading-7 text-[#747b72]">You have reached the end of the experience preview. No response has been sent to Franchise Kart, no report has been generated, and no email has been sent.</p><div className="mx-auto mt-7 grid max-w-md grid-cols-2 gap-3"><div className="rounded-2xl bg-[#f5f3ed] p-4"><p className="font-serif text-3xl text-[#365a43]">{answerCount}</p><p className="mt-1 text-xs text-[#81847b]">Questions with preview answers</p></div><div className="rounded-2xl bg-[#f5f3ed] p-4"><p className="font-serif text-3xl text-[#365a43]">{config.document_checklist.length}</p><p className="mt-1 text-xs text-[#81847b]">Checklist items explored</p></div></div><button type="button" onClick={resetPreview} className="mt-6 rounded-full bg-[#1c3b2c] px-5 py-3 text-xs font-semibold text-white hover:bg-[#2c5740]">Restart preview</button></div>}
+              {stage === "complete" && <div className="py-8 text-center"><div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full border border-[#cbb47e] bg-[#f7f0df] text-[#967139]"><Icon name="spark" className="h-9 w-9"/></div><p className="mt-6 text-[10px] font-bold uppercase tracking-[.25em] text-[#9a8354]">Preview journey complete</p><h2 className="mt-3 font-serif text-4xl text-[#233b2e]">Thank you for sharing your story.</h2><p className="mx-auto mt-4 max-w-lg text-sm leading-7 text-[#747b72]">You have reached the end of the experience preview. No response has been sent to Franchise Kart, no report has been generated, and no email has been sent.</p><div className="mx-auto mt-7 grid max-w-md grid-cols-2 gap-3"><div className="rounded-2xl bg-[#f5f3ed] p-4"><p className="font-serif text-3xl text-[#365a43]">{answerCount}</p><p className="mt-1 text-xs text-[#81847b]">Questions with preview answers</p></div><div className="rounded-2xl bg-[#f5f3ed] p-4"><p className="font-serif text-3xl text-[#365a43]">{config.document_checklist.length}</p><p className="mt-1 text-xs text-[#81847b]">Checklist items explored</p></div></div><div className="mt-6 flex flex-wrap justify-center gap-3"><button type="button" onClick={exportPreview} className="rounded-full bg-[#1c3b2c] px-5 py-3 text-xs font-semibold text-white hover:bg-[#2c5740]">Export my preview answers</button><button type="button" onClick={() => window.print()} className="rounded-full border border-[#dcd6c9] px-5 py-3 text-xs font-semibold text-[#58665a] hover:bg-white">Print / save as PDF</button><button type="button" onClick={resetPreview} className="rounded-full border border-[#dcd6c9] px-5 py-3 text-xs font-semibold text-[#58665a] hover:bg-white">Restart preview</button></div></div>}
 
               {stage !== "complete" && <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-[#eee9df] pt-5"><button type="button" onClick={previous} className="inline-flex items-center gap-2 rounded-full border border-[#dcd6c9] px-4 py-3 text-xs font-semibold text-[#58665a] transition hover:bg-[#faf8f3]"><Icon name="back" className="h-4 w-4"/> Previous</button><div className="hidden items-center gap-2 text-[10px] text-[#99988d] sm:flex"><Icon name="save" className="h-4 w-4"/>{hydrated ? "Preview progress stored in this browser only" : "Preparing local preview"}</div><button type="button" onClick={next} className="group inline-flex items-center gap-3 rounded-full bg-[#1b3b2b] px-5 py-3.5 text-xs font-semibold text-white shadow-[0_6px_18px_rgba(27,59,43,.16)] transition hover:-translate-y-0.5 hover:bg-[#2a5540]">{stage === "ack" ? "Finish preview" : "Continue"}<span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/10 transition group-hover:translate-x-0.5"><Icon name="arrow" className="h-3.5 w-3.5"/></span></button></div>}
             </div>
           </div>
-          <p className="mt-4 text-center text-[10px] leading-5 text-[#929187]">This experience preview is not the live respondent service. No backend, invitation token, email, or production data is connected.</p>
+          <p className="mt-4 text-center text-[10px] leading-5 text-[#929187]">Preview mode only · Answers remain in this browser until you export or reset them. No backend, invitation token, email, AI service, or production data is connected.</p>
         </section>
 
         <aside className="space-y-4">
@@ -261,6 +301,7 @@ export default function BrandDiscoveryPreviewPage() {
             <div className="mt-4 rounded-2xl rounded-tl-md bg-[#f5f4ee] p-3.5 text-xs leading-6 text-[#667166]">Namaste. We’ll take this one step at a time. If a question feels unclear, open the explanation below. You can move back and change your answers in this preview.</div>
             <button type="button" onClick={() => {setGuideMessage(getGuideText());setHelpOpen(!helpOpen);}} className="mt-3 flex w-full items-center justify-between rounded-xl border border-[#e4ded1] px-3 py-3 text-left text-xs font-semibold text-[#536a58] hover:bg-[#faf8f3]"><span className="flex items-center gap-2"><Icon name="help"/> Explain this question</span><Icon name="chev" className={helpOpen ? "rotate-180 transition" : "transition"}/></button>
             {helpOpen && <div className="mt-3 rounded-2xl border border-[#dce5d9] bg-[#f3f7f1] p-3.5 text-xs leading-6 text-[#5e705f]">{guideMessage}<p className="mt-2 text-[10px] font-semibold uppercase tracking-[.1em] text-[#8a947f]">Example guidance only · not connected to an AI service</p></div>}
+            {resumeAvailable && <div className="mt-3 rounded-xl border border-[#d8e5d7] bg-[#f1f7ef] p-3 text-xs leading-5 text-[#46624b]"><strong>Welcome back.</strong> Your earlier preview answers were restored from this browser. You can continue, edit chapters, or restart the preview.</div>}
             <div className="mt-4 border-t border-[#eee9df] pt-4"><p className="text-[10px] font-bold uppercase tracking-[.15em] text-[#99917f]">Voice guidance</p><button type="button" onClick={speakCurrent} className="mt-2 flex w-full items-center gap-3 rounded-xl bg-[#1e3d2d] p-3 text-left text-white transition hover:bg-[#2b5740]"><span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10"><Icon name="mic"/></span><span><span className="block text-xs font-semibold">Hear this question</span><span className="mt-1 block text-[10px] text-white/60">Browser speech playback</span></span></button><p className="mt-2 text-[10px] leading-5 text-[#929187]">{voiceMessage} This is not conversational AI or a recorded human voice.</p></div>
           </div>
           <div className="rounded-3xl border border-[#e4ded1] bg-[#f9f7f1] p-5">
