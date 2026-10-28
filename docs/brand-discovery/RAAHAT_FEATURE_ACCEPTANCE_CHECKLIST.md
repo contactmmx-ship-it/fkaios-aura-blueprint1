@@ -126,4 +126,15 @@ FK owner decisions SR-01–SR-06 have been explicitly approved and recorded in `
 
 ### Implementation audit note
 
-The current room-rate mapping uses a fixed multipart row labelled “Other category” and the generic multipart validator requires a choice for every part. The current optional-clarification trigger detects an option labelled “Other” only when that option is selected. Therefore, the implementation still needs a targeted fix/review so an owner without an additional room category is not forced to supply an “Other category” rate and any extra category name is captured separately when applicable. This is an identified blocker, not a completed fix. Do not change canonical source wording/options to hide the gap.
+The room-rate mapping now marks “Other category” optional, asks the respondent to leave it blank if no additional category exists, shows a separate optional category-name clarification when that row is answered, and lets respondents clear the optional selection. Client completion and server-side multipart validation have been updated. Static regression guards have been added to CI; non-production save/resume/submit testing is still required. Do not change canonical source wording/options to hide the gap.
+
+
+## Status correction — 28 October 2026, latest branch state
+
+- Owner semantic decisions SR-01–SR-06 are approved and recorded. Do not continue listing owner approval as outstanding.
+- The room-rate optional-category behavior and private evidence-report labels/statuses have been implemented on the feature branch; acceptance still depends on CI and non-production integration tests.
+- Voice is optional browser-based navigation for repeat/previous/next/stop, not a conversational AI guide. It must not block keyboard/on-screen use or be required for questionnaire completion.
+- Questionnaire validation, frontend TypeScript/production build, and Edge Function type-check passed on the last observed PR head; recheck after the newest commits.
+- The migration workflow still fails before applying anything because repository secrets `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD` are missing. Vercel checks are blocked by the free build-rate limit.
+- No dedicated non-production Supabase branch currently exists. A development branch quote was returned at **US$0.01344/hour**. Do not create it until the user explicitly confirms this recurring cost.
+- Production migration, Edge Function deployment, template activation, invitation/email sending, and merge remain blocked until the missing prerequisites and release checks are satisfied.
