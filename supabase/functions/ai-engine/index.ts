@@ -1150,6 +1150,9 @@ async function executeRequestedCapability(job: AIJob, parsed: Record<string, unk
   return {
     status: "success",
     capability,
+    // 28 Oct 2026: keep the request payload. work-engine's returnCompletedWork re-dispatches non-measured
+    // capabilities with resultObj.payload; without it knowledge.search failed with "query required".
+    payload,
     capability_result: dispatch.data ?? null,
   };
 }
