@@ -15,22 +15,54 @@ const cors = {
 const reply = (status: number, body: Record<string, unknown>) =>
   new Response(JSON.stringify(body), { status, headers: cors });
 
-function answerText(value: unknown): string {
+function answerText(value: unknown, question?: any): string {
+  let parsed: any = value;
   if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value);
-      if (parsed && typeof parsed === "object") {
-        const choices = Array.isArray(parsed.choices) ? parsed.choices.join(", ") :
-          typeof parsed.choice === "string" ? parsed.choice : "";
-        return [choices, typeof parsed.explanation === "string" ? parsed.explanation : ""].filter(Boolean).join(" — ");
-      }
-    } catch { /* ordinary text answer */ }
-    return value.trim();
+    try { parsed = JSON.parse(value); }
+    catch { return value.trim(); }
   }
-  if (value === null || value === undefined) return "";
-  if (Array.isArray(value)) return value.map(answerText).filter(Boolean).join("; ");
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
+  if (parsed === null || parsed === undefined) return "";
+  if (typeof parsed !== "object") return String(parsed);
+
+  const labelFor = (options: any[], id: unknown) => {
+    if (typeof id !== "string") return "";
+    const option = (Array.isArray(options) ? options : []).find((item: any) => item?.value === id);
+    return typeof option?.label === "string" ? option.label : id;
+  };
+  if (Array.isArray(parsed.choices) || typeof parsed.choice === "string") {
+    const choices = Array.isArray(parsed.choices) ? parsed.choices : [parsed.choice];
+    const labels = choices.map((id: unknown) => labelFor(question?.options, id)).filter(Boolean);
+    const explanation = typeof parsed.explanation === "string" ? parsed.explanation.trim() : "";
+    return [labels.join(", "), explanation].filter(Boolean).join(" — ");
+  }
+  if (parsed.parts && typeof parsed.parts === "object") {
+    const labels = (Array.isArray(question?.parts) ? question.parts : []).flatMap((part: any) => {
+      const choices = parsed.parts[part.id]?.choices;
+      if (!Array.isArray(choices) || choices.length === 0) return [];
+      const values = choices.map((id: unknown) => labelFor(part.options, id)).filter(Boolean).join(", ");
+      return values ? [`${part.label}: ${values}`] : [];
+    });
+    const explanation = typeof parsed.explanation === "string" ? parsed.explanation.trim() : "";
+    return [...labels, explanation].filter(Boolean).join(" — ");
+  }
+  if (Array.isArray(parsed.services)) {
+    const services = Array.isArray(question?.service_options) ? question.service_options : [];
+    const statuses = Array.isArray(question?.status_options) ? question.status_options : [];
+    return parsed.services.map((id: unknown) => {
+      const service = labelFor(services, id);
+      const status = labelFor(statuses, parsed.statuses?.[id]);
+      return service ? `${service}: ${status || "status not recorded"}` : "";
+    }).filter(Boolean).join("; ");
+  }
+  if (Array.isArray(parsed.rows)) {
+    const options = Array.isArray(question?.options) ? question.options : [];
+    return parsed.rows.map((row: any) => {
+      const choice = labelFor(options, row?.choice);
+      return [typeof row?.label === "string" ? row.label.trim() : "", choice].filter(Boolean).join(": ");
+    }).filter(Boolean).join("; ");
+  }
+  if (Array.isArray(parsed)) return parsed.map(answerText).filter(Boolean).join("; ");
+  return JSON.stringify(parsed);
 }
 
 /**
@@ -48,7 +80,7 @@ function buildEvidenceReport(questionnaire: any, answers: any[], session: any) {
     question_id: q.id,
     section: q.section_title,
     question: q.prompt,
-    answer: answerText(answerMap.get(q.id)),
+    answer: answerText(answerMap.get(q.id), q),
     evidence_status: "OWNER_REPORTED_NOT_INDEPENDENTLY_VERIFIED",
   }));
   const unanswered = questions.filter((q: any) => q.required !== false && !answerMap.has(q.id)).map((q: any) => ({
@@ -58,11 +90,21 @@ function buildEvidenceReport(questionnaire: any, answers: any[], session: any) {
     question: q.prompt,
     status: "MISSING_RESPONSE",
   }));
+  const closure = answerMap.get("__closure__") as any;
+  const reportedDocumentAvailability = closure && typeof closure === "object" && closure.documents && typeof closure.documents === "object"
+    ? closure.documents
+    : {};
   const checklist = Array.isArray(questionnaire?.document_checklist)
     ? questionnaire.document_checklist.map((item: any) => ({
+        item_id: typeof item === "object" ? item.id : null,
         item: typeof item === "string" ? item : (item?.label ?? JSON.stringify(item)),
-        status: "NOT_PROVIDED_OR_VERIFIED",
-        note: "The questionnaire record does not itself prove that a document was received or checked.",
+        respondent_reported_availability: typeof item === "object" && typeof item.id === "string"
+          ? (typeof reportedDocumentAvailability[item.id] === "string" ? reportedDocumentAvailability[item.id] : "NO_OWNER_RESPONSE_RECORDED")
+          : "NO_OWNER_RESPONSE_RECORDED",
+        receipt_status: "NOT_INDEPENDENTLY_CONFIRMED",
+        review_status: "NOT_REVIEWED_BY_THIS_REPORT_FUNCTION",
+        verification_status: "NOT_VERIFIED",
+        note: "Availability is a respondent report only. It does not prove a file was received, reviewed, authenticated or reconciled.",
       }))
     : [];
   return {
