@@ -6,6 +6,7 @@ on:
       - "src/app/brand-discovery/**"
       - "src/app/brand-discovery-preview/**"
       - "src/app/api/brand-discovery-guide/**"
+      - "scripts/test-brand-discovery-guide.mjs"
       - "preview-static/**"
       - "package.json"
       - "package-lock.json"
@@ -45,6 +46,8 @@ jobs:
           cache: npm
       - name: Install dependencies (repair existing lockfile drift in CI)
         run: npm install --no-audit --no-fund
+      - name: Test guide safety and no-spend defaults
+        run: node scripts/test-brand-discovery-guide.mjs
       - name: Type-check application
         run: npx tsc --noEmit --project tsconfig.brand-discovery.json
       - name: Build Next.js application
