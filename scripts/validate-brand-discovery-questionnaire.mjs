@@ -90,7 +90,7 @@ for (let index = 0; index < source.sections.length; index++) {
               { id: "room_categories", label: "Room categories", options: expectedOptions.slice(6), mode: "multiple" },
             ]
           : customKey === "5:3"
-            ? ["Standard", "Deluxe", "Executive", "Suite", "Other category"].map((name, index) => ({ id: "rate_" + (index + 1), label: name, options: expectedOptions, mode: "single" }))
+            ? ["Standard", "Deluxe", "Executive", "Suite", "Other category (if applicable)"].map((name, index) => ({ id: "rate_" + (index + 1), label: name, options: expectedOptions, mode: "single" }))
             : ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((name, index) => ({ id: "month_" + (index + 1), label: name, options: expectedOptions, mode: "single" }));
       assert.equal(question.parts.length, expectedDefinitions.length, "Custom part count mismatch: " + label);
       if (customKey === "5:3") {
