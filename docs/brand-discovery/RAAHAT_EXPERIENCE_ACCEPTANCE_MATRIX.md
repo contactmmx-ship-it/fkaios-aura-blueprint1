@@ -71,3 +71,14 @@
 - [ ] Rajeev explicitly approves activation after reviewing the tested preview.
 
 **Current delivery note (28 October 2026):** The preview now includes a premium welcome journey, saved-stage resume, welcome-back notice, required-answer gates, completion review/edit, local export/print, optional dictation and a contextual guide panel/API with no-spend default. The frontend validation workflow was expanded to include the preview route, guide API and static preview files. Vercel's daily deployment limit is still blocking new deployment statuses; this is not evidence of a source build pass or failure. No production changes have been made.
+
+
+## Reusable template hardening — 28 October 2026
+
+- The active-template gate is now generic across brands and validates JSON/database identity, question and section IDs, control-specific option structure, declared counts, checklist structure, eight review flags and a recorded human approval. Raahat keeps its stricter canonical source gate.
+- Draft templates can be validated offline with `node scripts/validate-brand-discovery-template.mjs <file.json>`. The generic seeder accepts a future-brand filename and only writes a draft row. Activation is separate and requires explicit confirmation plus the same release gate; neither script was executed against a database in this work.
+- Respondent saves now validate each answer's type/choice set before persistence, check section/question pointer consistency and reject oversized request bodies. The closure checklist count is template-defined rather than fixed at 20.
+- Invitation and completion email sends are disabled by default behind an explicit server-side enable flag.
+- CI passed on code commit `0e63889d2647cc91885c41dcf381d4fbb7683633` for questionnaire validation, frontend build/type-check, Edge Function type-check and migration drift. A later identity-binding regression test and code change are running in CI; check the latest PR checks before relying on this status.
+
+These improvements close reusable-schema and validation gaps, not the release gate. Non-production database/function deployment, end-to-end persistence and access-control testing, accessibility/device QA, and any required secure document upload remain unverified. Do not activate or merge based on unit tests alone.
