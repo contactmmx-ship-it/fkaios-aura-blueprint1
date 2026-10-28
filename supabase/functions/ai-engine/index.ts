@@ -1092,6 +1092,16 @@ export async function performSystemHealthCheck(config: SystemHealthCheckConfig, 
   }));
   return { checked_at: new Date().toISOString(), healthy: checks.length === 2 && checks.every((check) => check.reachable), checks: checks.sort((a, b) => a.target.localeCompare(b.target)) };
 }
+// ONE BRAIN (28 Oct 2026): the server-verified sources from prior tasks (fetched web URLs and founder-memory
+// chats, see summarizePriorEvidence) are listed FIRST, so the 18,000-character cut of the raw prior evidence
+// can never hide the exact URLs a report is allowed to cite.
+function verifiedPriorSourcesBlock(priorCompletedTasks: unknown): string {
+  const summary = summarizePriorEvidence(priorCompletedTasks);
+  if (!summary.verified) return "";
+  return "\n\n[VERIFIED PRIOR SOURCES — the ONLY sources you may cite. Use these exact URLs in sources[].url and verified_facts[].source_url. fkaios-memory:// URLs are the founder's own past work chats.]\n" +
+    JSON.stringify(summary.sources.slice(0, 20)) + "\n[/VERIFIED PRIOR SOURCES]";
+}
+
 async function executeRequestedCapability(job: AIJob, parsed: Record<string, unknown>, cid: string): Promise<Record<string, unknown>> {
   const requestedCapability = typeof parsed.capability === "string" ? parsed.capability : "";
   const taskText = [job.payload?.title, job.payload?.description].filter((v) => typeof v === "string").join(" ").toLowerCase();
@@ -1467,7 +1477,7 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
         : "";
       const priorTasks = parsePriorCompletedTasks(job.payload?.prior_completed_tasks);
       const priorEvidence = priorTasks.length > 0
-        ? "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(priorTasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
+        ? verifiedPriorSourcesBlock(job.payload?.prior_completed_tasks) + "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(priorTasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
         : "";
       const verificationContract = !isRectification && priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)
         ? "\n\nThis is a downstream verification/report task. Return ONLY JSON with verified_facts (at least 3 when the objective asks for three facts), report, and sources. Every verified_fact must include fact, source_url, source_title, and verification_note. Every source_url must appear in the supplied prior evidence. Do not include unsupported facts. If prior evidence lacks suitable sources, state the exact missing evidence."
@@ -1534,7 +1544,7 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
   const principlesBlock = await getFounderPrinciplesBlock("ai-engine");
   const priorTasks = parsePriorCompletedTasks(job.payload?.prior_completed_tasks);
   const priorEvidence = priorTasks.length > 0
-    ? "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(priorTasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
+    ? verifiedPriorSourcesBlock(job.payload?.prior_completed_tasks) + "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(priorTasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
     : "";
   const verificationContract = !isRectification && priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)
     ? "\n\nThis is a downstream verification/report task. Return ONLY JSON with verified_facts, report, and sources. Every verified_fact must include fact, source_url, source_title, and verification_note. Every source_url must appear in the supplied prior evidence. Do not include unsupported facts. If prior evidence lacks suitable sources, say so clearly and list the exact missing evidence instead of substituting unrelated sources."
