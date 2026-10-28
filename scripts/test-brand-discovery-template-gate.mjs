@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { validateBrandDiscoveryTemplate, brandDiscoveryReleaseChecks } from "../supabase/functions/_shared/brand-discovery-template-gate.mjs";
+import { validateBrandDiscoveryTemplate, validateBrandDiscoveryDraft, brandDiscoveryReleaseChecks } from "../supabase/functions/_shared/brand-discovery-template-gate.mjs";
 
 const release_readiness = Object.fromEntries(brandDiscoveryReleaseChecks.map((key) => [key, true]));
 const validTemplate = {
+  slug: "sample-brand-discovery",
+  brand: { name: "Sample Brand", category: "retail" },
   status: "active",
   question_count: 2,
   sections: [
@@ -18,6 +20,14 @@ const validTemplate = {
   release_readiness,
   release_approval: { approved_by: "FK owner", approval_reference: "FK-BD-TEST-001", approved_at: "2026-10-28T00:00:00.000Z" },
 };
+
+const validDraft = { ...structuredClone(validTemplate), status: "draft" };
+delete validDraft.release_readiness;
+delete validDraft.release_approval;
+assert.deepEqual(validateBrandDiscoveryDraft(validDraft), { ok: true, errors: [] },
+  "Draft structure must be testable without pretending review/approval gates passed.");
+const draftWithWrongCount = { ...structuredClone(validDraft), question_count: 1 };
+assert.ok(validateBrandDiscoveryDraft(draftWithWrongCount).errors.includes("question_count_does_not_match_sections"));
 
 assert.deepEqual(validateBrandDiscoveryTemplate(validTemplate), { ok: true, errors: [] },
   "A properly reviewed future-brand template should pass without Raahat-specific counts.");
