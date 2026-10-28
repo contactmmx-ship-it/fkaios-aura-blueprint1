@@ -24,6 +24,10 @@ if (!target) throw new Error("Template version not found.");
 if (target.status !== "draft" || target.questionnaire?.status !== "draft") {
   throw new Error("Only a draft version can be activated; no status changes were made.");
 }
+if (target.questionnaire?.slug !== target.slug || target.questionnaire?.version !== target.version ||
+    target.questionnaire?.brand?.category !== target.brand_category) {
+  throw new Error("Template JSON identity does not match the database row; no status changes were made.");
+}
 
 const candidate = { ...target.questionnaire, status: "active" };
 const validation = validateBrandDiscoveryTemplate(candidate);
