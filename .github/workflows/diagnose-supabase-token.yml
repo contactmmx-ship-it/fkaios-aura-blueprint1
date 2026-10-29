@@ -26,7 +26,7 @@ jobs:
           probe() { # name method url [body]
             code=$(curl -sS -o /tmp/body.json -w '%{http_code}' -X "$2" "$3" \
               -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" -H 'Content-Type: application/json' ${4:+--data "$4"})
-            msg=$(head -c 300 /tmp/body.json | tr -d '\n\r' | sed 's/sbp_[A-Za-z0-9_]*/[token]/g')
+            if [ "${QUIET:-}" = 1 ]; then msg="(body not printed: may contain secrets)"; else msg=$(head -c 300 /tmp/body.json | tr -d '\n\r' | sed 's/sbp_[A-Za-z0-9_]*/[token]/g'); fi
             case "$code" in 2??|404) lvl=notice;; *) lvl=error;; esac
             [ "$code" = 404 ] && [ "$1" != "edge-functions-write" ] && lvl=error
             echo "::$lvl title=$1::HTTP $code $msg"
@@ -37,8 +37,18 @@ jobs:
           probe "edge-functions-read (list)" GET "$A/functions"
           probe "edge-functions-read (one function)" GET "$A/functions/ai-engine"
           probe "api-keys-read (needed by link)" GET "$A/api-keys"
-          probe "secrets-read" GET "$A/secrets"
+          QUIET=1 probe "secrets-read" GET "$A/secrets"
+          QUIET=1 probe "api-key-secrets-read (needed by link)" GET "$A/api-keys?reveal=true"
+          QUIET=1 probe "postgrest-config-read" GET "$A/postgrest"
+          QUIET=1 probe "pooler-config-read" GET "$A/config/database/pooler"
           probe "edge-functions-write" PATCH "$A/functions/zz-ci-permission-probe-does-not-exist" '{"name":"zz"}'
+      - name: CLI link (what the migrations workflow runs first; remote read-only)
+        continue-on-error: true
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          npx --yes supabase@2.67.1 link --project-ref "$REF" > /tmp/link.txt 2>&1; rc=$?
+          echo "::notice title=supabase link exit $rc::$(tail -c 600 /tmp/link.txt | tr '\n' ' ' | sed 's/sbp_[A-Za-z0-9_]*/[token]/g; s/postgres[^ ]*@/postgres:[hidden]@/g')"
       - name: CLI view of functions (read-only)
         continue-on-error: true
         run: |
