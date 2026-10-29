@@ -7,12 +7,16 @@ on:
   pull_request:
     paths:
       - "supabase/migrations/**"
+      - "supabase/live-snapshot/migrations/**"
+      - ".github/tools/*migration_history*.py"
       - ".github/workflows/deploy-supabase-migrations.yml"
   push:
     branches:
       - main
     paths:
       - "supabase/migrations/**"
+      - "supabase/live-snapshot/migrations/**"
+      - ".github/tools/*migration_history*.py"
       - ".github/workflows/deploy-supabase-migrations.yml"
   workflow_dispatch:
     inputs:
@@ -75,6 +79,12 @@ jobs:
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
               env.write("SUPABASE_DB_URL=" + uri + "\n")
           PY
+
+      - name: Test the history assembler
+        run: python3 -m unittest discover -s .github/tools -p 'test_assemble_migration_history.py' -v
+
+      - name: Assemble full migration history (CI workspace only, not committed)
+        run: python3 .github/tools/assemble_migration_history.py
 
       - name: Preview pending migrations (no writes)
         run: supabase db push --db-url "$SUPABASE_DB_URL" --dry-run

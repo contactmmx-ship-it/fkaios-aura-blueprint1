@@ -18,3 +18,4 @@ bun.lock
 supabase/.temp/
 
 supabase/.temp/
+supabase/.migrations-set-aside/
