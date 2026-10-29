@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 // ORCHESTRATOR-BRAIN v4 — real department-agent routing.
 // v3 gap: always picked the FIRST agent in a department (`agents[0]`, limit 5),
 // so with SALES having 7 agents, "close this deal" could route to Follow-up AI.
