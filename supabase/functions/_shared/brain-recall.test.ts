@@ -1,5 +1,5 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { recalledRows, recallTerms, recallBlock } from './brain-recall.ts';
+import { recalledRows, recallTerms, recallBlock, sourceLink } from './brain-recall.ts';
 
 Deno.test('v3 rows are cut to the caller limit with short excerpts', () => {
   const rows = Array.from({ length: 8 }, (_, i) => ({ title: `T${i}`, pdf_page: i + 1, excerpt: 'x'.repeat(4200) }));
@@ -31,4 +31,18 @@ Deno.test('Brain Chat gets figures deep in a page; default callers keep 400 char
   const item = { title: 'Drive: GoMax — Dealer Scheme FY26-27 (Final).docx', page: 1, excerpt: 'x'.repeat(770) + ' 15% TD, every 50 bags = 5 free, 4% CD' };
   assertEquals(recallBlock([item], 1500).includes('15% TD, every 50 bags = 5 free, 4% CD'), true);
   assertEquals(recallBlock([item]).includes('15% TD'), false);
+});
+
+Deno.test('source link: URL storage_path first, else ingestion_report.source_url, never internal paths', () => {
+  assertEquals(sourceLink({ storage_path: 'https://drive.google.com/file/d/x' }), 'https://drive.google.com/file/d/x');
+  assertEquals(sourceLink({ storage_path: 'chatgpt-archive.zip#abc.md', ingestion_report: { source_url: 'https://chatgpt.com/c/abc' } }), 'https://chatgpt.com/c/abc');
+  assertEquals(sourceLink({ storage_path: 'project_hub#abc', ingestion_report: { chat_id: 'x' } }), undefined);
+  assertEquals(sourceLink({ storage_path: 'project_hub#abc', ingestion_report: { source_url: 'javascript:alert(1)' } }), undefined);
+  assertEquals(sourceLink(null), undefined);
+});
+
+Deno.test('callers can ask for longer excerpts (Brain Chat: whole GoMax rate table)', () => {
+  const rows = [{ title: 'T', pdf_page: 1, excerpt: 'x'.repeat(2400) + ' TOP DEALER ₹209' }];
+  assertEquals(recalledRows(rows, 1)[0].excerpt.includes('₹209'), false);
+  assertEquals(recalledRows(rows, 1, 2600)[0].excerpt.includes('₹209'), true);
 });

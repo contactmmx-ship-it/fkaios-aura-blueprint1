@@ -18,7 +18,7 @@ export function recallTerms(question: string, maxTerms = 6): string[] {
 
 export interface Recalled { title: string; page: number | null; excerpt: string; sourceUrl?: string }
 
-export async function recall(question: string, limit = 5): Promise<Recalled[]> {
+export async function recall(question: string, limit = 5, maxChars = 1500): Promise<Recalled[]> {
   const terms = recallTerms(question);
   if (!terms.length) return [];
   const url = Deno.env.get('SUPABASE_URL'); const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -30,22 +30,32 @@ export async function recall(question: string, limit = 5): Promise<Recalled[]> {
   const { data, error } = await db.rpc('fkaios_memory_search', { p_terms: terms, p_limit: limit });
   if (error || !data) return [];
   const rows = data as any[];
-  const recalled = recalledRows(rows, limit);
+  const recalled = recalledRows(rows, limit, maxChars);
   // Original links are stored on the source record's storage_path when available.
   // Resolve them read-only; project_hub/bucket paths are deliberately not exposed as URLs.
   const ids = [...new Set(rows.slice(0, recalled.length).map((r) => String(r.source_id || '')).filter((id) => /^[0-9a-f-]{36}$/i.test(id)))];
   if (!ids.length) return recalled;
-  const { data: sources } = await db.from('fkaios_knowledge_sources').select('id, storage_path').in('id', ids);
-  const urls = new Map((sources || []).map((s: { id: string; storage_path: string | null }) => [s.id, s.storage_path]));
+  const { data: sources } = await db.from('fkaios_knowledge_sources').select('id, storage_path, ingestion_report').in('id', ids);
+  const urls = new Map((sources || []).map((s: SourceLinkFields & { id: string }) => [s.id, sourceLink(s)]));
   return recalled.map((item, i) => {
-    const candidate = urls.get(String(rows[i]?.source_id || ''));
-    return typeof candidate === 'string' && /^https?:\/\//i.test(candidate) ? { ...item, sourceUrl: candidate } : item;
+    const link = urls.get(String(rows[i]?.source_id || ''));
+    return link ? { ...item, sourceUrl: link } : item;
   });
 }
 
+export interface SourceLinkFields { storage_path?: string | null; ingestion_report?: Record<string, unknown> | null }
+/** The original's web link: storage_path when it is a URL (Drive, GitHub, artifacts), else ingestion_report.source_url
+ *  (29 Oct: the 622 ChatGPT chats -> chatgpt.com/c/<id>; their storage_path stays the archive provenance). */
+export function sourceLink(s: SourceLinkFields | null | undefined): string | undefined {
+  const isUrl = (v: unknown): v is string => typeof v === 'string' && /^https?:\/\//i.test(v);
+  if (isUrl(s?.storage_path)) return s!.storage_path as string;
+  const alt = s?.ingestion_report?.source_url;
+  return isUrl(alt) ? alt : undefined;
+}
+
 /** v3 returns at least 8 rows and whole figure pages; keep the caller's limit and a readable excerpt. */
-export function recalledRows(rows: { title?: string; pdf_page?: number | null; excerpt?: string }[], limit: number): Recalled[] {
-  return rows.slice(0, Math.max(1, limit)).map((r) => ({ title: String(r.title || ''), page: r.pdf_page ?? null, excerpt: String(r.excerpt || '').slice(0, 1500) }));
+export function recalledRows(rows: { title?: string; pdf_page?: number | null; excerpt?: string }[], limit: number, maxChars = 1500): Recalled[] {
+  return rows.slice(0, Math.max(1, limit)).map((r) => ({ title: String(r.title || ''), page: r.pdf_page ?? null, excerpt: String(r.excerpt || '').slice(0, maxChars) }));
 }
 
 /** excerptChars: 400 keeps other callers unchanged; Brain Chat passes 1,500 because figures often sit past

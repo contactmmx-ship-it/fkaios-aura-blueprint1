@@ -2,9 +2,9 @@
 // (fkaios_knowledge_sources/pages: 622 ChatGPT work chats + future documents) from the Knowledge Vault tab.
 // Same recall the brain uses (SQL fkaios_recall via _shared/brain-recall.ts). Signed-in users only.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { recall, recallTerms } from '../_shared/brain-recall.ts';
+import { recall, recallTerms, sourceLink } from '../_shared/brain-recall.ts';
 
-const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey' };
+const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey, x-heartbeat-secret' };
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 
 function signedIn(auth: string | null, supabaseUrl: string): boolean {
@@ -18,7 +18,11 @@ function signedIn(auth: string | null, supabaseUrl: string): boolean {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: cors });
   const url = Deno.env.get('SUPABASE_URL')!;
-  if (!signedIn(req.headers.get('Authorization'), url)) return json({ error: 'Unauthorized' }, 401);
+  // 29 Oct 2026: also the server-side heartbeat secret (same check as my-brain-engine), so retrieval acceptance
+  // tests can run through this deployed service without a founder session. Read-only actions only.
+  const hb = Deno.env.get('HEARTBEAT_SECRET');
+  const serverTest = !!hb && req.headers.get('x-heartbeat-secret') === hb;
+  if (!serverTest && !signedIn(req.headers.get('Authorization'), url)) return json({ error: 'Unauthorized' }, 401);
   try {
     const arguments_ = await req.json().catch(() => ({}));
     const { action = 'search', query = '' } = arguments_ as { action?: string; query?: string };
@@ -48,11 +52,12 @@ Deno.serve(async (req) => {
       const id = typeof body.source_id === 'string' ? body.source_id : '';
       if (!/^[0-9a-f-]{36}$/i.test(id)) return json({ error: 'source_id required' }, 400);
       const [{ data: src }, { data: pages }] = await Promise.all([
-        db.from('fkaios_knowledge_sources').select('id,title,project_ref,brand,created_at,page_count').eq('id', id).maybeSingle(),
+        db.from('fkaios_knowledge_sources').select('id,title,project_ref,brand,created_at,page_count,storage_path,ingestion_report').eq('id', id).maybeSingle(),
         db.from('fkaios_knowledge_pages').select('pdf_page,text').eq('source_id', id).order('pdf_page').limit(40),
       ]);
       if (!src) return json({ error: 'not found' }, 404);
-      return json({ source: src, pages: pages || [] });
+      const { storage_path: _p, ingestion_report: _r, ...source } = src as Record<string, unknown>;
+      return json({ source: { ...source, source_url: sourceLink(src as any) ?? null }, pages: pages || [] });
     }
     const q = String(query).slice(0, 300);
     if (!recallTerms(q).length) return json({ results: [] });

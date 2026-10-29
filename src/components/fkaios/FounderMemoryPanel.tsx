@@ -5,9 +5,9 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
-type Hit = { title: string; page: number | null; excerpt: string };
+type Hit = { title: string; page: number | null; excerpt: string; sourceUrl?: string };
 type Stats = { sources: number; pages: number; byProject: { project: string; chats: number; pages: number }[] };
-type Src = { id: string; title: string; project_ref: string | null; created_at: string; page_count: number | null };
+type Src = { id: string; title: string; project_ref: string | null; created_at: string; page_count: number | null; source_url?: string | null };
 type Opened = { source: Src; pages: { pdf_page: number; text: string }[] };
 const day = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
@@ -83,7 +83,8 @@ export default function FounderMemoryPanel() {
           <div className="flex items-start justify-between gap-2">
             <div>
               <p className="text-sm font-semibold text-white">{opened.source.title}</p>
-              <p className="text-[10px] text-slate-500">{opened.source.project_ref} · added {day(opened.source.created_at)}</p>
+              <p className="text-[10px] text-slate-500">{opened.source.project_ref} · added {day(opened.source.created_at)}
+                {opened.source.source_url ? <> · <a href={opened.source.source_url} target="_blank" rel="noopener noreferrer" className="text-purple-300 hover:text-purple-200 underline">Open original ↗</a></> : null}</p>
             </div>
             <button onClick={() => setOpened(null)} className="text-xs text-slate-400 hover:text-white">Close ✕</button>
           </div>
@@ -124,7 +125,8 @@ export default function FounderMemoryPanel() {
           {hits.length === 0 && <p className="text-xs text-slate-500">Nothing found in memory for that.</p>}
           {hits.map((h, i) => (
             <div key={i} className="bg-slate-800/60 rounded-lg p-3">
-              <p className="text-xs font-medium text-white">{h.title}{h.page ? <span className="text-slate-500"> · p.{h.page}</span> : null}</p>
+              <p className="text-xs font-medium text-white">{h.title}{h.page ? <span className="text-slate-500"> · p.{h.page}</span> : null}
+                {h.sourceUrl ? <a href={h.sourceUrl} target="_blank" rel="noopener noreferrer" className="ml-2 text-[10px] text-purple-300 hover:text-purple-200 underline">Open original ↗</a> : null}</p>
               <p className="text-[11px] text-slate-400 mt-1 whitespace-pre-wrap">{h.excerpt}</p>
             </div>
           ))}
