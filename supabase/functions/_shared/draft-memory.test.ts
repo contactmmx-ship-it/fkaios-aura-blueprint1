@@ -1,5 +1,5 @@
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { draftMemoryBlock, draftMemoryQuery, makerInput } from './draft-memory.ts';
+import { criticInput, draftMemoryBlock, draftMemoryQuery, makerInput } from './draft-memory.ts';
 
 Deno.test('query is the subject: client, brief heading line, title, minus task words; body only as fallback', () => {
   assertEquals(draftMemoryQuery({ title: 'Chaat Masters brief', client_name: null, brief: 'franchise fee\nlong body text' }), 'franchise fee Chaat Masters');
@@ -32,4 +32,17 @@ Deno.test('figures deep in a recalled page reach the Maker (29 Oct: 15% at char 
   const page = 'x'.repeat(770) + ' 15% TD, 5 free bags per 50, 4% CD';
   const block = draftMemoryBlock([{ title: 'Drive: GoMax — Dealer Scheme FY26-27 (Final).docx', page: 1, excerpt: page }]);
   assert(block.includes('15% TD, 5 free bags per 50, 4% CD'));
+});
+
+Deno.test('Critic input unchanged when nothing was recalled', () => {
+  assertEquals(criticInput('B', 'OUT', ''), "Brief: B\n\nMaker's output:\nOUT");
+});
+
+Deno.test('Critic sees the same memory as the Maker (29 Oct: real 15% TD rejected as fabricated)', () => {
+  const memory = draftMemoryBlock([{ title: 'Drive: GoMax — Dealer Scheme FY26-27 (Final).docx', page: 1, excerpt: '15% TD, 4% CD' }]);
+  const input = criticInput('GoMax one-pager with [XX%] placeholders', '15% TD [Source: GoMax]', memory);
+  assert(input.startsWith("Brief: GoMax one-pager"));
+  assert(input.includes('[Drive: GoMax — Dealer Scheme FY26-27 (Final).docx, p.1] 15% TD, 4% CD'));
+  assert(input.includes('THE MAKER WAS GIVEN THIS'));
+  assert(input.includes('override placeholders') && input.includes('invented'));
 });

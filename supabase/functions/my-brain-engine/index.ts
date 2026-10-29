@@ -14,7 +14,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // Founder Brain instead of its own local llmFetch/callClaude.
 import { reason as founderBrainReason } from '../_shared/founder-brain.ts';
 import { recall } from '../_shared/brain-recall.ts';
-import { draftMemoryBlock, draftMemoryQuery, makerInput } from '../_shared/draft-memory.ts';
+import { criticInput, draftMemoryBlock, draftMemoryQuery, makerInput } from '../_shared/draft-memory.ts';
 
 async function callClaude(system: string, userMsg: string, maxTokens = 1800): Promise<string> {
   const result = await founderBrainReason(system, userMsg, maxTokens);
@@ -105,7 +105,7 @@ Deno.serve(async (req) => {
 
       const criticResult = await callClaude(
         `You are the Critic AI reviewing the Maker's output against the original brief. Be genuinely critical — real gaps, not rubber-stamp praise. Respond with ONLY valid JSON: {"approved": boolean, "feedback": string (specific, actionable rectifications if not approved; brief praise + why if approved)}`,
-        `Brief: ${project.brief}\n\nMaker's output:\n${makerOutput}`
+        criticInput(project.brief, makerOutput, memory)
       );
       let approved = false; let feedback = criticResult;
       try { const parsed = JSON.parse(criticResult.replace(/^```json\s*/i, '').replace(/```\s*$/i, '')); approved = !!parsed.approved; feedback = parsed.feedback; } catch { /* keep raw text as feedback */ }
