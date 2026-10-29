@@ -13,6 +13,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // SPRINT 4 (M1-S4): My Brain now routes its LLM call through the canonical
 // Founder Brain instead of its own local llmFetch/callClaude.
 import { reason as founderBrainReason } from '../_shared/founder-brain.ts';
+import { recall } from '../_shared/brain-recall.ts';
+import { draftMemoryBlock, draftMemoryQuery, makerInput } from '../_shared/draft-memory.ts';
 
 async function callClaude(system: string, userMsg: string, maxTokens = 1800): Promise<string> {
   const result = await founderBrainReason(system, userMsg, maxTokens);
@@ -94,9 +96,11 @@ Deno.serve(async (req) => {
       const iterNum = (priorIterations?.length ?? 0) + 1;
       const lastCritic = priorIterations && priorIterations.length > 0 ? priorIterations[priorIterations.length - 1].critic_feedback : null;
 
+      // Draft Studio reads the founder's one memory before drafting (29 Oct 2026).
+      const memory = draftMemoryBlock(await recall(draftMemoryQuery(project), 5).catch(() => []));
       const makerOutput = await callClaude(
         `You are the Maker AI in an iterative studio loop, producing deliverable #${iterNum} for this brief. ${HONEST_LIMIT} Produce the full, real deliverable content — not a description of what you would make.`,
-        `Brief: ${project.brief}\n${lastCritic ? `Previous Critic feedback to address: ${lastCritic}` : 'This is the first draft.'}`
+        makerInput(project.brief, lastCritic, memory)
       );
 
       const criticResult = await callClaude(
