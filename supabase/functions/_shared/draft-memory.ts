@@ -22,11 +22,15 @@ export function draftMemoryQuery(p: { title?: string | null; client_name?: strin
   return (subject || clean(brief)).slice(0, 600);
 }
 
+/** Characters of each recalled page given to the Maker (recall returns up to 1,500).
+ *  29 Oct: at 500 the GoMax scheme page was cited but its figures (chars 775–932) were cut off. */
+export const EXCERPT_CHARS = 1500;
+
 /** Memory block appended to the Maker's input. Empty when nothing relevant was recalled. */
 export function draftMemoryBlock(items: Recalled[]): string {
   if (!items.length) return '';
   return '\n\n=== FROM THE FOUNDER\'S MEMORY (past chats, register, documents; may be outdated) ===\n' +
-    items.map((r, i) => `${i + 1}. [${r.title}${r.page ? `, p.${r.page}` : ''}] ${r.excerpt.replace(/\s+/g, ' ').slice(0, 500)}`).join('\n') +
+    items.map((r, i) => `${i + 1}. [${r.title}${r.page ? `, p.${r.page}` : ''}] ${r.excerpt.replace(/\s+/g, ' ').slice(0, EXCERPT_CHARS)}`).join('\n') +
     '\n=== END MEMORY ===\nUse these facts where they fit the brief and name the source in brackets. Do not invent figures that are not in the brief or the memory.';
 }
 
