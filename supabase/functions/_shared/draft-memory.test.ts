@@ -27,3 +27,9 @@ Deno.test('recalled sources reach the Maker with their titles for citation', () 
   assert(input.includes('[Drive: GoMax — Dealer Scheme FY26-27 (Final).docx, p.1] 15% TD, 4% CD'));
   assert(input.includes('name the source'));
 });
+
+Deno.test('figures deep in a recalled page reach the Maker (29 Oct: 15% at char 775 was cut at 500)', () => {
+  const page = 'x'.repeat(770) + ' 15% TD, 5 free bags per 50, 4% CD';
+  const block = draftMemoryBlock([{ title: 'Drive: GoMax — Dealer Scheme FY26-27 (Final).docx', page: 1, excerpt: page }]);
+  assert(block.includes('15% TD, 5 free bags per 50, 4% CD'));
+});
