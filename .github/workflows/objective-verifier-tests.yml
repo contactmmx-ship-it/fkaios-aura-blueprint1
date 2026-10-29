@@ -45,6 +45,7 @@ on:
       - "supabase/functions/_shared/draft-memory.ts"
       - "supabase/functions/_shared/draft-memory.test.ts"
       - "supabase/functions/my-brain-engine/index.ts"
+      - "supabase/functions/brain-engine/index.ts"
       - ".github/workflows/objective-verifier-tests.yml"
   push:
     branches:
@@ -85,6 +86,7 @@ on:
       - "supabase/functions/_shared/draft-memory.ts"
       - "supabase/functions/_shared/draft-memory.test.ts"
       - "supabase/functions/my-brain-engine/index.ts"
+      - "supabase/functions/brain-engine/index.ts"
       - ".github/workflows/objective-verifier-tests.yml"
 
 permissions:
