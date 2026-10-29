@@ -48,3 +48,12 @@ export function criticInput(brief: string, makerOutput: string, memory: string):
     '\nCritic: figures and facts that match this memory are real (they override placeholders in the brief) and their [source] tags are valid; ' +
     'flag any figure or claim that is in neither the brief nor this memory as invented.';
 }
+
+/** The planner's (brief writer's) user message. Without memory it turned "the exact figures we agreed" into
+ *  "[XX%] placeholders" (29 Oct acceptance run 4), and every later round deferred to that brief. */
+export function plannerInput(request: string, memory: string): string {
+  if (!memory) return request;
+  return request + memory +
+    '\nPlanner: put the figures and facts from this memory that the request refers to into the brief, with their source; ' +
+    'use placeholders only for what neither the request nor this memory gives.';
+}

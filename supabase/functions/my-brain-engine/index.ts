@@ -14,7 +14,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // Founder Brain instead of its own local llmFetch/callClaude.
 import { reason as founderBrainReason } from '../_shared/founder-brain.ts';
 import { recall } from '../_shared/brain-recall.ts';
-import { criticInput, draftMemoryBlock, draftMemoryQuery, makerInput } from '../_shared/draft-memory.ts';
+import { criticInput, draftMemoryBlock, draftMemoryQuery, makerInput, plannerInput } from '../_shared/draft-memory.ts';
 
 async function callClaude(system: string, userMsg: string, maxTokens = 1800): Promise<string> {
   const result = await founderBrainReason(system, userMsg, maxTokens);
@@ -70,9 +70,11 @@ Deno.serve(async (req) => {
 
       const refCtx = reference_url ? `Reference material (${reference_type}): ${reference_url}\nNote: this engine cannot actually watch/fetch video content from this URL — use the URL and the founder's description together as context, and be explicit in the brief that a human should review the actual reference before final execution.` : reference_text ? `Reference notes: ${reference_text}` : 'No reference material given.';
 
+      // The brief is written with the founder's memory too, so agreed figures are not turned into placeholders (29 Oct 2026).
+      const planMemory = draftMemoryBlock(await recall(draftMemoryQuery({ title, client_name, brief: brief_input }), 5).catch(() => []));
       const brief = await callClaude(
         `You are the planning stage of an AI creative/product studio loop. Turn the founder's raw request into a clear, structured project brief: objective, target deliverable, key requirements, constraints, and success criteria. ${HONEST_LIMIT}`,
-        `Client: ${client_name || 'internal'}\nDeliverable type: ${deliverable_type}\nFounder's request: ${brief_input}\n${refCtx}`
+        plannerInput(`Client: ${client_name || 'internal'}\nDeliverable type: ${deliverable_type}\nFounder's request: ${brief_input}\n${refCtx}`, planMemory)
       );
 
       const { data: project, error } = await db.from('brain_projects').insert({
