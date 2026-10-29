@@ -1,7 +1,8 @@
 name: Deploy FKAIOS Supabase migrations
 
-# Database schema changes deploy through CI after merge, never through an ad-hoc
-# production SQL call. PR runs are dry-run only; main pushes apply pending files.
+# Preview on PR and main pushes. Applying production migrations requires an
+# explicit workflow_dispatch confirmation until repository/live migration
+# history has been reconciled. This prevents a merge from replaying old files.
 on:
   pull_request:
     paths:
@@ -14,6 +15,15 @@ on:
       - "supabase/migrations/**"
       - ".github/workflows/deploy-supabase-migrations.yml"
   workflow_dispatch:
+    inputs:
+      confirm_apply:
+        description: 'Type APPLY only after the pending migration list has been reviewed'
+        required: true
+        default: 'NO'
+        type: choice
+        options:
+          - 'NO'
+          - 'APPLY'
 
 permissions:
   contents: read
@@ -26,22 +36,16 @@ jobs:
   migrations:
     runs-on: ubuntu-latest
     env:
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-      SUPABASE_PROJECT_REF: nrlsqshkjuuwiovthrnb
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check required Supabase secrets
+      - name: Check required Supabase secret
         shell: bash
         run: |
-          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
-            echo "::error::SUPABASE_ACCESS_TOKEN is not configured in GitHub repository secrets."
-            exit 1
-          fi
-          if [ -z "$SUPABASE_DB_PASSWORD" ]; then
-            echo "::error::SUPABASE_DB_PASSWORD is not configured in GitHub repository secrets. Add the database password as an encrypted GitHub Actions secret; do not put it in the repository or chat."
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error::SUPABASE_DB_URL is not configured in GitHub repository secrets. Add the database connection string as an encrypted secret; do not put it in the repository or chat."
             exit 1
           fi
 
@@ -50,12 +54,53 @@ jobs:
         with:
           version: 2.67.1
 
-      - name: Link production project
-        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+      - name: Normalize database URL safely
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import os
+          from urllib.parse import urlsplit, urlunsplit, quote, unquote
 
-      - name: Preview pending migrations
-        run: supabase db push --linked --dry-run
+          raw = os.environ["SUPABASE_DB_URL"].strip()
+          scheme, separator, rest = raw.partition("://")
+          if not separator or scheme not in ("postgres", "postgresql"):
+              raise SystemExit("SUPABASE_DB_URL must be a PostgreSQL URI.")
+          authority, slash, suffix = rest.partition("/")
+          userinfo, at, hostinfo = authority.rpartition("@")
+          if not at or ":" not in userinfo:
+              raise SystemExit("SUPABASE_DB_URL must include a username and password.")
+          username, password = userinfo.split(":", 1)
 
-      - name: Apply pending migrations after merge
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-        run: supabase db push --linked
+          # Some copied dashboard strings wrap a DNS hostname in brackets.
+          # Brackets are valid for IPv6 only; strip them for a non-IPv6 host.
+          if hostinfo.startswith("["):
+              close = hostinfo.find("]")
+              if close > 0:
+                  bracketed_host = hostinfo[1:close]
+                  if ":" not in bracketed_host:
+                      hostinfo = bracketed_host + hostinfo[close + 1:]
+
+          host_check = urlsplit(f"{scheme}://{hostinfo}")
+          if not host_check.hostname:
+              raise SystemExit("SUPABASE_DB_URL has no valid database host.")
+          path_and_query = suffix
+          path, qmark, query = path_and_query.partition("?")
+          query, hashmark, fragment = query.partition("#") if qmark else ("", "", "")
+          normalized_user = quote(unquote(username), safe="")
+          normalized_password = quote(unquote(password.strip("[]")), safe="")
+          netloc = f"{normalized_user}:{normalized_password}@{hostinfo}"
+          normalized = urlunsplit((scheme, netloc, "/" + path if slash else "", query, fragment))
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write("SUPABASE_DB_URL=" + normalized + "\n")
+          PY
+
+      - name: Preview pending migrations (no writes)
+        run: supabase db push --db-url "$SUPABASE_DB_URL" --dry-run
+
+      - name: Apply pending migrations after explicit confirmation
+        if: github.event_name == 'workflow_dispatch' && inputs.confirm_apply == 'APPLY'
+        run: supabase db push --db-url "$SUPABASE_DB_URL"
+
+      - name: Confirm no automatic migration writes occurred
+        if: github.event_name != 'workflow_dispatch' || inputs.confirm_apply != 'APPLY'
+        run: echo "Preview only. Production migrations were not applied."
