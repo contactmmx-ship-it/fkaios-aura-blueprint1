@@ -19,28 +19,41 @@ export function recallTerms(question: string, maxTerms = 6): string[] {
 export interface Recalled { title: string; page: number | null; excerpt: string; sourceUrl?: string }
 
 export async function recall(question: string, limit = 5, maxChars = 1500): Promise<Recalled[]> {
+  return (await recallWithStatus(question, limit, maxChars)).items;
+}
+
+/** One retry for a failed search call (29 Oct: under load the search hit the 8 s statement timeout). */
+export async function withRetry<T extends { error?: unknown }>(call: () => Promise<T>, retries = 1, delayMs = 400): Promise<T> {
+  let res = await call();
+  for (let i = 0; i < retries && res.error; i++) { await new Promise((r) => setTimeout(r, delayMs)); res = await call(); }
+  return res;
+}
+
+/** Like recall(), but says when the search itself failed, so callers can show "busy" instead of "nothing found".
+ *  29 Oct: under load every failed call looked like an empty memory. */
+export async function recallWithStatus(question: string, limit = 5, maxChars = 1500): Promise<{ items: Recalled[]; error?: string }> {
   const terms = recallTerms(question);
-  if (!terms.length) return [];
+  if (!terms.length) return { items: [] };
   const url = Deno.env.get('SUPABASE_URL'); const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  if (!url || !key) return [];
+  if (!url || !key) return { items: [], error: 'memory search not configured' };
   const db = createClient(url, key);
   // 29 Oct 2026: same search as Give an Objective (fkaios_memory_search = v3: word rarity, brand anchor,
   // figures). The older fkaios_recall ranked long ChatGPT pages above register entries and documents and
   // missed broad questions (12-query test: v3 found 12/12, fkaios_recall 10/12). Rollback: rpc 'fkaios_recall'.
-  const { data, error } = await db.rpc('fkaios_memory_search', { p_terms: terms, p_limit: limit });
-  if (error || !data) return [];
+  const { data, error } = await withRetry(async () => await db.rpc('fkaios_memory_search', { p_terms: terms, p_limit: limit }));
+  if (error || !data) return { items: [], error: error?.message || 'memory search returned nothing' };
   const rows = data as any[];
   const recalled = recalledRows(rows, limit, maxChars);
   // Original links are stored on the source record's storage_path when available.
   // Resolve them read-only; project_hub/bucket paths are deliberately not exposed as URLs.
   const ids = [...new Set(rows.slice(0, recalled.length).map((r) => String(r.source_id || '')).filter((id) => /^[0-9a-f-]{36}$/i.test(id)))];
-  if (!ids.length) return recalled;
+  if (!ids.length) return { items: recalled };
   const { data: sources } = await db.from('fkaios_knowledge_sources').select('id, storage_path, ingestion_report').in('id', ids);
   const urls = new Map((sources || []).map((s: SourceLinkFields & { id: string }) => [s.id, sourceLink(s)]));
-  return recalled.map((item, i) => {
+  return { items: recalled.map((item, i) => {
     const link = urls.get(String(rows[i]?.source_id || ''));
     return link ? { ...item, sourceUrl: link } : item;
-  });
+  }) };
 }
 
 export interface SourceLinkFields { storage_path?: string | null; ingestion_report?: Record<string, unknown> | null }
