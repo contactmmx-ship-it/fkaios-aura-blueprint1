@@ -209,7 +209,7 @@ Output ONLY JSON (no markdown fences):
         requested_by_agent: targetAgent?.id ?? null,
         department_code: classification.department_code,
         action_type: 'orchestrator_prepared_action',
-        payload: { request: requestText, response: plan.response, plan: plan.plan },
+        payload: { orchestrator_request_id: requestId ?? null, request: requestText, response: plan.response, plan: plan.plan },
         risk_level: classification.risk_level ?? 'medium',
         amount_inr: plan.amount_inr ?? null,
         reason: plan.approval_reason ?? (hasRealMoney ? 'Real money amount proposed — requires MD approval' : 'Model flagged this action as requiring approval'),
