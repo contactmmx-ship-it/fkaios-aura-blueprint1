@@ -13,6 +13,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // down) stays as-is — this sprint removes duplicate REASONING, not the
 // conversation-specific retrieval this screen already does well.
 import { reason as founderBrainReason } from '../_shared/founder-brain.ts';
+import { recall, recallBlock } from '../_shared/brain-recall.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -95,19 +96,23 @@ Deno.serve(async (req) => {
       const { data: history } = await supabase.from('brain_messages').select('role, content').eq('conversation_id', body.conversationId).order('created_at', { ascending: true }).limit(20);
 
       // Lightweight RAG: pull real company context relevant to the query
-      const [brandsRes, docsRes, decisionsRes, ideasRes] = await Promise.all([
+      const [brandsRes, docsRes, decisionsRes, ideasRes, memoryRes] = await Promise.all([
         supabase.from('brain_brands').select('name, sector, investment_min, investment_max'),
         supabase.from('brain_knowledge_documents').select('title, content, category').eq('status', 'active').ilike('content', `%${body.message.slice(0, 50)}%`).limit(3),
         supabase.from('brain_decisions').select('title, overall_score, created_at').order('created_at', { ascending: false }).limit(3),
         supabase.from('brain_business_ideas').select('title, score, status').order('created_at', { ascending: false }).limit(3),
+        // Shared v3 retrieval, also used by Founder Memory and Draft Studio.
+        recall(body.message, 6),
       ]);
 
       const brandsCtx = (brandsRes.data || []).map((b) => `${b.name} (${b.sector || 'general'}, ₹${b.investment_min || '?'}-${b.investment_max || '?'})`).join('; ');
       const docsCtx = (docsRes.data || []).map((d) => `[${d.category}] ${d.title}: ${(d.content || '').slice(0, 200)}`).join('\n');
       const decisionsCtx = (decisionsRes.data || []).map((d) => `${d.title} (score: ${d.overall_score})`).join('; ');
       const ideasCtx = (ideasRes.data || []).map((i) => `${i.title} (score: ${i.score}, ${i.status})`).join('; ');
+      const memoryCtx = recallBlock(memoryRes);
+      log('info', 'Founder Memory recall completed', { resultCount: memoryRes.length }, id);
 
-      const system = `You are the FK AI Brain — the central AI advisor inside Franchise Kart's FK AIOS, a franchise consulting and multi-brand holding company in India (target: ₹1,100 Crore ecosystem revenue by 2030).\n\nCompany brands: ${brandsCtx || 'none seeded yet'}\nRecent decisions scored: ${decisionsCtx || 'none yet'}\nRecent business ideas: ${ideasCtx || 'none yet'}\n${docsCtx ? `\nRelevant knowledge base documents:\n${docsCtx}` : ''}\n\nAnswer as a sharp, concise business advisor. Use real numbers and specifics from the context above when relevant. If you don't have real data on something, say so plainly rather than inventing figures.`;
+      const system = `You are the FK AI Brain — the central AI advisor inside Franchise Kart's FK AIOS, a franchise consulting and multi-brand holding company in India (target: ₹1,100 Crore ecosystem revenue by 2030).\\n\\nCompany brands: ${brandsCtx || 'none seeded yet'}\\nRecent decisions scored: ${decisionsCtx || 'none yet'}\\nRecent business ideas: ${ideasCtx || 'none yet'}\\n${docsCtx ? `\\nRelevant knowledge base documents:\\n${docsCtx}` : ''}${memoryCtx}\\n\\nUse Founder Memory as historical evidence, not automatically as current truth. When relying on it, name the source title and page when available. If sources conflict, figures are unclear, or the answer is unsupported, explain uncertainty instead of inventing facts. Answer as a sharp, concise business advisor.`;
 
       const messages = (history || []).map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }));
 
