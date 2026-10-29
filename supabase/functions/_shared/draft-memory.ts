@@ -5,9 +5,21 @@
 /** Same shape as brain-recall.ts Recalled (kept local so this helper has no network imports). */
 export interface Recalled { title: string; page: number | null; excerpt: string }
 
-/** Words to search the memory with: the project's title, client and brief. */
+/** Words that describe the drafting task, not its subject; they crowd the subject out of recall's first 6 terms. */
+const TASK_WORDS = new Set(('test draft studio memory acceptance project brief summary objective create new one page pager ' +
+  'document deck doc write writing prepare jan feb mar apr may jun jul aug sep oct nov dec').split(' '));
+
+/** Words to search the memory with: the subject only — client, the brief's heading line, the title — minus task words.
+ *  The brief body is used only when those give nothing.
+ *  29 Oct acceptance test: title-first put "test draft studio memory acceptance oct" in recall's 6 terms and the
+ *  GoMax scheme document was missed; brief-body words ("clear concise commercial") pushed it to rank 5.
+ *  Subject-only ("gomax dealer scheme") finds it at rank 1. */
 export function draftMemoryQuery(p: { title?: string | null; client_name?: string | null; brief?: string | null }): string {
-  return [p.title, p.client_name, p.brief].filter((x) => typeof x === 'string' && x.trim()).join(' ').slice(0, 600);
+  const clean = (t: string) => (t.match(/[\p{L}\p{N}%₹.]+/gu) || []).filter((w) => !TASK_WORDS.has(w.toLowerCase())).join(' ');
+  const brief = typeof p.brief === 'string' ? p.brief : '';
+  const heading = brief.split('\n').find((l) => l.trim()) || '';
+  const subject = clean([p.client_name || '', heading, p.title || ''].join(' '));
+  return (subject || clean(brief)).slice(0, 600);
 }
 
 /** Memory block appended to the Maker's input. Empty when nothing relevant was recalled. */
