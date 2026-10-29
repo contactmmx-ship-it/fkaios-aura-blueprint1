@@ -33,10 +33,10 @@ jobs:
         with:
           deno-version: v2.9.7
       - name: Type-check orchestrator engine
-        run: deno check --no-lock supabase/functions/orchestrator-engine/index.ts
+        run: deno check --no-lock --node-modules-dir=auto supabase/functions/orchestrator-engine/index.ts
       - name: Type-check orchestrator brain
-        run: deno check --no-lock supabase/functions/orchestrator-brain/index.ts
+        run: deno check --no-lock --node-modules-dir=auto supabase/functions/orchestrator-brain/index.ts
       - name: Type-check Founder Brain approval logic
-        run: deno check --no-lock supabase/functions/_shared/founder-brain.ts
+        run: deno check --no-lock --node-modules-dir=auto supabase/functions/_shared/founder-brain.ts
       - name: Type-check founder objective handler
-        run: deno check --no-lock supabase/functions/founder-objective/index.ts
+        run: deno check --no-lock --node-modules-dir=auto supabase/functions/founder-objective/index.ts
