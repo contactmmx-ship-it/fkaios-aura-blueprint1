@@ -249,11 +249,26 @@ export function backgroundEvaluationPriorityGate(input: {
   return { allowed: true, reason: "spare_capacity" };
 }
 
+/**
+ * An objective counts as "active" for the priority gate only while it is
+ * recent. orchestrator_requests has no updated_at, and a request abandoned in
+ * 'processing' (one from 24 Sep 2026 was still there on 29 Oct) otherwise
+ * blocks every background evaluation forever: no test ran from 19 Oct, when
+ * this gate landed, until this fix. Stale requests are left for the objective
+ * loop to retire; they just no longer starve evaluation.
+ */
+export const ACTIVE_OBJECTIVE_MAX_AGE_HOURS = 48;
+
+export function activeObjectiveCutoff(now: Date = new Date()): string {
+  return new Date(now.getTime() - ACTIVE_OBJECTIVE_MAX_AGE_HOURS * 3600_000).toISOString();
+}
+
 export async function runCapabilityTestStep(db: Db): Promise<Record<string, unknown>> {
   const { data: activeObjectives, error: objectiveError } = await db
     .from("orchestrator_requests")
     .select("id")
     .in("status", ["submitted", "processing", "queued", "running", "in_progress"])
+    .gte("created_at", activeObjectiveCutoff())
     .limit(1);
   if (objectiveError) return { deferred: "objective_priority_check_failed_closed", error: objectiveError.message };
   if ((activeObjectives ?? []).length > 0) return { deferred: "objective_priority" };
