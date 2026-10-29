@@ -1,0 +1,31 @@
+name: Check orchestrator engine TypeScript
+
+on:
+  pull_request:
+    paths:
+      - "supabase/functions/orchestrator-engine/**"
+      - ".github/workflows/check-orchestrator-engine.yml"
+  push:
+    branches: ["**"]
+    paths:
+      - "supabase/functions/orchestrator-engine/**"
+      - ".github/workflows/check-orchestrator-engine.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Set up Deno
+        uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
+        with:
+          deno-version: v2.9.7
+      - name: Type-check orchestrator engine
+        run: deno check --no-lock supabase/functions/orchestrator-engine/index.ts
