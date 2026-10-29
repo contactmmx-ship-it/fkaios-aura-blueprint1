@@ -39,7 +39,7 @@ export async function recall(question: string, limit = 5): Promise<Recalled[]> {
   const urls = new Map((sources || []).map((s: { id: string; storage_path: string | null }) => [s.id, s.storage_path]));
   return recalled.map((item, i) => {
     const candidate = urls.get(String(rows[i]?.source_id || ''));
-    return typeof candidate === 'string' && /^https?:\\/\\//i.test(candidate) ? { ...item, sourceUrl: candidate } : item;
+    return typeof candidate === 'string' && /^https?:\/\//i.test(candidate) ? { ...item, sourceUrl: candidate } : item;
   });
 }
 
