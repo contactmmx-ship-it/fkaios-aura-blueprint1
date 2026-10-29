@@ -73,7 +73,7 @@ jobs:
           if not parsed.hostname or not parsed.port or not parsed.username or parsed.password is None:
               raise SystemExit("Could not construct a valid PostgreSQL connection URI.")
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
-              env.write("SUPABASE_DB_URL=" + uri + "\\n")
+              env.write("SUPABASE_DB_URL=" + uri + "\n")
           PY
 
       - name: Preview pending migrations (no writes)
