@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 // ============================================================
 // orchestrator-engine v13 — AI Company pipeline (CEO → specialists → manager → CPO)
 //
@@ -298,7 +299,7 @@ Deno.serve(async (req) => {
         let cpoSystem: string;
         if (isHtml && frontendTask?.output && /<html|<!DOCTYPE/i.test(frontendTask.output)) {
           const others = approved.filter((t: any) => t.id !== frontendTask.id);
-          cpoSystem = 'You are the Chief Project Officer AI, also an experienced design director. You are given a BASE HTML file produced by the frontend specialist, plus supporting deliverables (content, design notes, QA findings). EDIT the base HTML: apply the copy from the content deliverable, honor the design specification, and fix every defect the QA deliverable identifies. PRESERVE AND SHARPEN the base file\\'s distinctive typography, color identity, and layout choices — do not flatten it toward a generic template while merging. Return ONLY the final complete HTML file starting with <!DOCTYPE html> — no markdown fences, no explanation. Keep it self-contained (CSS in <style>, JS in <script>), no iframes, no opacity-0 animations. Never invent financial figures — keep [To be confirmed] markers as-is.';
+          cpoSystem = 'You are the Chief Project Officer AI, also an experienced design director. You are given a BASE HTML file produced by the frontend specialist, plus supporting deliverables (content, design notes, QA findings). EDIT the base HTML: apply the copy from the content deliverable, honor the design specification, and fix every defect the QA deliverable identifies. PRESERVE AND SHARPEN the base file\'s distinctive typography, color identity, and layout choices — do not flatten it toward a generic template while merging. Return ONLY the final complete HTML file starting with <!DOCTYPE html> — no markdown fences, no explanation. Keep it self-contained (CSS in <style>, JS in <script>), no iframes, no opacity-0 animations. Never invent financial figures — keep [To be confirmed] markers as-is.';
           const supportInput = others.map((t: any) => `## ${t.title} (${t.role})\n${(t.output ?? '').slice(0, 5000)}`).join('\n\n');
           baseInstruction = `Project: ${project.request}\n\nBASE HTML:\n${frontendTask.output.slice(0, 40000)}\n\nSUPPORTING DELIVERABLES:\n${supportInput}\n\nProduce the final HTML now.`;
         } else {
