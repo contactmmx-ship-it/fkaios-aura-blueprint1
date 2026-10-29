@@ -60,3 +60,5 @@ jobs:
           supabase functions deploy auto-agents-engine --no-verify-jwt --use-api --project-ref "$SUPABASE_PROJECT_REF"
           # Knowledge Vault / My Brain memory search (signed-in users; gateway JWT check on, as live).
           supabase functions deploy memory-search --use-api --project-ref "$SUPABASE_PROJECT_REF"
+          # Draft Studio (My Brain): gateway JWT check off as deployed today; the handler verifies the user JWT itself.
+          supabase functions deploy my-brain-engine --no-verify-jwt --use-api --project-ref "$SUPABASE_PROJECT_REF"
