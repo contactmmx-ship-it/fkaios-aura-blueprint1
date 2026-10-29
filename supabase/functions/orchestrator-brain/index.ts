@@ -8,6 +8,14 @@
 // agent only if the model returns an unknown task code.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
+declare const Supabase: {
+  ai: {
+    Session: new (model: string) => {
+      run(input: string, options?: { mean_pool?: boolean; normalize?: boolean }): Promise<Float32Array | number[]>;
+    };
+  };
+};
+
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type, x-heartbeat-secret', 'Content-Type': 'application/json' };
 const ok = (d: unknown) => new Response(JSON.stringify(d), { status: 200, headers: CORS });
 const err = (m: string, s = 500) => new Response(JSON.stringify({ error: m }), { status: s, headers: CORS });
