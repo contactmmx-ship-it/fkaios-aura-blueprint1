@@ -36,16 +36,19 @@ jobs:
   migrations:
     runs-on: ubuntu-latest
     env:
-      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_DB_HOST: aws-1-ap-south-1.pooler.supabase.com
+      SUPABASE_DB_USER: postgres.nrlsqshkjuuwiovthrnb
+      SUPABASE_DB_PORT: "5432"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check required Supabase secret
+      - name: Check required Supabase database password
         shell: bash
         run: |
-          if [ -z "$SUPABASE_DB_URL" ]; then
-            echo "::error::SUPABASE_DB_URL is not configured in GitHub repository secrets. Add the database connection string as an encrypted secret; do not put it in the repository or chat."
+          if [ -z "$SUPABASE_DB_PASSWORD" ]; then
+            echo "::error::SUPABASE_DB_PASSWORD is not configured in GitHub repository secrets. Add the database password as an encrypted secret; do not put it in the repository or chat."
             exit 1
           fi
 
@@ -54,47 +57,23 @@ jobs:
         with:
           version: 2.67.1
 
-      - name: Normalize database URL safely
+      - name: Build database URL from encrypted password
         shell: bash
         run: |
           python3 <<'PY'
           import os
-          from urllib.parse import urlsplit, urlunsplit, quote, unquote
+          from urllib.parse import quote, urlsplit
 
-          raw = os.environ["SUPABASE_DB_URL"].strip()
-          scheme, separator, rest = raw.partition("://")
-          if not separator or scheme not in ("postgres", "postgresql"):
-              raise SystemExit("SUPABASE_DB_URL must be a PostgreSQL URI.")
-          authority, slash, suffix = rest.partition("/")
-          userinfo, at, hostinfo = authority.rpartition("@")
-          if not at or ":" not in userinfo:
-              raise SystemExit("SUPABASE_DB_URL must include a username and password.")
-          username, password = userinfo.split(":", 1)
-
-          # Some copied dashboard strings wrap a DNS hostname in brackets.
-          # Brackets are valid for IPv6 only; strip them for a non-IPv6 host.
-          if hostinfo.startswith("["):
-              close = hostinfo.find("]")
-              if close > 0:
-                  bracketed_host = hostinfo[1:close]
-                  if ":" not in bracketed_host:
-                      hostinfo = bracketed_host + hostinfo[close + 1:]
-
-          host_check = urlsplit(f"{scheme}://{hostinfo}")
-          if not host_check.hostname:
-              raise SystemExit("SUPABASE_DB_URL has no valid database host.")
-          path_and_query = suffix
-          path, qmark, query = path_and_query.partition("?")
-          query, hashmark, fragment = query.partition("#") if qmark else ("", "", "")
-          decoded_password = unquote(password)
-          if decoded_password in ("[YOUR-PASSWORD]", "[YOUR_PASSWORD]", "[PASSWORD]"):
-              decoded_password = decoded_password[1:-1]
-          normalized_user = quote(unquote(username), safe="")
-          normalized_password = quote(decoded_password, safe="")
-          netloc = f"{normalized_user}:{normalized_password}@{hostinfo}"
-          normalized = urlunsplit((scheme, netloc, "/" + path if slash else "", query, fragment))
+          user = quote(os.environ["SUPABASE_DB_USER"], safe="")
+          password = quote(os.environ["SUPABASE_DB_PASSWORD"], safe="")
+          host = os.environ["SUPABASE_DB_HOST"]
+          port = os.environ["SUPABASE_DB_PORT"]
+          uri = f"postgresql://{user}:{password}@{host}:{port}/postgres"
+          parsed = urlsplit(uri)
+          if not parsed.hostname or not parsed.port or not parsed.username or parsed.password is None:
+              raise SystemExit("Could not construct a valid PostgreSQL connection URI.")
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
-              env.write("SUPABASE_DB_URL=" + normalized + "\n")
+              env.write("SUPABASE_DB_URL=" + uri + "\\n")
           PY
 
       - name: Preview pending migrations (no writes)
