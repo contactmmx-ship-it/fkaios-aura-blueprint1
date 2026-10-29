@@ -1,0 +1,46 @@
+name: Diagnose Supabase token permissions
+# Read-only probe (29 Oct 2026). Answers: which Management API permissions does the
+# SUPABASE_ACCESS_TOKEN secret have? Deploys nothing, changes nothing, never prints the token.
+# Write permission is tested with a PATCH to a function slug that does not exist:
+# 404 = the token may write Edge Functions (nothing to change); 401/403 = it may not.
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/diagnose-supabase-token.yml"
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      REF: nrlsqshkjuuwiovthrnb
+    steps:
+      - name: Probe Management API permissions
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then echo "::error::SUPABASE_ACCESS_TOKEN secret is empty"; exit 1; fi
+          case "$SUPABASE_ACCESS_TOKEN" in sbp_fc*) kind="scoped";; sbp_*) kind="classic";; *) kind="unknown-format";; esac
+          echo "::notice title=token kind::$kind (prefix check only; value not printed)"
+          probe() { # name method url [body]
+            code=$(curl -sS -o /tmp/body.json -w '%{http_code}' -X "$2" "$3" \
+              -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" -H 'Content-Type: application/json' ${4:+--data "$4"})
+            msg=$(head -c 300 /tmp/body.json | tr -d '\n\r' | sed 's/sbp_[A-Za-z0-9_]*/[token]/g')
+            case "$code" in 2??|404) lvl=notice;; *) lvl=error;; esac
+            [ "$code" = 404 ] && [ "$1" != "edge-functions-write" ] && lvl=error
+            echo "::$lvl title=$1::HTTP $code $msg"
+          }
+          A=https://api.supabase.com/v1/projects/$REF
+          probe "project-settings-read (needed by link)" GET "$A"
+          probe "migrations-read (drift check)" GET "$A/database/migrations"
+          probe "edge-functions-read (list)" GET "$A/functions"
+          probe "edge-functions-read (one function)" GET "$A/functions/ai-engine"
+          probe "api-keys-read (needed by link)" GET "$A/api-keys"
+          probe "secrets-read" GET "$A/secrets"
+          probe "edge-functions-write" PATCH "$A/functions/zz-ci-permission-probe-does-not-exist" '{"name":"zz"}'
+      - name: CLI view of functions (read-only)
+        continue-on-error: true
+        run: |
+          npx --yes supabase@2.67.1 functions list --project-ref "$REF" > /tmp/out.txt 2>&1; rc=$?
+          echo "::notice title=supabase functions list exit::$rc $(head -c 400 /tmp/out.txt | tr '\n' ' ' | sed 's/sbp_[A-Za-z0-9_]*/[token]/g')"
