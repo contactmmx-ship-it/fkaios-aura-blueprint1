@@ -1,6 +1,6 @@
 // ONE BRAIN step 1 — shared recall over the FKAIOS knowledge library (fkaios_knowledge_sources/pages:
 // 622 ChatGPT work chats + any future documents). Every brain surface should call recall() before reasoning,
-// so all tabs remember from the same memory. Backed by SQL fkaios_recall(text[], int) (service role only).
+// so all tabs remember from the same memory. Backed by SQL fkaios_memory_search(text[], int) (service role only).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const STOP = new Set(('a an the and or but if then so of to in on at for from by with about into over is are was were be been being ' +
@@ -24,9 +24,17 @@ export async function recall(question: string, limit = 5): Promise<Recalled[]> {
   const url = Deno.env.get('SUPABASE_URL'); const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   if (!url || !key) return [];
   const db = createClient(url, key);
-  const { data, error } = await db.rpc('fkaios_recall', { p_terms: terms, p_limit: limit });
+  // 29 Oct 2026: same search as Give an Objective (fkaios_memory_search = v3: word rarity, brand anchor,
+  // figures). The older fkaios_recall ranked long ChatGPT pages above register entries and documents and
+  // missed broad questions (12-query test: v3 found 12/12, fkaios_recall 10/12). Rollback: rpc 'fkaios_recall'.
+  const { data, error } = await db.rpc('fkaios_memory_search', { p_terms: terms, p_limit: limit });
   if (error || !data) return [];
-  return (data as any[]).map((r) => ({ title: r.title, page: r.pdf_page ?? null, excerpt: String(r.excerpt || '') }));
+  return recalledRows(data as any[], limit);
+}
+
+/** v3 returns at least 8 rows and whole figure pages; keep the caller's limit and a readable excerpt. */
+export function recalledRows(rows: { title?: string; pdf_page?: number | null; excerpt?: string }[], limit: number): Recalled[] {
+  return rows.slice(0, Math.max(1, limit)).map((r) => ({ title: String(r.title || ''), page: r.pdf_page ?? null, excerpt: String(r.excerpt || '').slice(0, 1500) }));
 }
 
 export function recallBlock(items: Recalled[]): string {

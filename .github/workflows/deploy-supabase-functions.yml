@@ -58,3 +58,5 @@ jobs:
           # Also deploy the handlers whose auth/caller code changed in this PR.
           supabase functions deploy proposal-engine --no-verify-jwt --use-api --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy auto-agents-engine --no-verify-jwt --use-api --project-ref "$SUPABASE_PROJECT_REF"
+          # Knowledge Vault / My Brain memory search (signed-in users; gateway JWT check on, as live).
+          supabase functions deploy memory-search --use-api --project-ref "$SUPABASE_PROJECT_REF"
