@@ -47,10 +47,10 @@ jobs:
         env:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
-          npx --yes supabase@2.67.1 link --project-ref "$REF" > /tmp/link.txt 2>&1; rc=$?
+          npx --yes supabase@2.67.1 link --project-ref "$REF" > /tmp/link.txt 2>&1 && rc=0 || rc=$?
           echo "::notice title=supabase link exit $rc::$(tail -c 600 /tmp/link.txt | tr '\n' ' ' | sed 's/sbp_[A-Za-z0-9_]*/[token]/g; s/postgres[^ ]*@/postgres:[hidden]@/g')"
       - name: CLI view of functions (read-only)
         continue-on-error: true
         run: |
-          npx --yes supabase@2.67.1 functions list --project-ref "$REF" > /tmp/out.txt 2>&1; rc=$?
+          npx --yes supabase@2.67.1 functions list --project-ref "$REF" > /tmp/out.txt 2>&1 && rc=0 || rc=$?
           echo "::notice title=supabase functions list exit::$rc $(head -c 400 /tmp/out.txt | tr '\n' ' ' | sed 's/sbp_[A-Za-z0-9_]*/[token]/g')"
