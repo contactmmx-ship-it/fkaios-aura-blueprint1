@@ -45,6 +45,8 @@ on:
       - "supabase/functions/_shared/draft-memory.ts"
       - "supabase/functions/_shared/draft-memory.test.ts"
       - "supabase/functions/my-brain-engine/index.ts"
+      - "supabase/functions/_shared/founder-brain.ts"
+      - "supabase/functions/founder-objective/index.ts"
       - "supabase/functions/brain-engine/index.ts"
       - ".github/workflows/objective-verifier-tests.yml"
   push:
@@ -86,6 +88,8 @@ on:
       - "supabase/functions/_shared/draft-memory.ts"
       - "supabase/functions/_shared/draft-memory.test.ts"
       - "supabase/functions/my-brain-engine/index.ts"
+      - "supabase/functions/_shared/founder-brain.ts"
+      - "supabase/functions/founder-objective/index.ts"
       - "supabase/functions/brain-engine/index.ts"
       - ".github/workflows/objective-verifier-tests.yml"
 
