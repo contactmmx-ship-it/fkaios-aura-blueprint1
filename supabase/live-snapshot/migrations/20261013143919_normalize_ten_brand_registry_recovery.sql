@@ -1,0 +1,3 @@
+-- Applied in production as version 20261013143919 (normalize_ten_brand_registry_recovery).
+-- Record-only snapshot to reconcile the live Supabase migration ledger with the repo.
+-- The original repository migration is supabase/migrations/20261012151500_normalize_ten_brand_registry.sql.

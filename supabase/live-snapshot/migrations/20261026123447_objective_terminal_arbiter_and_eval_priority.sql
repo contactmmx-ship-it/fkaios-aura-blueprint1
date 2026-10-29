@@ -1,0 +1,3 @@
+-- Applied in production as version 20261026123447 (objective_terminal_arbiter_and_eval_priority).
+-- Record-only snapshot to reconcile the live Supabase migration ledger with the repo.
+-- The original repository migration is supabase/migrations/20261019150000_objective_terminal_arbiter_and_eval_priority.sql.

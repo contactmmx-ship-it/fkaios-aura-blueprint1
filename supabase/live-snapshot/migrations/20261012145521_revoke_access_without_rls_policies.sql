@@ -1,0 +1,3 @@
+-- Applied in production as version 20261012145521 (revoke_access_without_rls_policies).
+-- Record-only snapshot to reconcile the live Supabase migration ledger with the repo.
+-- The original repository migration is supabase/migrations/20261012145500_revoke_access_without_rls_policies.sql.
