@@ -16,7 +16,7 @@ export function recallTerms(question: string, maxTerms = 6): string[] {
   return [...new Set(words)].slice(0, maxTerms);
 }
 
-export interface Recalled { title: string; page: number | null; excerpt: string }
+export interface Recalled { title: string; page: number | null; excerpt: string; sourceUrl?: string }
 
 export async function recall(question: string, limit = 5): Promise<Recalled[]> {
   const terms = recallTerms(question);
@@ -29,7 +29,18 @@ export async function recall(question: string, limit = 5): Promise<Recalled[]> {
   // missed broad questions (12-query test: v3 found 12/12, fkaios_recall 10/12). Rollback: rpc 'fkaios_recall'.
   const { data, error } = await db.rpc('fkaios_memory_search', { p_terms: terms, p_limit: limit });
   if (error || !data) return [];
-  return recalledRows(data as any[], limit);
+  const rows = data as any[];
+  const recalled = recalledRows(rows, limit);
+  // Original links are stored on the source record's storage_path when available.
+  // Resolve them read-only; project_hub/bucket paths are deliberately not exposed as URLs.
+  const ids = [...new Set(rows.slice(0, recalled.length).map((r) => String(r.source_id || '')).filter((id) => /^[0-9a-f-]{36}$/i.test(id)))];
+  if (!ids.length) return recalled;
+  const { data: sources } = await db.from('fkaios_knowledge_sources').select('id, storage_path').in('id', ids);
+  const urls = new Map((sources || []).map((s: { id: string; storage_path: string | null }) => [s.id, s.storage_path]));
+  return recalled.map((item, i) => {
+    const candidate = urls.get(String(rows[i]?.source_id || ''));
+    return typeof candidate === 'string' && /^https?:\/\//i.test(candidate) ? { ...item, sourceUrl: candidate } : item;
+  });
 }
 
 /** v3 returns at least 8 rows and whole figure pages; keep the caller's limit and a readable excerpt. */
@@ -40,6 +51,6 @@ export function recalledRows(rows: { title?: string; pdf_page?: number | null; e
 export function recallBlock(items: Recalled[]): string {
   if (!items.length) return '';
   return `\n\n=== FROM THE FOUNDER'S PAST WORK (memory recall; may be outdated; cite the chat title when you use it) ===\n` +
-    items.map((r, i) => `${i + 1}. [${r.title}${r.page ? `, p.${r.page}` : ''}] ${r.excerpt.slice(0, 400)}`).join('\n') +
+    items.map((r, i) => `${i + 1}. [${r.title}${r.page ? `, p.${r.page}` : ''}]${r.sourceUrl && /^https?:\/\//i.test(r.sourceUrl) ? ` (source: ${r.sourceUrl})` : ''} ${r.excerpt.slice(0, 400)}`).join('\n') +
     `\n=== END MEMORY RECALL ===`;
 }
