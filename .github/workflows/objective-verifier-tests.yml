@@ -134,4 +134,4 @@ jobs:
       - name: Run AI World digest regression tests
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/world-digest.test.ts
       - name: Run shared memory recall tests
-        run: deno test --allow-env supabase/functions/_shared/brain-recall.test.ts
+        run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/brain-recall.test.ts
