@@ -39,6 +39,8 @@ jobs:
       # Local CLI bundling failed on every push from 28 Oct ~14:24 UTC while API deploys of the same code worked.
       - name: Deploy changed FKAIOS functions
         run: |
+          # Orchestrator engine has gateway JWT verification disabled; its handler enforces its own auth.
+          supabase functions deploy orchestrator-engine --no-verify-jwt --use-api --project-ref "$SUPABASE_PROJECT_REF"
           # Brain Chat now consumes the canonical Founder Memory search.
           supabase functions deploy brain-engine --use-api --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy ai-engine --use-api --project-ref "$SUPABASE_PROJECT_REF"
