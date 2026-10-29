@@ -15,6 +15,8 @@
 // scheduled runs makes the daily run idempotent; a failed run is retried on a
 // later tick, at most MAX_SCHEDULED_ATTEMPTS times a day.
 
+import { buildWorldDigest, fetchDailyPapers, writeWorldDigest, type DigestFind, type Paper } from "./world-digest.ts";
+
 // deno-lint-ignore no-explicit-any
 type Db = any;
 type Env = (k: string) => string | undefined;
@@ -247,11 +249,18 @@ export async function runEcosystemDiscovery(db: Db, trigger: "scheduled" | "manu
   }
   let created = 0, updated = 0;
   const highValue: Array<Record<string, unknown>> = [];
+  const digestAll: DigestFind[] = [];   // every high-value find seen today
+  const digestNew: DigestFind[] = [];   // high-value finds that are new or changed today
   const stamp = now.toISOString();
   for (const c of byKey.values()) {
     const hash = await contentHash(c);
     const { score, reasons } = scoreRelevance(c);
     const prev = existing.get(c.canonicalKey);
+    if (score >= HIGH_VALUE_SCORE) {
+      const f = { name: c.name, kind: c.kind, url: c.url, score, reasons };
+      digestAll.push(f);
+      if (!prev || prev.content_hash !== hash) digestNew.push(f);
+    }
     const base = { source: c.source, kind: c.kind, name: c.name, url: c.url, description: c.description, version: c.version, license: c.license, metrics: c.metrics, content_hash: hash, relevance_score: score, relevance_reasons: reasons, risk_class: c.riskClass, last_seen_at: stamp, last_run_id: run.id };
     if (!prev) {
       const { error: insErr } = await db.from("fkaios_ecosystem_candidates").insert({ ...base, canonical_key: c.canonicalKey, first_seen_at: stamp, last_changed_at: stamp, first_run_id: run.id });
@@ -264,8 +273,26 @@ export async function runEcosystemDiscovery(db: Db, trigger: "scheduled" | "manu
       await db.from("fkaios_ecosystem_candidates").update({ last_seen_at: stamp, last_run_id: run.id, relevance_score: score, relevance_reasons: reasons }).eq("canonical_key", c.canonicalKey);
     }
   }
-  const okSources = Object.values(sources).filter((s) => (s as { ok: boolean }).ok).length;
-  const total = Object.keys(sources).length;
+  // Outer-world knowledge for the brain: one dated AI World digest per run (not for self-tests).
+  if (trigger !== "self_test") {
+    try {
+      const date = localDateHour(now).date;
+      let papers: Paper[] = [];
+      try { papers = await fetchDailyPapers(fetcher, date); sources.research_papers = { ok: true, parsed: papers.length }; }
+      catch (e) { sources.research_papers = { ok: false, error: String(e).slice(0, 200) }; }
+      // The first digest ever carries every relevant find already known; later ones only what is new or changed.
+      const { count: digests } = await db.from("fkaios_knowledge_sources").select("id", { count: "exact", head: true }).like("title", "AI World Radar:%");
+      const finds = (digests ?? 0) === 0 ? digestAll : digestNew;
+      finds.sort((a, b) => b.score - a.score);
+      const written = await writeWorldDigest(db, date, buildWorldDigest(date, finds.slice(0, 25), papers));
+      sources.world_digest = { ok: !written.error, pages: written.pages, finds: finds.length, papers: papers.length, error: written.error ?? null };
+    } catch (e) {
+      sources.world_digest = { ok: false, error: String(e).slice(0, 200) };
+    }
+  }
+  const discoverySources = Object.entries(sources).filter(([k]) => k !== "world_digest" && k !== "research_papers").map(([, v]) => v);
+  const okSources = discoverySources.filter((s) => (s as { ok: boolean }).ok).length;
+  const total = discoverySources.length;
   const status = okSources === 0 ? "failed" : okSources < total ? "partial" : "completed";
   highValue.sort((a, b) => Number(b.score) - Number(a.score));
   const { data: ev } = await db.from("fkaios_verification_evidence").insert({
