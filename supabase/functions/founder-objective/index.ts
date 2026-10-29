@@ -393,7 +393,12 @@ Deno.serve(async (req: Request) => {
     const row = result.data as { id?: string; status?: string } | null;
     if (result.status !== "success" || !row?.id) {
       console.error(JSON.stringify({ level: "ERROR", message: "createTask failed", source: "founder-objective", correlationId, error: result.error }));
-      return json({ ok: false, error: "FKAIOS could not record the objective", correlationId }, 500);
+      const approvalConflict = result.error?.startsWith("A Founder Brain approval is already pending");
+      return json({
+        ok: false,
+        error: approvalConflict ? result.error : "FKAIOS could not record the objective",
+        correlationId,
+      }, approvalConflict ? 409 : 500);
     }
 
     // Mark it as a Command Center objective so the status list shows it.

@@ -5,6 +5,8 @@ on:
     paths:
       - "supabase/functions/orchestrator-engine/**"
       - "supabase/functions/orchestrator-brain/**"
+      - "supabase/functions/_shared/founder-brain.ts"
+      - "supabase/functions/_shared/founder-brain.ts"
       - ".github/workflows/check-orchestrator-engine.yml"
   push:
     branches: ["**"]
@@ -29,6 +31,8 @@ jobs:
         with:
           deno-version: v2.9.7
       - name: Type-check orchestrator engine
-        run: deno check --no-lock supabase/functions/orchestrator-engine/index.ts
+        run: deno check --no-lock --node-modules-dir=auto supabase/functions/orchestrator-engine/index.ts
       - name: Type-check orchestrator brain
-        run: deno check --no-lock supabase/functions/orchestrator-brain/index.ts
+        run: deno check --no-lock --node-modules-dir=auto supabase/functions/orchestrator-brain/index.ts
+      - name: Type-check Founder Brain approval logic
+        run: deno check --no-lock --node-modules-dir=auto supabase/functions/_shared/founder-brain.ts

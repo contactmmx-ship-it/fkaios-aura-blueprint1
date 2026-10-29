@@ -1084,7 +1084,7 @@ export async function createTask(userId: string, task: TaskCandidate, correlatio
     // never swallowed by an unrelated pending proposal, and objectives the
     // objective loop BLOCKED (action_taken set) are not proposals.
     if (needsApproval && task.autonomous === true) {
-      const { data: existingRequests } = await client
+      const { data: existingRequests, error: existingRequestsError } = await client
         .from("orchestrator_requests")
         .select("id, status, raw_request, department_code, risk_level, approval_id")
         .eq("requested_by", "founder-brain")
@@ -1093,11 +1093,37 @@ export async function createTask(userId: string, task: TaskCandidate, correlatio
         .is("action_taken", null)
         .order("created_at", { ascending: false })
         .limit(1);
+      if (existingRequestsError) {
+        return { source: "orchestrator_requests", status: "error", data: null, error: "Could not check active Founder Brain approval: " + existingRequestsError.message };
+      }
       if (existingRequests && existingRequests.length > 0) {
         return {
           source: "orchestrator_requests",
           status: "success",
           data: existingRequests[0],
+        };
+      }
+    }
+
+    // Enforce the single-pending-approval database invariant before creating
+    // another request; otherwise a failed approval insert can strand a request.
+    if (needsApproval) {
+      const { data: pendingApprovals, error: pendingApprovalError } = await client
+        .from("approvals")
+        .select("id, payload")
+        .eq("action_type", "founder_brain_task")
+        .eq("status", "pending")
+        .limit(1);
+      if (pendingApprovalError) {
+        return { source: "orchestrator_requests", status: "error", data: null, error: "Could not check pending Founder Brain approvals: " + pendingApprovalError.message };
+      }
+      if (pendingApprovals && pendingApprovals.length > 0) {
+        const existingRequestId = pendingApprovals[0].payload?.orchestrator_request_id;
+        return {
+          source: "orchestrator_requests",
+          status: "error",
+          data: null,
+          error: "A Founder Brain approval is already pending (" + pendingApprovals[0].id + "; request " + (typeof existingRequestId === "string" ? existingRequestId : "unknown") + "). Resolve that founder decision before submitting another high-risk objective.",
         };
       }
     }
@@ -1129,6 +1155,7 @@ export async function createTask(userId: string, task: TaskCandidate, correlatio
     // orchestrator-brain already uses for the identical pattern) rather
     // than building a new approval mechanism.
     if (needsApproval && data?.id) {
+      let createdApprovalId: string | null = null;
       try {
         const { data: approval, error: approvalInsertError } = await client.from("approvals").insert({
           department_code: task.department_code ?? null,
@@ -1136,20 +1163,33 @@ export async function createTask(userId: string, task: TaskCandidate, correlatio
           payload: { orchestrator_request_id: data.id, description: task.description },
           risk_level: task.risk_level,
           reason: task.autonomous === true
-            ? `Founder Brain proposed this objective itself (assessed ${task.risk_level ?? "low"} risk); it starts only if the founder approves`
-            : `Founder Brain assessed this task as ${task.risk_level} risk before assignment`,
+            ? "Founder Brain proposed this objective itself (assessed " + (task.risk_level ?? "low") + " risk); it starts only if the founder approves"
+            : "Founder Brain assessed this task as " + task.risk_level + " risk before assignment",
         }).select("id").single();
 
         if (approvalInsertError) throw approvalInsertError;
-        if (approval?.id) {
-          const { error: linkError } = await client
-            .from("orchestrator_requests")
-            .update({ approval_id: approval.id })
-            .eq("id", data.id);
-          if (linkError) throw linkError;
-        }
+        if (!approval?.id) throw new Error("Approval insert returned no approval id");
+        createdApprovalId = approval.id;
+        const { error: linkError } = await client
+          .from("orchestrator_requests")
+          .update({ approval_id: approval.id })
+          .eq("id", data.id);
+        if (linkError) throw linkError;
       } catch (approvalErr) {
-        log("ERROR", "createTask: failed to file approvals row (task itself was still created, but may be invisible to the Founder)", { error: approvalErr instanceof Error ? approvalErr.message : String(approvalErr) }, correlationId);
+        const approvalError = approvalErr instanceof Error ? approvalErr.message : String(approvalErr);
+        if (createdApprovalId) {
+          await client.from("approvals").update({
+            status: "expired",
+            decided_by: "system_approval_link_failure",
+            decided_at: new Date().toISOString(),
+            reason: "Expired because its Founder Brain request could not be linked: " + approvalError,
+          }).eq("id", createdApprovalId).eq("status", "pending");
+        }
+        await client.from("orchestrator_requests")
+          .update({ status: "failed", result_summary: "Approval record creation/linking failed: " + approvalError })
+          .eq("id", data.id);
+        log("ERROR", "createTask: approval record creation/linking failed; request marked failed", { error: approvalError, requestId: data.id }, correlationId);
+        return { source: "orchestrator_requests", status: "error", data, error: "Approval record creation/linking failed: " + approvalError };
       }
     }
     try { await founderMemory.episodic.append({ function_name: "founder-brain", action: "createTask", status: "success", output_summary: task.description.slice(0, 300) }); } catch { /* non-blocking */ }
