@@ -1,0 +1,3 @@
+-- Applied in production as version 20261012150948 (fkaios_brand_pipeline_audit).
+-- Record-only snapshot to reconcile the live Supabase migration ledger with the repo.
+-- The original repository migration is supabase/migrations/20261012150000_fkaios_brand_pipeline_audit.sql.
