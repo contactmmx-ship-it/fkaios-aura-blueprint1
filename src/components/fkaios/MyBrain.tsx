@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import FounderMemoryPanel from './FounderMemoryPanel';
 import { Brain, Loader2, Plus, RefreshCw, CheckCircle2, XCircle, MessageSquareWarning, Sparkles, ChevronRight } from 'lucide-react';
 
 interface BrainProject {
@@ -137,6 +138,7 @@ export default function MyBrain() {
           </div>
           <button onClick={() => setShowForm(!showForm)} className="text-xs bg-slate-900 text-white px-2 py-1 rounded-lg hover:bg-slate-800"><Plus className="w-3.5 h-3.5" /></button>
         </div>
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Draft Studio</p>
         <p className="text-[11px] text-slate-500 leading-relaxed">Give a reference + a request. Maker drafts, Critic pushes back, Chief summarizes for you — same loop you run manually, automated.</p>
 
         {loading ? (
@@ -180,7 +182,12 @@ export default function MyBrain() {
         )}
 
         {!selected ? (
-          <div className="flex items-center justify-center h-64 text-sm text-slate-500">Select a project, or start a new one.</div>
+          // 29 Oct 2026: the brain itself — the one Founder Memory that Brain Chat and Give an Objective
+          // search — is shown here. The Draft Studio list on the left is unchanged.
+          <div className="space-y-2">
+            <FounderMemoryPanel />
+            <p className="text-[11px] text-slate-500">Open a draft on the left to see its Maker / Critic / Chief rounds.</p>
+          </div>
         ) : (
           <div className="space-y-4">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
