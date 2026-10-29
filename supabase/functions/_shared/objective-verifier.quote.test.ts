@@ -26,3 +26,22 @@ Deno.test("paid-research criterion is decided by measurement, not quotes", () =>
   const bad = parseVerdict(verdictJson("Do not use paid web research", "WO-11 opening package priced per opening"), deliverable, { ok: true, problems: [] }, evidence, false);
   assert(bad && !bad.criteria[0].met, "not met when research ran");
 });
+
+import { quoteMostlyPresent } from "./objective-verifier.ts";
+
+Deno.test("quote tolerance: title glued to its memory link still verifies", () => {
+  const hay = "section 2 (source: chatgpt: chaat masters franchise manual (2025-06-17)) sources: - chatgpt: chaat masters franchise manual (2025-06-17), p.1 — fkaios-memory://67e3136a-09b5-4756-9828-a3c8108d933e";
+  const q = "(source: chatgpt: chaat masters franchise manual (2025-06-17); fkaios-memory://67e3136a-09b5-4756-9828-a3c8108d933e)";
+  if (!quoteMostlyPresent(hay, q)) throw new Error("should pass");
+});
+
+Deno.test("quote tolerance never accepts a changed figure", () => {
+  const hay = "platinum tier: ₹10,00,000+ and diamond tier: ₹7,50,000 per franchise partner as proposed";
+  if (quoteMostlyPresent(hay, "platinum tier: ₹12,00,000+ and diamond tier: ₹7,50,000 per franchise partner")) throw new Error("changed figure must fail");
+  if (!quoteMostlyPresent(hay, "platinum tier: ₹10,00,000+ and diamond tier: ₹7,50,000 per franchise partner")) throw new Error("same figures pass");
+});
+
+Deno.test("quote tolerance rejects a link that is not in the text", () => {
+  const hay = "chatgpt: chaat masters franchise manual (2025-06-17) franchise model numbers and the tiers";
+  if (quoteMostlyPresent(hay, "chatgpt: chaat masters franchise manual (2025-06-17) fkaios-memory://99999999-0000-0000-0000-000000000000 franchise model numbers")) throw new Error("unknown link must fail");
+});

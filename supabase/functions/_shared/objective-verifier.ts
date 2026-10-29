@@ -154,6 +154,23 @@ function norm(s: string): string {
 // A quote counts when it is in the deliverable verbatim (after norm). If the verifier joined excerpts with an
 // ellipsis, every excerpt of 8+ characters must appear, in order, and together they must be at least 20
 // characters — still copied text, never a paraphrase (28 Oct 2026).
+// 29 Oct 2026: a model quote that is not character-for-character (e.g. it glues a chat title to its
+// fkaios-memory:// link that sits in the Sources list) failed criteria the deliverable met. Accept a quote when
+// it is substantial (>= 6 words), at least 85% of its words appear in the text, and EVERY number in it appears
+// exactly - so a changed or invented figure can never pass this way. Links in the quote are checked separately.
+export function quoteMostlyPresent(hay: string, q: string): boolean {
+  const links = q.match(/fkaios-memory:\/\/[0-9a-f-]{36}/g) ?? [];
+  if (links.some((l) => !hay.includes(l))) return false;
+  const text = q.replace(/fkaios-memory:\/\/[0-9a-f-]{36}/g, " ");
+  const numbers = text.match(/\d[\d,. ]*\d|\d/g)?.map((n) => n.replace(/[ ,]/g, "")) ?? [];
+  const hayDigits = hay.replace(/(\d)[ ,](?=\d)/g, "$1");
+  if (numbers.some((n) => !hayDigits.includes(n))) return false;
+  const words = text.split(/[^\p{L}\p{N}₹%]+/u).filter((w) => w.length >= 3);
+  if (words.length < 6) return false;
+  const present = words.filter((w) => hay.includes(w)).length;
+  return present / words.length >= 0.85;
+}
+
 export function quoteFoundInOrder(hay: string, q: string): boolean {
   if (hay.includes(q)) return true;
   const parts = q.split(/\s*(?:\.{3,}|…)\s*/).map((p) => p.trim().replace(/^[,:;{}\[\]]+|[,:;{}\[\]]+$/g, "").trim()).filter((p) => p.length > 0);
@@ -233,7 +250,8 @@ export function parseVerdict(text: string, deliverable: string, deterministic: {
     if (met) {
       const q = quote ? norm(quote) : "";
       const evidenceCriterion = /unsupported by the recorded evidence|supported by (the )?(recorded )?evidence/i.test(criterion);
-      const found = !!q && q.length >= 8 && (quoteFoundInOrder(hay, q) || (evidenceCriterion && !!evidenceHay && quoteFoundInOrder(evidenceHay, q)));
+      const found = !!q && q.length >= 8 && (quoteFoundInOrder(hay, q) || quoteMostlyPresent(hay, q) ||
+        (evidenceCriterion && !!evidenceHay && (quoteFoundInOrder(evidenceHay, q) || quoteMostlyPresent(evidenceHay, q))));
       if (!found) {
         met = false;
         issue = `verifier's supporting quote was not found in the deliverable${quote ? `: "${quote.slice(0, 120)}"` : ""}`;
