@@ -1,3 +1,4 @@
+/// <reference lib="deno.ns" />
 // ORCHESTRATOR-BRAIN v4 — real department-agent routing.
 // v3 gap: always picked the FIRST agent in a department (`agents[0]`, limit 5),
 // so with SALES having 7 agents, "close this deal" could route to Follow-up AI.
@@ -6,6 +7,14 @@
 // by task code. Deterministic lookup after that; logged fallback to first
 // agent only if the model returns an unknown task code.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+declare const Supabase: {
+  ai: {
+    Session: new (model: string) => {
+      run(input: string, options?: { mean_pool?: boolean; normalize?: boolean }): Promise<Float32Array | number[]>;
+    };
+  };
+};
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type, x-heartbeat-secret', 'Content-Type': 'application/json' };
 const ok = (d: unknown) => new Response(JSON.stringify(d), { status: 200, headers: CORS });
@@ -209,7 +218,7 @@ Output ONLY JSON (no markdown fences):
         requested_by_agent: targetAgent?.id ?? null,
         department_code: classification.department_code,
         action_type: 'orchestrator_prepared_action',
-        payload: { request: requestText, response: plan.response, plan: plan.plan },
+        payload: { orchestrator_request_id: requestId ?? null, request: requestText, response: plan.response, plan: plan.plan },
         risk_level: classification.risk_level ?? 'medium',
         amount_inr: plan.amount_inr ?? null,
         reason: plan.approval_reason ?? (hasRealMoney ? 'Real money amount proposed — requires MD approval' : 'Model flagged this action as requiring approval'),
