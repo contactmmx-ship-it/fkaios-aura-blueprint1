@@ -113,7 +113,7 @@ Deno.serve(async (req) => {
       const docsCtx = (docsRes.data || []).map((d) => `[${d.category}] ${d.title}: ${(d.content || '').slice(0, 200)}`).join('\n');
       const decisionsCtx = (decisionsRes.data || []).map((d) => `${d.title} (score: ${d.overall_score})`).join('; ');
       const ideasCtx = (ideasRes.data || []).map((i) => `${i.title} (score: ${i.score}, ${i.status})`).join('; ');
-      const memoryCtx = recallBlock(memoryRes);
+      const memoryCtx = recallBlock(memoryRes, 1500); // full figures, not just the opening 400 chars (29 Oct)
       log('info', 'Founder Memory recall completed', { resultCount: memoryRes.length }, id);
 
       const system = `You are the FK AI Brain — the central AI advisor inside Franchise Kart's FK AIOS, a franchise consulting and multi-brand holding company in India (target: ₹1,100 Crore ecosystem revenue by 2030).\n\nCompany brands: ${brandsCtx || 'none seeded yet'}\nRecent decisions scored: ${decisionsCtx || 'none yet'}\nRecent business ideas: ${ideasCtx || 'none yet'}\n${docsCtx ? `\nRelevant knowledge base documents:\n${docsCtx}` : ''}${memoryCtx}\n\nUse Founder Memory as historical evidence, not automatically as current truth. When relying on it, name the source title and page when available. If sources conflict, figures are unclear, or the answer is unsupported, explain uncertainty instead of inventing facts. Answer as a sharp, concise business advisor.${principlesBlock(principles)}`;
