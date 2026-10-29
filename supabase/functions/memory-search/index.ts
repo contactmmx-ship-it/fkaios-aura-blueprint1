@@ -20,7 +20,8 @@ Deno.serve(async (req) => {
   const url = Deno.env.get('SUPABASE_URL')!;
   if (!signedIn(req.headers.get('Authorization'), url)) return json({ error: 'Unauthorized' }, 401);
   try {
-    const { action = 'search', query = '' } = await req.json().catch(() => ({}));
+    const arguments_ = await req.json().catch(() => ({}));
+    const { action = 'search', query = '' } = arguments_ as { action?: string; query?: string };
     const db = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
     if (action === 'stats') {
       const [{ count: sources }, { count: pages }, { data: byProject }] = await Promise.all([
@@ -29,6 +30,29 @@ Deno.serve(async (req) => {
         db.rpc('fkaios_memory_projects'),
       ]);
       return json({ sources, pages, byProject: byProject || [] });
+    }
+    // 29 Oct 2026: browse + read, so the founder can SEE what the brain knows (AI World section,
+    // recently added, a project's chats) instead of only a count and a search box.
+    const body = arguments_ as Record<string, unknown>;
+    if (action === 'browse') {
+      const cols = 'id,title,project_ref,brand,created_at,page_count';
+      const project = typeof body.project === 'string' ? body.project.slice(0, 10) : '';
+      const [aiWorld, recent, list] = await Promise.all([
+        db.from('fkaios_knowledge_sources').select(cols).eq('project_ref', 'W01').order('created_at', { ascending: false }).limit(60),
+        db.from('fkaios_knowledge_sources').select(cols).not('title', 'like', 'ChatGPT chats index%').order('created_at', { ascending: false }).limit(15),
+        project ? db.from('fkaios_knowledge_sources').select(cols).eq('project_ref', project).order('title').limit(300) : Promise.resolve({ data: [] }),
+      ]);
+      return json({ aiWorld: aiWorld.data || [], recent: recent.data || [], project: list.data || [] });
+    }
+    if (action === 'read') {
+      const id = typeof body.source_id === 'string' ? body.source_id : '';
+      if (!/^[0-9a-f-]{36}$/i.test(id)) return json({ error: 'source_id required' }, 400);
+      const [{ data: src }, { data: pages }] = await Promise.all([
+        db.from('fkaios_knowledge_sources').select('id,title,project_ref,brand,created_at,page_count').eq('id', id).maybeSingle(),
+        db.from('fkaios_knowledge_pages').select('pdf_page,text').eq('source_id', id).order('pdf_page').limit(40),
+      ]);
+      if (!src) return json({ error: 'not found' }, 404);
+      return json({ source: src, pages: pages || [] });
     }
     const q = String(query).slice(0, 300);
     if (!recallTerms(q).length) return json({ results: [] });
