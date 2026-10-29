@@ -14,7 +14,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // conversation-specific retrieval this screen already does well.
 import { reason as founderBrainReason, getFounderPrinciples } from '../_shared/founder-brain.ts';
 import { principlesBlock, replyText } from '../_shared/brain-chat.ts';
-import { recall, recallBlock } from '../_shared/brain-recall.ts';
+import { recallBlock, recallWithStatus } from '../_shared/brain-recall.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
         supabase.from('brain_decisions').select('title, overall_score, created_at').order('created_at', { ascending: false }).limit(3),
         supabase.from('brain_business_ideas').select('title, score, status').order('created_at', { ascending: false }).limit(3),
         // Shared v3 retrieval, also used by Founder Memory and Draft Studio.
-        recall(body.message, 6, 2600), // whole rate tables (29 Oct: Top Dealer ₹209 sat past 1,500 chars)
+        recallWithStatus(body.message, 6, 2600), // whole rate tables (29 Oct: Top Dealer ₹209 sat past 1,500 chars)
         // Founder operating principles, as the live Brain Chat applied them before #220.
         getFounderPrinciples('brain-chat').catch(() => []),
       ]);
@@ -113,8 +113,11 @@ Deno.serve(async (req) => {
       const docsCtx = (docsRes.data || []).map((d) => `[${d.category}] ${d.title}: ${(d.content || '').slice(0, 200)}`).join('\n');
       const decisionsCtx = (decisionsRes.data || []).map((d) => `${d.title} (score: ${d.overall_score})`).join('; ');
       const ideasCtx = (ideasRes.data || []).map((i) => `${i.title} (score: ${i.score}, ${i.status})`).join('; ');
-      const memoryCtx = recallBlock(memoryRes, 2600); // full figures, not just the opening 400 chars (29 Oct)
-      log('info', 'Founder Memory recall completed', { resultCount: memoryRes.length }, id);
+      // A failed search is not an empty memory: tell the model, so it says so instead of answering as if nothing exists.
+      const memoryCtx = memoryRes.error
+        ? '\n\n=== FOUNDER MEMORY UNAVAILABLE for this message (search failed). If the question needs the founder\'s past work, say memory could not be searched just now and ask them to retry. ==='
+        : recallBlock(memoryRes.items, 2600); // full figures, not just the opening 400 chars (29 Oct)
+      log('info', 'Founder Memory recall completed', { resultCount: memoryRes.items.length, error: memoryRes.error ?? null }, id);
 
       const system = `You are the FK AI Brain — the central AI advisor inside Franchise Kart's FK AIOS, a franchise consulting and multi-brand holding company in India (target: ₹1,100 Crore ecosystem revenue by 2030).\n\nCompany brands: ${brandsCtx || 'none seeded yet'}\nRecent decisions scored: ${decisionsCtx || 'none yet'}\nRecent business ideas: ${ideasCtx || 'none yet'}\n${docsCtx ? `\nRelevant knowledge base documents:\n${docsCtx}` : ''}${memoryCtx}\n\nUse Founder Memory as historical evidence, not automatically as current truth. When relying on it, name the source title and page when available. If sources conflict, figures are unclear, or the answer is unsupported, explain uncertainty instead of inventing facts. Answer as a sharp, concise business advisor.${principlesBlock(principles)}`;
 

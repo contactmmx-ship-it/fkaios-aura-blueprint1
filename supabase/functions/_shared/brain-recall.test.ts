@@ -1,5 +1,5 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { recalledRows, recallTerms, recallBlock, sourceLink } from './brain-recall.ts';
+import { recalledRows, recallTerms, recallBlock, sourceLink, withRetry } from './brain-recall.ts';
 
 Deno.test('v3 rows are cut to the caller limit with short excerpts', () => {
   const rows = Array.from({ length: 8 }, (_, i) => ({ title: `T${i}`, pdf_page: i + 1, excerpt: 'x'.repeat(4200) }));
@@ -45,4 +45,13 @@ Deno.test('callers can ask for longer excerpts (Brain Chat: whole GoMax rate tab
   const rows = [{ title: 'T', pdf_page: 1, excerpt: 'x'.repeat(2400) + ' TOP DEALER ₹209' }];
   assertEquals(recalledRows(rows, 1)[0].excerpt.includes('₹209'), false);
   assertEquals(recalledRows(rows, 1, 2600)[0].excerpt.includes('₹209'), true);
+});
+
+Deno.test('a failed search call is retried once, then the error is kept (29 Oct timeouts under load)', async () => {
+  let calls = 0;
+  const ok = await withRetry(async () => (++calls === 1 ? { error: 'statement timeout' } : { error: undefined, data: [1] }), 1, 1);
+  assertEquals([calls, ok.error], [2, undefined]);
+  calls = 0;
+  const bad = await withRetry(async () => { calls++; return { error: 'statement timeout' }; }, 1, 1);
+  assertEquals([calls, bad.error], [2, 'statement timeout']);
 });

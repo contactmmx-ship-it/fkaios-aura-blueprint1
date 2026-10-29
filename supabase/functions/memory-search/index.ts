@@ -2,7 +2,7 @@
 // (fkaios_knowledge_sources/pages: 622 ChatGPT work chats + future documents) from the Knowledge Vault tab.
 // Same recall the brain uses (SQL fkaios_recall via _shared/brain-recall.ts). Signed-in users only.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { recall, recallTerms, sourceLink } from '../_shared/brain-recall.ts';
+import { recallTerms, recallWithStatus, sourceLink } from '../_shared/brain-recall.ts';
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey, x-heartbeat-secret' };
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
@@ -61,7 +61,10 @@ Deno.serve(async (req) => {
     }
     const q = String(query).slice(0, 300);
     if (!recallTerms(q).length) return json({ results: [] });
-    return json({ results: await recall(q, 8) });
+    const found = await recallWithStatus(q, 8);
+    // A failed search is not an empty memory: say so (shown in Knowledge Vault instead of "Nothing found").
+    if (found.error) return json({ results: [], error: 'Memory search is busy right now — please search again in a moment.', detail: found.error.slice(0, 200) });
+    return json({ results: found.items });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
