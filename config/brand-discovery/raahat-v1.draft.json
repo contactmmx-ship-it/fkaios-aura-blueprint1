@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "slug": "raahat-brand-discovery",
+  "version": 1,
+  "status": "draft",
+  "brand": {
+    "name": "Raahat",
+    "owner": "Mr. Chitwan",
+    "location": "Karnal",
+    "category": "hospitality"
+  },
+  "locale": "hi-en",
+  "experience": {
+    "one_question_at_a_time": true,
+    "allow_back_and_edit": true,
+    "save_after_each_answer": true,
+    "resume_after_browser_close": true,
+    "section_intro": true,
+    "section_completion_confirmation": true,
+    "welcome_back_on_resume": true,
+    "final_congratulations_email": true,
+    "private_analysis_visible_to_respondent": false
+  },
+  "wording_status": "STRUCTURE_RECOVERED_QUESTION_TEXT_NOT_YET_RECOVERED",
+  "sections": [
+    {
+      "id": "owner_vision",
+      "title": "Owner and Vision",
+      "expected_question_count": 15,
+      "module": "core"
+    },
+    {
+      "id": "history_identity",
+      "title": "History, Brand Identity and Reputation",
+      "expected_question_count": 12,
+      "module": "core"
+    },
+    {
+      "id": "business_inventory",
+      "title": "Complete Business and Service Inventory",
+      "expected_question_count": 7,
+      "module": "hospitality",
+      "include_service_inventory": true,
+      "note": "Service inventory is a separate repeatable list; preserve the 7 discovery questions in addition to the inventory."
+    },
+    {
+      "id": "restaurant_food",
+      "title": "Restaurant, Menu and Food Quality",
+      "expected_question_count": 21,
+      "module": "restaurant"
+    },
+    {
+      "id": "hotel_rooms",
+      "title": "Hotel Rooms and Guest Experience",
+      "expected_question_count": 15,
+      "module": "hotel"
+    },
+    {
+      "id": "banquets_events",
+      "title": "Banquets, Events and Catering",
+      "expected_question_count": 18,
+      "module": "events"
+    },
+    {
+      "id": "customers_market",
+      "title": "Customers, Market and Competition",
+      "expected_question_count": 15,
+      "module": "core"
+    },
+    {
+      "id": "sales_marketing",
+      "title": "Sales, Marketing and Digital",
+      "expected_question_count": 16,
+      "module": "core"
+    },
+    {
+      "id": "financial_economics",
+      "title": "Financials and Unit Economics",
+      "expected_question_count": 20,
+      "module": "core"
+    },
+    {
+      "id": "people_operations",
+      "title": "People, Management and Daily Operations",
+      "expected_question_count": 17,
+      "module": "core"
+    },
+    {
+      "id": "owner_diagnosis",
+      "title": "Owner Diagnosis and What Went Wrong",
+      "expected_question_count": 15,
+      "module": "core"
+    },
+    {
+      "id": "fears_constraints",
+      "title": "Fears, Pain and Constraints",
+      "expected_question_count": 14,
+      "module": "core"
+    },
+    {
+      "id": "swot",
+      "title": "SWOT",
+      "expected_question_count": 12,
+      "module": "core"
+    },
+    {
+      "id": "future_ambition",
+      "title": "Future Ambition and Growth",
+      "expected_question_count": 12,
+      "module": "core"
+    },
+    {
+      "id": "fk_partnership",
+      "title": "Franchise Kart Partnership and Authority",
+      "expected_question_count": 15,
+      "module": "core"
+    },
+    {
+      "id": "priorities_success",
+      "title": "Immediate Priorities and Success Criteria",
+      "expected_question_count": 10,
+      "module": "core"
+    }
+  ],
+  "document_checklist": [
+    "Menus and prices",
+    "Monthly service-wise sales for the last 12 months",
+    "Profit and loss statements and cash flow",
+    "Food cost, purchases, inventory and wastage",
+    "Staff list, roles and salaries",
+    "Banquet capacity and utilisation",
+    "Room inventory, rates, occupancy and booking channels",
+    "Supplier contracts, dues and liabilities",
+    "Licences, fire safety, food safety and property approvals",
+    "Reviews and complaints",
+    "Website, social media and other digital links",
+    "Historical brand material",
+    "SOPs, checklists, training materials and management reports",
+    "Loans, leases, commitments and planned capital expenditure"
+  ],
+  "privacy_contract": {
+    "respondent_can_read": [
+      "their own answers",
+      "their own completion status"
+    ],
+    "respondent_cannot_read": [
+      "FK internal analysis",
+      "SWOT conclusions prepared by FK",
+      "execution plan",
+      "internal recommendations"
+    ],
+    "fk_internal_outputs_table": "brand_discovery_private_reports",
+    "require_server_side_resume_token_hash": true,
+    "never_store_plain_resume_token": true
+  },
+  "brand_template_rules": {
+    "keep_core_sections": true,
+    "add_category_modules": true,
+    "do_not_delete_core_questions_without_version_change": true,
+    "preserve_question_ids_across_minor_edits": true,
+    "require_review_before_activating_new_version": true
+  }
+}

@@ -1,0 +1,54 @@
+name: Brand Discovery Frontend Validation
+
+on:
+  pull_request:
+    paths:
+      - "src/app/brand-discovery/**"
+      - "src/app/brand-discovery-preview/**"
+      - "src/app/api/brand-discovery-guide/**"
+      - "scripts/test-brand-discovery-guide.mjs"
+      - "preview-static/**"
+      - "package.json"
+      - "package-lock.json"
+      - "next.config.*"
+      - "tsconfig.json"
+      - "tsconfig.brand-discovery.json"
+      - ".github/workflows/brand-discovery-frontend-validation.yml"
+  push:
+    branches:
+      - "feature/brand-discovery-foundation"
+    paths:
+      - "src/app/brand-discovery/**"
+      - "src/app/brand-discovery-preview/**"
+      - "src/app/api/brand-discovery-guide/**"
+      - "preview-static/**"
+      - "package.json"
+      - "package-lock.json"
+      - "next.config.*"
+      - "tsconfig.json"
+      - "tsconfig.brand-discovery.json"
+      - ".github/workflows/brand-discovery-frontend-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install dependencies (repair existing lockfile drift in CI)
+        run: npm install --no-audit --no-fund
+      - name: Test guide safety and no-spend defaults
+        run: node scripts/test-brand-discovery-guide.mjs
+      - name: Type-check application
+        run: npx tsc --noEmit --project tsconfig.brand-discovery.json
+      - name: Build Next.js application
+        run: npm run build

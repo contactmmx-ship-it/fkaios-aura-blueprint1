@@ -1,0 +1,42 @@
+name: Brand Discovery Edge Function Validation
+
+on:
+  pull_request:
+    paths:
+      - "supabase/functions/brand-discovery-*/**"
+      - "supabase/functions/_shared/**"
+      - "scripts/test-brand-discovery-answer-validation.mjs"
+      - "supabase/config.toml"
+      - ".github/workflows/brand-discovery-edge-validation.yml"
+  push:
+    branches:
+      - "feature/brand-discovery-foundation"
+    paths:
+      - "supabase/functions/brand-discovery-*/**"
+      - "supabase/config.toml"
+      - ".github/workflows/brand-discovery-edge-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deno-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check shared template release gate
+        run: deno check supabase/functions/_shared/brand-discovery-template-gate.mjs
+      - name: Type-check shared answer validators
+        run: deno check supabase/functions/_shared/brand-discovery-answer-validation.mjs
+      - name: Type-check invite function
+        run: deno check --node-modules-dir=auto supabase/functions/brand-discovery-create-invite/index.ts
+      - name: Type-check respondent function
+        run: deno check --node-modules-dir=auto supabase/functions/brand-discovery-respondent/index.ts
+      - name: Type-check private report function
+        run: deno check --node-modules-dir=auto supabase/functions/brand-discovery-private-report/index.ts

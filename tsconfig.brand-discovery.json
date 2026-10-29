@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false
+  },
+  "include": [
+    "src/app/brand-discovery/**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

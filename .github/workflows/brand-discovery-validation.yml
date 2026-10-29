@@ -1,0 +1,56 @@
+name: Brand Discovery Questionnaire Validation
+
+on:
+  pull_request:
+    paths:
+      - "config/brand-discovery/raahat-question-bank-v1.draft.json"
+      - "config/brand-discovery/raahat-guided-discovery-v1.draft.json"
+      - "scripts/validate-brand-discovery-questionnaire.mjs"
+      - "scripts/test-brand-discovery-template-gate.mjs"
+      - "scripts/test-brand-discovery-answer-validation.mjs"
+      - "supabase/functions/_shared/brand-discovery-answer-validation.mjs"
+      - "scripts/seed-brand-discovery-questionnaire.mjs"
+      - "scripts/activate-brand-discovery-template.mjs"
+      - "scripts/validate-brand-discovery-template.mjs"
+      - "scripts/test-raahat-guided-core.mjs"
+      - "supabase/functions/_shared/brand-discovery-template-gate.mjs"
+      - ".github/workflows/brand-discovery-validation.yml"
+  push:
+    branches:
+      - "feature/brand-discovery-foundation"
+    paths:
+      - "config/brand-discovery/raahat-question-bank-v1.draft.json"
+      - "scripts/validate-brand-discovery-questionnaire.mjs"
+      - ".github/workflows/brand-discovery-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-question-bank:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate question bank structure
+        run: node scripts/validate-brand-discovery-questionnaire.mjs
+      - name: Test reusable template release gate and email policy
+        run: node scripts/test-brand-discovery-template-gate.mjs
+      - name: Test answer and closure validation edge cases
+        run: node scripts/test-brand-discovery-answer-validation.mjs
+      - name: Check reusable draft seeder syntax
+        run: node --check scripts/seed-brand-discovery-questionnaire.mjs
+      - name: Check release-gated activation script syntax
+        run: node --check scripts/activate-brand-discovery-template.mjs
+      - name: Validate Raahat draft structure using the reusable schema
+        run: node scripts/validate-brand-discovery-template.mjs raahat-question-bank-v1.draft.json
+      - name: Validate Raahat guided core draft structure
+        run: node scripts/validate-brand-discovery-template.mjs raahat-guided-discovery-v1.draft.json
+      - name: Check offline template validator syntax
+        run: node --check scripts/validate-brand-discovery-template.mjs
+      - name: Test Raahat guided core against canonical full source bank
+        run: node scripts/test-raahat-guided-core.mjs

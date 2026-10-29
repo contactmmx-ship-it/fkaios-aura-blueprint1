@@ -1,19 +1,13 @@
 name: Deploy FKAIOS Supabase migrations
 
-# Database schema changes deploy through CI after merge, never through an ad-hoc
-# production SQL call. PR runs are dry-run only; main pushes apply pending files.
+# Production migrations deploy through CI only after merge to main.
+# Pull requests must use secret-free/local validation; never link a PR job to production.
 on:
-  pull_request:
-    paths:
-      - "supabase/migrations/**"
-      - ".github/workflows/deploy-supabase-migrations.yml"
   push:
     branches:
       - main
     paths:
       - "supabase/migrations/**"
-      - ".github/workflows/deploy-supabase-migrations.yml"
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -57,5 +51,4 @@ jobs:
         run: supabase db push --linked --dry-run
 
       - name: Apply pending migrations after merge
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: supabase db push --linked
