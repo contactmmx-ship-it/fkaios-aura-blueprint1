@@ -48,9 +48,11 @@ export function recalledRows(rows: { title?: string; pdf_page?: number | null; e
   return rows.slice(0, Math.max(1, limit)).map((r) => ({ title: String(r.title || ''), page: r.pdf_page ?? null, excerpt: String(r.excerpt || '').slice(0, 1500) }));
 }
 
-export function recallBlock(items: Recalled[]): string {
+/** excerptChars: 400 keeps other callers unchanged; Brain Chat passes 1,500 because figures often sit past
+ *  character 400 (29 Oct: GoMax scheme figures at 775–932 were cut, so Brain Chat cited the doc without them). */
+export function recallBlock(items: Recalled[], excerptChars = 400): string {
   if (!items.length) return '';
   return `\n\n=== FROM THE FOUNDER'S PAST WORK (memory recall; may be outdated; cite the chat title when you use it) ===\n` +
-    items.map((r, i) => `${i + 1}. [${r.title}${r.page ? `, p.${r.page}` : ''}]${r.sourceUrl && /^https?:\/\//i.test(r.sourceUrl) ? ` (source: ${r.sourceUrl})` : ''} ${r.excerpt.slice(0, 400)}`).join('\n') +
+    items.map((r, i) => `${i + 1}. [${r.title}${r.page ? `, p.${r.page}` : ''}]${r.sourceUrl && /^https?:\/\//i.test(r.sourceUrl) ? ` (source: ${r.sourceUrl})` : ''} ${r.excerpt.slice(0, excerptChars)}`).join('\n') +
     `\n=== END MEMORY RECALL ===`;
 }

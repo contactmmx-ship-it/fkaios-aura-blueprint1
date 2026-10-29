@@ -26,3 +26,9 @@ Deno.test('recall block does not expose non-URL storage paths as links', () => {
   const block = recallBlock([{ title: 'Steel Era', page: 1, excerpt: 'Project record', sourceUrl: 'project_hub#abc' }]);
   assertEquals(block.includes('project_hub#abc'), false);
 });
+
+Deno.test('Brain Chat gets figures deep in a page; default callers keep 400 chars (29 Oct GoMax)', () => {
+  const item = { title: 'Drive: GoMax — Dealer Scheme FY26-27 (Final).docx', page: 1, excerpt: 'x'.repeat(770) + ' 15% TD, every 50 bags = 5 free, 4% CD' };
+  assertEquals(recallBlock([item], 1500).includes('15% TD, every 50 bags = 5 free, 4% CD'), true);
+  assertEquals(recallBlock([item]).includes('15% TD'), false);
+});
