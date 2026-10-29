@@ -257,13 +257,26 @@ function isCriticalFinancial(item: DecisionItem) { return item.source === 'appro
 export default function DecisionCenter({ compact = false, limit }: { compact?: boolean; limit?: number }) {
   const { items, readOnlyCount, loading, error, reload } = useDecisionItems();
   const [decidingId, setDecidingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<{ item: DecisionItem; decision: 'approved' | 'rejected' } | null>(null);
 
   async function execute(item: DecisionItem, decision: 'approved' | 'rejected') {
     setDecidingId(item.id);
-    await decideItem(item, decision);
-    await reload();
-    setDecidingId(null);
+    setActionError(null);
+    try {
+      await decideItem(item, decision);
+      await reload();
+    } catch (err) {
+      console.error('Decision Center action failed', {
+        source: item.source,
+        itemId: item.id,
+        decision,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      setActionError(`Could not ${decision === 'approved' ? 'approve' : 'reject'} this item. No success was confirmed. ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setDecidingId(null);
+    }
   }
 
   function handleClick(item: DecisionItem, decision: 'approved' | 'rejected') {
@@ -292,6 +305,7 @@ export default function DecisionCenter({ compact = false, limit }: { compact?: b
       )}
 
       {error && <div className="bg-red-950/50 border border-red-900 rounded-xl p-3 text-xs text-red-300">{error}</div>}
+      {actionError && <div role="alert" className="bg-red-950/50 border border-red-900 rounded-xl p-3 text-xs text-red-300">{actionError}</div>}
 
       {loading ? (
         <div className="flex items-center justify-center h-24"><Loader2 className="w-5 h-5 text-slate-500 animate-spin" /></div>
