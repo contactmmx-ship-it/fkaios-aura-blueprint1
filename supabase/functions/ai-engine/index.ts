@@ -1121,10 +1121,11 @@ async function executeRequestedCapability(job: AIJob, parsed: Record<string, unk
   if (!capability) return parsed;
   const objectiveId = typeof job.payload?.objective_id === "string" ? job.payload.objective_id : "";
   let founderSubmitted = false;
+  let objectiveText = "";
   if (objectiveId) {
     const { data: objectiveOrigin, error: originError } = await supabase
       .from("orchestrator_requests")
-      .select("classification")
+      .select("classification, raw_request")
       .eq("id", objectiveId)
       .maybeSingle();
     if (originError) {
@@ -1134,6 +1135,7 @@ async function executeRequestedCapability(job: AIJob, parsed: Record<string, unk
       );
     }
     founderSubmitted = isFounderSubmittedObjectiveOrigin(objectiveOrigin?.classification);
+    objectiveText = typeof objectiveOrigin?.raw_request === "string" ? objectiveOrigin.raw_request : "";
   }
   if (!isAllowedWorkEngineCapability(capability, founderSubmitted)) {
     throw new NonRetryableJobError(
@@ -1156,6 +1158,10 @@ async function executeRequestedCapability(job: AIJob, parsed: Record<string, unk
     return { status: "success", capability, capability_result: data };
   }
   if (capability === "research.run") payload.requested_by = "fkaios-orchestrator";
+  // 29 Oct 2026: a memory search also runs with the founder's own objective words (vault-engine 'context'),
+  // so the brand and what was asked (e.g. "franchise model numbers") always count, whatever query the
+  // worker model wrote. Seen live: a worker searched only remembered chat titles and missed the fee table.
+  if (capability === "knowledge.search" && objectiveText && typeof payload.context !== "string") payload.context = objectiveText.slice(0, 600);
   const dispatch = await executeCapability(capability, payload, cid);
   if (dispatch.status !== "success") {
     throw new Error(`Capability ${capability} failed: ${dispatch.error ?? dispatch.status}`);

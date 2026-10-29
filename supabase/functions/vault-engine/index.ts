@@ -3,7 +3,7 @@
 // work chats + future documents) via SQL fkaios_memory_search. Memory matches carry document_id = knowledge
 // source id and similarity = 0.5 + 0.5 x (share of the query's key terms found on the page), so the objective
 // engine's evidence rule (>= 0.8) only accepts pages containing most of the key terms. Vector search unchanged.
-// Source of truth: this file = live version 33 (deployed 28 Oct 2026).
+// Source of truth: this file = live vault-engine (v6 context search, 29 Oct 2026).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type, x-vault-secret', 'Content-Type': 'application/json' };
@@ -21,7 +21,9 @@ const STOP = new Set(('a an the and or but if then so of to in on at for from by
   'do does did done have has had i me my we our you your he she it they them this that these those what which who whom whose ' +
   'when where why how can could should would will shall may might must not no yes please tell show give get make let us ' +
   'kya hai hain ka ki ke ko se me mein par aur ya bhi tha thi the ho hoga kaise kyun kab kaun koi kuch yeh woh ye wo ' +
-  'batao bata karo kar diya liya hua hui').split(' '));
+  'batao bata karo kar diya liya hua hui ' +
+  // objective-instruction words (29 Oct 2026): carry no topic, so they never crowd out the brand
+  'prepare brief page one use only past work must contain write found name each point comes invent figures number numbers our own fkaios memory chats chat').split(' '));
 const ALIAS: Record<string, string> = { chickn: 'chick', chicken: 'chick' };
 function memoryTerms(q: string, max = 8): string[] {
   const words = (q.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []).filter((w) => w.length > 2 && !STOP.has(w)).map((w) => ALIAS[w] || w);
@@ -118,16 +120,26 @@ Deno.serve(async (req) => {
       // Founder memory (ONE BRAIN). Failure here never breaks the vector search.
       let memory: Record<string, unknown>[] = [];
       if (body.include_memory !== false) {
-        const terms = memoryTerms(String(body.query));
-        if (terms.length) {
+        // v6 (29 Oct 2026): also search with the objective's own words (body.context) and merge, keeping the
+        // best match per chat, so the brand asked about is never lost to a worker's off-topic query.
+        const termSets = [memoryTerms(String(body.query))];
+        if (typeof body.context === 'string' && body.context.trim()) termSets.push(memoryTerms(body.context, 10));
+        const byDoc = new Map<string, Record<string, unknown>>();
+        for (const terms of termSets) {
+          if (!terms.length) continue;
           const { data: mem } = await db.rpc('fkaios_memory_search', { p_terms: terms, p_limit: body.memory_count ?? 5 });
-          memory = (mem ?? []).map((m: any) => ({
-            id: null, chunk_id: null, document_id: m.source_id,
-            similarity: Math.round((0.5 + 0.5 * Number(m.matched_fraction || 0)) * 1000) / 1000,
-            chunk_text: `[${m.title}${m.pdf_page ? `, p.${m.pdf_page}` : ''}] ${m.excerpt ?? ''}`,
-            title: m.title, page: m.pdf_page, source: 'founder_memory', matched_terms: `${Math.round(Number(m.matched_fraction || 0) * terms.length)}/${terms.length}`,
-          }));
+          for (const m of (mem ?? []) as any[]) {
+            const row = {
+              id: null, chunk_id: null, document_id: m.source_id,
+              similarity: Math.round((0.5 + 0.5 * Number(m.matched_fraction || 0)) * 1000) / 1000,
+              chunk_text: `[${m.title}${m.pdf_page ? `, p.${m.pdf_page}` : ''}] ${m.excerpt ?? ''}`,
+              title: m.title, page: m.pdf_page, source: 'founder_memory', matched_terms: `${Math.round(Number(m.matched_fraction || 0) * terms.length)}/${terms.length}`,
+            };
+            const prev = byDoc.get(m.source_id);
+            if (!prev || Number(prev.similarity) < row.similarity) byDoc.set(m.source_id, row);
+          }
         }
+        memory = [...byDoc.values()];
       }
       const all = [...(mErr ? [] : (matches ?? [])), ...memory].sort((a: any, b: any) => Number(b.similarity) - Number(a.similarity));
       await logExec('search', 'success', body.query.slice(0, 200), `${mErr ? 'vault error' : (matches?.length ?? 0)} vault + ${memory.length} memory matches, top similarity ${Number((all[0] as any)?.similarity ?? 0).toFixed(3)}`);
