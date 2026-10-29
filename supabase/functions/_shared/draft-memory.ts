@@ -38,3 +38,13 @@ export function draftMemoryBlock(items: Recalled[]): string {
 export function makerInput(brief: string, lastCritic: string | null, memory: string): string {
   return `Brief: ${brief}\n${lastCritic ? `Previous Critic feedback to address: ${lastCritic}` : 'This is the first draft.'}${memory}`;
 }
+
+/** The Critic's user message. It sees the same memory the Maker saw, so real recalled figures are not
+ *  rejected as "fabricated" (29 Oct acceptance run 3) and figures in neither brief nor memory are flagged. */
+export function criticInput(brief: string, makerOutput: string, memory: string): string {
+  const base = `Brief: ${brief}\n\nMaker's output:\n${makerOutput}`;
+  if (!memory) return base;
+  return base + memory.replace('=== FROM THE FOUNDER\'S MEMORY', '=== THE MAKER WAS GIVEN THIS FROM THE FOUNDER\'S MEMORY') +
+    '\nCritic: figures and facts that match this memory are real (they override placeholders in the brief) and their [source] tags are valid; ' +
+    'flag any figure or claim that is in neither the brief nor this memory as invented.';
+}
