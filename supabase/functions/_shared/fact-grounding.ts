@@ -370,7 +370,7 @@ export function compactDispatchForStorage(dispatch: unknown): Record<string, unk
   if (d.error) base.error = String(d.error).slice(0, 500);
   if (d.capability === KNOWLEDGE_SEARCH && d.status === "success") {
     const data = d.data as Record<string, unknown> | undefined;
-    base.evidence = { query: typeof data?.query === "string" ? data.query.slice(0, 300) : null, matches: knowledgeMatches(d).slice(0, 5) };
+    base.evidence = { query: typeof data?.query === "string" ? data.query.slice(0, 300) : null, matches: knowledgeMatches(d).slice(0, 20) }; // 29 Oct 2026: was 5, which dropped the figure pages (positions 9-11) from citable evidence
     return base;
   }
   if (d.capability === "research.run" && d.data && typeof d.data === "object") {

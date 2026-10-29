@@ -155,9 +155,11 @@ export async function allocateTask(task: { id: string; title: string; descriptio
       .eq("project_id", task.projectId)
       .in("status", ["done", "approved"])
       .neq("id", task.id)
-      .order("created_at", { ascending: true })
-      .limit(10);
-    priorCompletedTasks = (prior ?? []).map((p) => ({
+      // 29 Oct 2026: newest 12 (was oldest 10), so evidence added late in a long run (e.g. a memory
+      // re-search before rectification) is never cut off; kept in chronological order below.
+      .order("created_at", { ascending: false })
+      .limit(12);
+    priorCompletedTasks = (prior ?? []).slice().reverse().map((p) => ({
       id: String(p.id),
       title: String(p.title ?? ""),
       output: typeof p.output === "string" ? (() => { try { return JSON.parse(p.output); } catch { return p.output.slice(0, 5000); } })() : p.output,
@@ -617,13 +619,51 @@ export async function resumeTaskFromCheckpoint(taskId: string, objectiveId: stri
 // task is added to the SAME project. Its job receives the verifier's issues,
 // the rejected deliverable and the producing resources (to avoid), and must
 // return the complete corrected deliverable.
+// 29 Oct 2026: a rejection for something missing / "not found" is often a RETRIEVAL gap, not a writing one.
+// Rewriting the same evidence can never fix it (seen live: a Chaat Masters brief failed 3 rounds without the
+// fee table that sits in two pitch-deck chats). So before the rectifier writes, search founder memory again
+// for exactly what the verifier said is missing, and record the result as a completed knowledge.search task
+// in the same project: the rectifier's prior evidence, its citable sources and the verifier's evidence all
+// pick it up through the existing paths. Deterministic (no model call); failures never block rectification.
+export const MISSING_ITEM_PATTERN = /not found|missing|absent|omit|lacks?\b|does not (include|contain|state|mention)|\bfigures?\b|\bnumbers?\b|\bfees?\b|\bprices?\b|\bamounts?\b|\blakh|\bcrore|₹/i;
+
+export function missingItemsQuery(issues: string[], failedCriteria: string[]): string {
+  const lines = [...failedCriteria, ...issues].filter((l) => MISSING_ITEM_PATTERN.test(l));
+  return lines.join(" ").replace(/\s+/g, " ").slice(0, 300);
+}
+
+async function researchMissingFromMemory(client: ReturnType<typeof getClient>, input: { projectId: string; objectiveId: string; round: number; issues: string[]; failedCriteria: string[] }): Promise<void> {
+  const query = missingItemsQuery(input.issues, input.failedCriteria);
+  if (!query) return;
+  try {
+    const { data: objective } = await client.from("orchestrator_requests").select("raw_request").eq("id", input.objectiveId).maybeSingle();
+    const context = String(objective?.raw_request ?? "").slice(0, 600);
+    const dispatch = await executeCapability("knowledge.search", { query, context, memory_count: 8 }, `rectify-research-${input.objectiveId.slice(0, 8)}-r${input.round}`);
+    if (dispatch.status !== "success") return;
+    const data = (dispatch as unknown as { data?: Record<string, unknown> }).data ?? {};
+    const matches = Array.isArray(data.matches) ? data.matches as Array<Record<string, unknown>> : [];
+    if (!matches.some((m) => m && m.source === "founder_memory")) return;
+    await client.from("orchestration_tasks").insert({
+      project_id: input.projectId,
+      role: "researcher",
+      title: `Re-search founder memory for missing items (round ${input.round})`,
+      description: `Independent verification reported missing or not-found items. Founder memory was searched again for: ${query}`,
+      status: "done",
+      output: JSON.stringify({ llmResult: { capability: "knowledge.search", capability_result: { query, matches } }, companyOsDispatch: compactDispatchForStorage(dispatch) }),
+    });
+  } catch (err) {
+    console.log(JSON.stringify({ level: "WARN", message: "rectification memory re-search failed (non-blocking)", error: err instanceof Error ? err.message : String(err) }));
+  }
+}
+
 export async function createRectificationTask(input: { projectId: string; objectiveId: string; round: number; issues: string[]; failedCriteria: string[]; deliverable: string; producerRefs: string[] }): Promise<string | null> {
   const client = getClient();
+  await researchMissingFromMemory(client, input);
   const { data, error } = await client.from("orchestration_tasks").insert({
     project_id: input.projectId,
     role: "rectifier",
     title: `Rectify: corrected final deliverable (round ${input.round})`,
-    description: "Independent verification rejected the deliverable. Produce a materially corrected COMPLETE final deliverable for the original objective. Apply EVERY failed criterion and issue below; do not merely reproduce the rejected deliverable. Keep only the requested top-level sections and number them to match the original objective; incorporate extra findings into an existing section instead of shifting every later section. Preserve verified source URLs and publication dates. Where feedback says a quote or section is missing, add the required content explicitly so it is present in the final deliverable. Use only evidence recorded in prior completed tasks. Return JSON with a 'deliverable' string.",
+    description: "Independent verification rejected the deliverable. Produce a materially corrected COMPLETE final deliverable for the original objective. Apply EVERY failed criterion and issue below; do not merely reproduce the rejected deliverable. Keep only the requested top-level sections and number them to match the original objective; incorporate extra findings into an existing section instead of shifting every later section. Preserve verified source URLs and publication dates. Where feedback says a quote or section is missing, add the required content explicitly so it is present in the final deliverable. Where an item was marked 'not found' but the founder memory re-search task now contains it, replace 'not found' with the exact figure and name the chat it comes from. Use only evidence recorded in prior completed tasks. Return JSON with a 'deliverable' string.",
     status: "pending",
     output: JSON.stringify({ rectification: { round: input.round, issues: input.issues.slice(0, 15), failed_criteria: input.failedCriteria.slice(0, 15), rejected_deliverable: input.deliverable.slice(0, 12000), avoid: input.producerRefs } }),
   }).select("id").single();
