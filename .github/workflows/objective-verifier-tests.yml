@@ -44,6 +44,8 @@ on:
       - "supabase/functions/_shared/brain-recall.test.ts"
       - "supabase/functions/_shared/draft-memory.ts"
       - "supabase/functions/_shared/draft-memory.test.ts"
+      - "supabase/functions/_shared/brain-chat.ts"
+      - "supabase/functions/_shared/brain-chat.test.ts"
       - "supabase/functions/my-brain-engine/index.ts"
       - "supabase/functions/_shared/founder-brain.ts"
       - "supabase/functions/founder-objective/index.ts"
@@ -87,6 +89,8 @@ on:
       - "supabase/functions/_shared/brain-recall.test.ts"
       - "supabase/functions/_shared/draft-memory.ts"
       - "supabase/functions/_shared/draft-memory.test.ts"
+      - "supabase/functions/_shared/brain-chat.ts"
+      - "supabase/functions/_shared/brain-chat.test.ts"
       - "supabase/functions/my-brain-engine/index.ts"
       - "supabase/functions/_shared/founder-brain.ts"
       - "supabase/functions/founder-objective/index.ts"
@@ -149,3 +153,5 @@ jobs:
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/brain-recall.test.ts
       - name: Run Draft Studio memory-grounding tests
         run: deno test --no-check --node-modules-dir=auto --allow-env supabase/functions/_shared/draft-memory.test.ts
+      - name: Brain Chat principles and no-provider reply tests
+        run: deno test --no-check --node-modules-dir=auto --allow-env supabase/functions/_shared/brain-chat.test.ts
