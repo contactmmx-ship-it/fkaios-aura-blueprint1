@@ -42,31 +42,77 @@ export interface Candidate {
   riskClass: RiskClass;
 }
 
-// What FKAIOS needs, weighted. Relevance is fit to these needs, not popularity.
-export const RELEVANCE_TERMS: Array<{ term: RegExp; weight: number; reason: string }> = [
-  { term: /\b(ocr|scann?ed|pdf|document (parsing|extraction)|page[- ]level)\b/i, weight: 3, reason: "document retrieval / OCR" },
-  { term: /\b(rag|retrieval|knowledge base|vector|embedding)\b/i, weight: 2, reason: "retrieval" },
-  { term: /\b(speech|stt|tts|voice|transcri|whisper|text-to-speech|speech-to-text|asr)\b/i, weight: 3, reason: "voice" },
-  { term: /\b(hindi|indic|india|multilingual|punjabi|tamil|bengali)\b/i, weight: 2, reason: "Indian languages" },
-  { term: /\b(whatsapp|gmail|email|calendar|crm|hubspot|zoho)\b/i, weight: 3, reason: "founder integrations" },
-  { term: /\b(supabase|postgres|deno|edge function)\b/i, weight: 3, reason: "FKAIOS stack" },
-  { term: /\b(agent|multi-agent|orchestrat|workflow|autonomous)\b/i, weight: 1, reason: "agent orchestration" },
-  { term: /\b(browser|playwright|web scrap|crawl)\b/i, weight: 2, reason: "browser / research" },
-  { term: /\b(test(ing)?|eval(uation)?|benchmark|verif)\w*/i, weight: 1, reason: "testing / evaluation" },
-  { term: /\b(spreadsheet|excel|sheets|presentation|pptx|slides|docx)\b/i, weight: 2, reason: "deliverables" },
-  { term: /\b(franchise|retail|restaurant|food|qsr|sop)\b/i, weight: 2, reason: "founder's business" },
-  { term: /\b(security|vulnerab|cve|secret)\w*/i, weight: 1, reason: "security" },
+// What Rajeev's projects need right now, weighted. Relevance is fit to a named
+// project need, never keyword hits or popularity: until 29 Oct 2026 a TikTok
+// video downloader scored in the same tier as Indian-language OCR because its
+// description happened to mention "agent", "MCP" and speech-to-text. Every
+// reason now names the project the find would serve, so the founder's weekly
+// shortlist reads "OCR for eBill2Tally bills", not "document retrieval".
+export interface ProjectNeed { key: string; projects: string; term: RegExp; weight: number; kinds?: CandidateKind[] }
+export const PROJECT_NEEDS: ProjectNeed[] = [
+  { key: "speech_to_text", projects: "SYROS OPD dictation, Rajeev AI call agent", weight: 4,
+    term: /\b(speech[- ]to[- ]text|automatic-speech-recognition|asr|stt|whisper|transcri\w*|dictation)\b/i },
+  { key: "text_to_speech", projects: "Rajeev AI voice (Hinglish, human tone)", weight: 3,
+    term: /\b(text[- ]to[- ]speech|tts|voice clon\w*|voice agent|realtime voice|speech synthesis)\b/i },
+  { key: "indian_languages", projects: "Hindi/Hinglish for SYROS, Rajeev AI and dealer apps", weight: 3,
+    term: /\b(hindi|hinglish|indic|indian languages?|devanagari|punjabi|marathi|gujarati|bengali|tamil|telugu)\b/i },
+  { key: "document_ocr", projects: "eBill2Tally bill scanning, knowledge library PDFs", weight: 4,
+    term: /\b(ocr|invoice|receipt|bill scan\w*|document (parsing|extraction|understanding)|pdf (parsing|extraction|to markdown)|scanned)\b/i },
+  { key: "knowledge_memory", projects: "FKAIOS one brain: memory over 622 chats", weight: 3,
+    term: /\b(rag|retrieval|knowledge (base|graph)|long[- ]term memory|agent memory|embedding|vector (db|search|store))\b/i },
+  { key: "browser_research", projects: "dealer and franchise prospect research (Gio Paints, GoMax)", weight: 3,
+    term: /\b(browser (agent|automation|use)|computer[- ]use|playwright|puppeteer|web (research|agent)|google maps|lead (generation|research))\b/i },
+  { key: "messaging_crm", projects: "WhatsApp + CRM for Turning Point, GoMax, Bhavishya Command", weight: 4,
+    term: /\b(whatsapp|crm|hubspot|zoho|gmail|calendar|email (automation|agent)|lead management)\b/i },
+  { key: "fkaios_stack", projects: "FKAIOS stack (Supabase, Postgres, Deno, GitHub)", weight: 3,
+    term: /\b(supabase|postgres(ql)?|deno|edge functions?|github (actions|mcp))\b/i },
+  { key: "deliverables", projects: "client proposals, decks and sheets", weight: 2,
+    term: /\b(pptx|powerpoint|docx|word document|excel|xlsx|spreadsheet|slides|pdf generation)\b/i },
+  { key: "business_ops", projects: "franchise, retail and restaurant clients", weight: 3,
+    term: /\b(franchise|retail|restaurant|pos|inventory|dealer|distributor|accounting|tally|gst|invoic\w*)\b/i },
+  { key: "agent_execution", projects: "FKAIOS objective loop execution", weight: 2,
+    term: /\b(tool[- ]use|function[- ]calling|multi-agent|agent (framework|orchestration|harness)|autonomous agent|workflow automation)\b/i },
+  { key: "free_llm_capacity", projects: "no-stop rule: another free model when a quota ends", weight: 3,
+    term: /./, kinds: ["free_model"] },
+  { key: "evaluation", projects: "FKAIOS verifier and capability tests", weight: 1,
+    term: /\b(llm (eval\w*|testing)|evaluation (harness|framework)|benchmark(ing)? (agents|llms))\b/i },
 ];
+
+// Things that look relevant to keyword matching but serve none of the needs.
+export const NOISE_TERMS: Array<{ term: RegExp; reason: string }> = [
+  { term: /\b(downloader|no[- ]watermark|tiktok|douyin|bilibili|youtube download\w*)\b/i, reason: "media downloader" },
+  { term: /\b(crypto|blockchain|web3|defi|nft|trading bot|solana|ethereum)\b/i, reason: "crypto / trading" },
+  { term: /\b(nsfw|porn|adult|hentai|deepfake|face[- ]?swap|undress)\b/i, reason: "unsafe content" },
+  { term: /\b(jailbreak|cheat|aimbot|bypass (captcha|paywall|license))\b/i, reason: "abuse tooling" },
+  { term: /(\bawesome[- ]list\b|\/awesome-)/i, reason: "link list, not a tool" },
+  { term: /\b(minecraft|roblox|game mod|anime girl|waifu)\b/i, reason: "games / entertainment" },
+];
+export const NOISE_PENALTY = 6;
+
+// A raw open-weights model only helps if it can actually run for FKAIOS
+// (no GPU host today): its pipeline must match a need, and it needs a free API
+// route to be adopted. Image/video generation pipelines serve no current need.
+const IDLE_PIPELINES = /^(text-to-image|image-to-image|image-to-video|text-to-video|image-text-to-video|diffusion|unconditional-image-generation|text-to-3d|image-to-3d)/i;
 
 export function scoreRelevance(c: Candidate): { score: number; reasons: string[] } {
   const text = `${c.name} ${c.description ?? ""}`;
   let score = 0;
   const reasons: string[] = [];
-  for (const r of RELEVANCE_TERMS) if (r.term.test(text)) { score += r.weight; reasons.push(r.reason); }
-  if (c.kind === "free_model") { score += 2; reasons.push("free tier"); }
+  let needs = 0;
+  for (const n of PROJECT_NEEDS) {
+    if (n.kinds && !n.kinds.includes(c.kind)) continue;
+    if (n.term.test(text)) { score += n.weight; needs++; reasons.push(`${n.key.replace(/_/g, " ")} → ${n.projects}`); }
+  }
+  let noisy = false;
+  for (const n of NOISE_TERMS) if (n.term.test(text)) { score -= NOISE_PENALTY; noisy = true; reasons.push(`penalty: ${n.reason}`); }
+  // Noise is decisive: licence and popularity never lift it back into the shortlist.
+  if (noisy) return { score: Math.min(score, -1), reasons };
+  if (c.kind === "model" && IDLE_PIPELINES.test(c.description ?? "")) { score -= 3; reasons.push("penalty: image/video generation (no current need)"); }
+  if (needs === 0) return { score: Math.min(score, 0), reasons: reasons.length ? reasons : ["no current project need"] };
+  // Modifiers only matter once a real need is matched.
   if (c.kind === "mcp_server" && c.riskClass === "remote_service") { score += 1; reasons.push("hosted MCP (no install)"); }
   const license = (c.license ?? "").toLowerCase();
-  if (c.kind === "repository" && /^(mit|apache-2\.0|bsd-[23]-clause|isc|mpl-2\.0)$/.test(license)) { score += 1; reasons.push(`permissive licence (${c.license})`); }
+  if ((c.kind === "repository" || c.kind === "model") && /^(mit|apache-2\.0|bsd-[23]-clause|isc|mpl-2\.0)$/.test(license)) { score += 1; reasons.push(`permissive licence (${c.license})`); }
   // Popularity only breaks ties: at most +1.
   const stars = Number(c.metrics.stars ?? c.metrics.likes ?? 0);
   if (stars >= 1000) { score += 1; reasons.push("widely used"); }
@@ -214,7 +260,8 @@ export async function runEcosystemDiscovery(db: Db, trigger: "scheduled" | "manu
       await db.from("fkaios_ecosystem_candidates").update({ ...base, last_changed_at: stamp }).eq("canonical_key", c.canonicalKey);
       updated++;
     } else {
-      await db.from("fkaios_ecosystem_candidates").update({ last_seen_at: stamp, last_run_id: run.id }).eq("canonical_key", c.canonicalKey);
+      // Unchanged content still gets today's score: the scoring rules change (29 Oct 2026: project-need scoring).
+      await db.from("fkaios_ecosystem_candidates").update({ last_seen_at: stamp, last_run_id: run.id, relevance_score: score, relevance_reasons: reasons }).eq("canonical_key", c.canonicalKey);
     }
   }
   const okSources = Object.values(sources).filter((s) => (s as { ok: boolean }).ok).length;

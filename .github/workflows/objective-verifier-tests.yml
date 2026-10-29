@@ -11,6 +11,8 @@ on:
       - "supabase/functions/_shared/objective-loop.ts"
       - "supabase/functions/_shared/capability-evaluation.ts"
       - "supabase/functions/_shared/capability-evaluation.test.ts"
+      - "supabase/functions/_shared/capability-discovery.ts"
+      - "supabase/functions/_shared/capability-discovery.suite.test.ts"
       - "supabase/functions/_shared/objective-contract.ts"
       - "supabase/functions/_shared/objective-contract.test.ts"
       - "supabase/functions/_shared/objective-loop-inventory.test.ts"
@@ -121,3 +123,5 @@ jobs:
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/company-os.test.ts
       - name: Run objective-first background evaluation quota tests
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/capability-evaluation.test.ts
+      - name: Run suite-version re-test regression tests
+        run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/capability-discovery.suite.test.ts

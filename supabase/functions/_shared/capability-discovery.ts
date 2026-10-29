@@ -201,6 +201,22 @@ export interface DiscoveryReport {
 }
 
 export const MAX_ACTIVE_TESTS = 3;
+
+/** Pure: does this registry row need a (re-)evaluation on the current golden-suite version? */
+export function needsEvaluation(lifecycle: string, metadata: unknown, suiteVersion: number): boolean {
+  if (lifecycle === "discovered" || lifecycle === "available") return true;
+  if (lifecycle !== "verified") return false;
+  const last = String(((metadata ?? {}) as { last_eval?: { suite?: string } }).last_eval?.suite ?? "");
+  const v = Number(last.split("@")[1] ?? NaN);
+  return !Number.isFinite(v) || v < suiteVersion;
+}
+
+/** Pure: does an earlier queue row stop a new test? Only an open test, or a finished one on this suite version. */
+export function blocksRequeue(status: string, evidence: unknown, suiteVersion: number): boolean {
+  if (status === "queued" || status === "running") return true;
+  const v = Number(((evidence ?? {}) as { progress?: { suite_version?: number } }).progress?.suite_version ?? 1);
+  return v >= suiteVersion;
+}
 export const QUOTA_RETRY_HOURS = 6;
 
 export async function runCapabilityDiscovery(db: Db, env: (k: string) => string | undefined = (k) => Deno.env.get(k), now = new Date()): Promise<DiscoveryReport> {
@@ -295,15 +311,22 @@ export async function runCapabilityDiscovery(db: Db, env: (k: string) => string 
   if (slots > 0) {
     const { data: candidates } = await db.from("capability_discovery_candidates").select("id,resource_key,model,status")
       .eq("status", "eligible").eq("candidate_type", "model");
-    const { data: registry } = await db.from("model_registry").select("resource_ref,lifecycle_state").in("lifecycle_state", ["discovered", "available"]);
-    const untested = new Set(((registry ?? []) as Array<{ resource_ref: string }>).map((r) => r.resource_ref));
+    // A model counts as untested when it was never evaluated, or when it was
+    // verified on an older version of the golden suite (fkaios_core v1 had one
+    // case for several classes; its verdicts are not evidence on v2).
+    const { data: suiteRow } = await db.from("fkaios_eval_cases").select("suite_version").eq("suite", "fkaios_core").eq("active", true)
+      .order("suite_version", { ascending: false }).limit(1).maybeSingle();
+    const suiteVersion = Number(suiteRow?.suite_version ?? 1);
+    const { data: registry } = await db.from("model_registry").select("resource_ref,lifecycle_state,metadata").in("lifecycle_state", ["discovered", "available", "verified"]);
+    const untested = new Set(((registry ?? []) as Array<{ resource_ref: string; lifecycle_state: string; metadata: unknown }>)
+      .filter((r) => needsEvaluation(r.lifecycle_state, r.metadata, suiteVersion)).map((r) => r.resource_ref));
     const ranked = ((candidates ?? []) as Array<{ id: string; resource_key: string; model: string }>)
       .filter((c) => untested.has(c.resource_key))
       .sort((a, b) => evaluationPriority(b.model) - evaluationPriority(a.model));
     for (const c of ranked) {
       if (slots <= 0) break;
-      const { data: prior } = await db.from("capability_test_queue").select("id").eq("candidate_id", c.id).eq("benchmark_suite", "fkaios_core").in("status", ["queued", "running", "passed", "failed"]).limit(1);
-      if ((prior ?? []).length) continue; // evaluated before; re-tests come from monitoring, not discovery
+      const { data: prior } = await db.from("capability_test_queue").select("id,status,evidence").eq("candidate_id", c.id).eq("benchmark_suite", "fkaios_core").in("status", ["queued", "running", "passed", "failed"]);
+      if (((prior ?? []) as Array<{ status: string; evidence: unknown }>).some((t) => blocksRequeue(t.status, t.evidence, suiteVersion))) continue; // evaluated on this suite version already
       // A test cancelled because the candidate's own quota/capacity was exhausted
       // is retried after a cool-down, not every hour (it would hold the executor
       // for 5 ticks each time and delay every other candidate).

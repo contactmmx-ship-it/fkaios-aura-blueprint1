@@ -72,12 +72,30 @@ Deno.test("GitHub, Hugging Face and OpenRouter parsers", () => {
   assertEquals(or[0].kind, "free_model");
 });
 
-Deno.test("relevance follows FKAIOS needs; popularity only breaks ties", () => {
+Deno.test("relevance follows project needs; popularity only breaks ties", () => {
   const ocr = scoreRelevance({ canonicalKey: "k", source: "github", kind: "repository", name: "pdf-ocr", description: "OCR for scanned PDF pages with Hindi support", version: null, license: "MIT", metrics: { stars: 10 }, riskClass: "executable_code" });
   const popular = scoreRelevance({ canonicalKey: "k2", source: "github", kind: "repository", name: "chat-ui", description: "A chat interface", version: null, license: null, metrics: { stars: 90000 }, riskClass: "executable_code" });
   assert(ocr.score > popular.score);
-  assert(ocr.reasons.includes("document retrieval / OCR"));
-  assertEquals(popular.score, 1);
+  assert(ocr.reasons.some((r) => r.startsWith("document ocr → ") && r.includes("eBill2Tally")));
+  assert(ocr.reasons.some((r) => r.startsWith("indian languages → ")));
+  assertEquals(popular.score, 0); // stars alone never make a find relevant
+  assertEquals(popular.reasons, ["no current project need"]);
+});
+
+Deno.test("keyword noise no longer outranks real needs (29 Oct 2026: TikTok downloader scored like OCR)", () => {
+  const downloader = scoreRelevance({ canonicalKey: "d", source: "github", kind: "repository", name: "Evil0ctal/Douyin_TikTok_Download_API",
+    description: "Self-hosted TikTok, Douyin & Bilibili scraper and no-watermark video downloader — AI agent via MCP, offline speech-to-text", version: null, license: "Apache-2.0", metrics: { stars: 20807 }, riskClass: "executable_code" });
+  const ocr = scoreRelevance({ canonicalKey: "o", source: "huggingface", kind: "model", name: "baidu/Unlimited-OCR", description: "image-text-to-text, ocr, multilingual", version: null, license: "mit", metrics: { likes: 4637 }, riskClass: "executable_code" });
+  assert(downloader.score < 0, `downloader scored ${downloader.score}`);
+  assert(downloader.reasons.includes("penalty: media downloader"));
+  assert(ocr.score >= 6, `OCR model scored ${ocr.score}`);
+});
+
+Deno.test("free API models count as quota-fallback capacity; image generation is not a need", () => {
+  const free = scoreRelevance({ canonicalKey: "f", source: "openrouter", kind: "free_model", name: "x/small:free", description: "A small chat model", version: null, license: null, metrics: {}, riskClass: "requires_credentials" });
+  assert(free.score >= 3 && free.reasons.some((r) => r.startsWith("free llm capacity → ")));
+  const img = scoreRelevance({ canonicalKey: "i", source: "huggingface", kind: "model", name: "a/flux-thing", description: "text-to-image, diffusers", version: null, license: "apache-2.0", metrics: { likes: 9000 }, riskClass: "executable_code" });
+  assert(img.score <= 0, `image model scored ${img.score}`);
 });
 
 Deno.test("untrusted descriptions are clipped and control characters removed", () => {
