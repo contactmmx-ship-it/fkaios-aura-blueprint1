@@ -86,8 +86,11 @@ jobs:
           path_and_query = suffix
           path, qmark, query = path_and_query.partition("?")
           query, hashmark, fragment = query.partition("#") if qmark else ("", "", "")
+          decoded_password = unquote(password)
+          if decoded_password in ("[YOUR-PASSWORD]", "[YOUR_PASSWORD]", "[PASSWORD]"):
+              decoded_password = decoded_password[1:-1]
           normalized_user = quote(unquote(username), safe="")
-          normalized_password = quote(unquote(password.strip("[]")), safe="")
+          normalized_password = quote(decoded_password, safe="")
           netloc = f"{normalized_user}:{normalized_password}@{hostinfo}"
           normalized = urlunsplit((scheme, netloc, "/" + path if slash else "", query, fragment))
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
