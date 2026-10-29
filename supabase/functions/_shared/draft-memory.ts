@@ -2,7 +2,8 @@
 // The Maker used to draft from the brief alone. It now receives what the founder's one memory
 // (fkaios_knowledge_*, same recall as Brain Chat) already holds about the brief, so drafts reuse
 // real past figures and decisions and cite where they came from.
-import type { Recalled } from './brain-recall.ts';
+/** Same shape as brain-recall.ts Recalled (kept local so this helper has no network imports). */
+export interface Recalled { title: string; page: number | null; excerpt: string }
 
 /** Words to search the memory with: the project's title, client and brief. */
 export function draftMemoryQuery(p: { title?: string | null; client_name?: string | null; brief?: string | null }): string {
