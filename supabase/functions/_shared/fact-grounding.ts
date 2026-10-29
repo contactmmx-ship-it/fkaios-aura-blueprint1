@@ -468,6 +468,12 @@ export function formatBlockedSummary(gate: ObjectiveTaskGate): string {
 // independent verifier. Per-task evidence is cut at 2,500 chars, which hid these sources and made the verifier
 // reject correctly cited fkaios-memory:// chats. Only knowledge.search matches at/above the relevance bar,
 // with the retrieved excerpt text (from the measured capability_result when present).
+function isCited(e: { url: string; title: string }, citedIn: string): boolean {
+  if (!citedIn) return false;
+  const name = e.title.replace(/^ChatGPT:\s*/i, "").replace(/,\s*p\.\d+\s*$/, "").replace(/\s*\(\d{4}-\d{2}-\d{2}\)\s*$/, "").trim();
+  return citedIn.includes(e.url) || (name.length >= 6 && citedIn.toLowerCase().includes(name.toLowerCase()));
+}
+
 export function figureCount(text: string): number {
   return (text.match(/\u20B9|[0-9]+(?:\.[0-9]+)? ?%|[0-9]{1,2}, ?[0-9]{2},[0-9]{3}|[0-9]+ ?(?:lakh|lac|crore|cr)\b/gi) ?? []).length;
 }
@@ -485,7 +491,10 @@ export function priorMemoryEvidenceText(priorCompletedTasks: unknown, maxChars =
   return founderMemoryEvidenceText(tasks, maxChars);
 }
 
-export function founderMemoryEvidenceText(tasks: TaskEvidenceRecord[], maxChars = 16000): string {
+// 29 Oct 2026: `citedIn` (the deliverable) puts the chats a deliverable actually cites FIRST, so the verifier
+// always has the text behind every cited chat; it was rejecting real figures as "invented" because the
+// cited chats fell outside its evidence window.
+export function founderMemoryEvidenceText(tasks: TaskEvidenceRecord[], maxChars = 16000, citedIn = ""): string {
   const byUrl = new Map<string, { title: string; excerpts: string[] }>();
   for (const task of tasks) {
     if (!SUCCESS_TASK_STATUSES.has(String(task.status ?? ""))) continue;
@@ -514,7 +523,7 @@ export function founderMemoryEvidenceText(tasks: TaskEvidenceRecord[], maxChars 
   // the very numbers a report has to quote.
   const lines = [...byUrl.entries()]
     .map(([url, e]) => ({ url, title: e.title, text: e.excerpts.join("\n").replace(/\s+/g, " ").slice(0, 3000) }))
-    .sort((a, b) => figureCount(b.text) - figureCount(a.text))
+    .sort((a, b) => Number(isCited(b, citedIn)) - Number(isCited(a, citedIn)) || figureCount(b.text) - figureCount(a.text))
     .map((e) => `${e.url} = ${e.title}\n${e.text}`);
   return `[FOUNDER MEMORY RETRIEVED BY THIS OBJECTIVE — fkaios-memory:// sources are the founder's own past-work chats, retrieved by knowledge.search; claims citing them are supported when this text supports them]\n${lines.join("\n\n")}`.slice(0, maxChars);
 }

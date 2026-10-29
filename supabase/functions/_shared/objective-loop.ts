@@ -450,7 +450,8 @@ async function evaluateObjective(
     : { data: [] };
   const producerRefs = [...new Set(((producerSteps ?? []) as Array<{ resource_ref: string }>).map((r) => r.resource_ref))];
   // ONE BRAIN (28 Oct 2026): founder-memory sources first, so the 2,500-char per-task cut cannot hide them.
-  const memoryEvidence = founderMemoryEvidenceText(currentTasks as TaskEvidenceRecord[]);
+  // 29 Oct 2026: cited chats first, larger window (the verifier now reads up to 30,000 chars of evidence).
+  const memoryEvidence = founderMemoryEvidenceText(currentTasks as TaskEvidenceRecord[], 22000, deliverable);
   const evidence = (memoryEvidence ? memoryEvidence + "\n\n" : "") + currentTasks
     .filter((t) => !/^Rectify:/i.test(String(t.title ?? "")))
     .map((t) => `[${String(t.title ?? "task")}]\n${String(t.output ?? "").slice(0, 2500)}`)

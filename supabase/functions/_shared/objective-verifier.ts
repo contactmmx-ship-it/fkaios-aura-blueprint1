@@ -298,6 +298,9 @@ export async function persistVerificationEvidence(
   return data?.id ?? null;
 }
 
+// 29 Oct 2026: was 12,000, which cut the founder-memory text of cited chats (verifier then called real figures invented).
+export const VERIFIER_EVIDENCE_CHARS = 30000;
+
 export async function verifyObjective(db: Db, input: {
   /** null only for self-tests (evidence key self_test:...). */
   objectiveId: string | null;
@@ -319,7 +322,7 @@ export async function verifyObjective(db: Db, input: {
     problems: [...baseChecks.problems, ...competitorChecks.problems].slice(0, 30),
   };
   const selection = await selectResources(db, "verification", { avoid: input.producerRefs });
-  const { system, user } = buildVerifierPrompt(input.objective, input.criteria, input.deliverable.slice(0, 40000), input.evidence.slice(0, 12000));
+  const { system, user } = buildVerifierPrompt(input.objective, input.criteria, input.deliverable.slice(0, 40000), input.evidence.slice(0, VERIFIER_EVIDENCE_CHARS));
   const startedAt = new Date();
   const result = await callLLMOnResources(
     { systemPrompt: system, userContent: user, functionName: "objective-verifier", functionClass: "founder_intelligence", temperature: 0 },
@@ -333,7 +336,7 @@ export async function verifyObjective(db: Db, input: {
   if (result.status !== "success") {
     return { passed: false, quality: 0, criteria: [], issues: [`verifier unavailable: ${result.log.failure_reason ?? result.status}`], needsHumanDecision: false, humanDecisionReason: null, deterministic, verifierRef, independence, available: false };
   }
-  const parsed = parseVerdict(result.content ?? "", input.deliverable, deterministic, input.evidence.slice(0, 12000), input.noPaidResearch === true);
+  const parsed = parseVerdict(result.content ?? "", input.deliverable, deterministic, input.evidence.slice(0, VERIFIER_EVIDENCE_CHARS), input.noPaidResearch === true);
   if (!parsed) {
     return { passed: false, quality: 0, criteria: [], issues: ["verifier returned no parseable verdict"], needsHumanDecision: false, humanDecisionReason: null, deterministic, verifierRef, independence, available: false };
   }

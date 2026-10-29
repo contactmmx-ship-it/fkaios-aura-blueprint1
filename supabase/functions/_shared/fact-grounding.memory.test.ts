@@ -80,3 +80,16 @@ Deno.test("writer memory block: prior tasks without status, object output, figur
   assert(text.indexOf("Franchise pitch deck creation") < text.indexOf("Brand story draft"), "figure-heavy chat first");
   assert(priorMemoryEvidenceText([]) === "", "empty prior gives empty block");
 });
+
+Deno.test("verifier memory evidence: chats cited by the deliverable come first", () => {
+  const A = "aaaaaaaa-0000-0000-0000-000000000001", B = "bbbbbbbb-0000-0000-0000-000000000002";
+  const matches = [
+    { id: null, chunk_id: null, document_id: A, similarity: 0.95, chunk_text: "[ChatGPT: Investor Pitch Deck (2026-01-28), p.5] Silver ₹3,00,000 Gold ₹5,00,000 Diamond ₹7,50,000 Platinum ₹10,00,000+", source: "founder_memory" },
+    { id: null, chunk_id: null, document_id: B, similarity: 0.9, chunk_text: "[ChatGPT: Chaat Masters Source Pack (2026-10-16), p.13] source pack text without figures", source: "founder_memory" },
+  ];
+  const task = { id: "t", status: "done", title: "search", output: JSON.stringify({ llmResult: { capability_result: { matches } }, companyOsDispatch: compactDispatchForStorage({ capability: "knowledge.search", status: "success", attempts: 1, data: { query: "q", matches } }) }) };
+  const cited = founderMemoryEvidenceText([task], 16000, "Built the source pack (ChatGPT: Chaat Masters Source Pack, 16 Oct 2026).");
+  assert(cited.indexOf("Source Pack") < cited.indexOf("Investor Pitch Deck"), "cited chat first");
+  const uncited = founderMemoryEvidenceText([task]);
+  assert(uncited.indexOf("Investor Pitch Deck") < uncited.indexOf("Source Pack"), "otherwise figures first");
+});
