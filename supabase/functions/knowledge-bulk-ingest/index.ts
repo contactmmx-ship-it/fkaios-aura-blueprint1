@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
         const pages = paginate(text);
         const sourceLabel = typeof m.source_label === "string" && m.source_label.trim() ? m.source_label.trim().slice(0, 80) : "ChatGPT";
         const sourceKind = m.source_kind === "document" ? "document" : "conversation";
-        const report = {
+        const ingestionReport = {
           chat_id: m.id, date: m.date, messages: m.n,
           source_tool: typeof m.source_tool === "string" ? m.source_tool.slice(0, 80) : sourceLabel,
           original_name: typeof m.original_name === "string" ? m.original_name.slice(0, 240) : undefined,
@@ -78,7 +78,7 @@ Deno.serve(async (req) => {
           title: sourceLabel + ": " + m.title + " (" + m.date + ")", source_kind: sourceKind, filename: m.id + ".md",
           storage_bucket: bucket, storage_path: path + "#" + m.id + ".md", provenance, sha256: sha, mime_type: "text/markdown",
           page_count: pages.length, page_label_basis: "line_ranges", copyright_class, project_ref: m.p,
-          ingestion_status: "ingesting", ingestion_report: report,
+          ingestion_status: "ingesting", ingestion_report: ingestionReport,
         }).select("id").single();
         if (sErr || !src) { report.failed.push(m.id + ":" + sErr?.message); continue; }
         const rows = pages.map((p, i) => ({ source_id: src.id, pdf_page: i + 1, printed_label: `lines ${p.start}-${p.end}`, label_basis: "line_range",
