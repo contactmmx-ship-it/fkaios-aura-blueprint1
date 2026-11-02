@@ -124,7 +124,10 @@ def read_zip(path: Path) -> list[dict]:
         with zipfile.ZipFile(path) as z:
             members = [m for m in z.infolist() if not m.is_dir()]
             if len(members) > MAX_MEMBERS: return []
+            total_uncompressed = 0
             for m in members:
+                total_uncompressed += m.file_size
+                if total_uncompressed > 250 * 1024 * 1024: return []
                 p = PurePosixPath(m.filename)
                 if p.is_absolute() or ".." in p.parts or p.name.lower() in SKIP_NAMES or m.file_size > MAX_MEMBER: continue
                 if p.suffix.lower() not in TEXT_EXT: continue
@@ -150,7 +153,7 @@ def read_file(path: Path) -> list[dict]:
 
 def iter_files(roots: list[Path]):
     for root in roots:
-        if not root.is_dir(): continue
+        if root.is_symlink() or not root.is_dir(): continue
         for current, dirs, names in os.walk(root, followlinks=False):
             dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not (Path(current) / d).is_symlink()]
             for name in names:
@@ -160,7 +163,13 @@ def iter_files(roots: list[Path]):
 def build_bundle(roots: list[Path], output: Path, project_ref: str = "HISTORY", processed: dict | None = None) -> dict[str, int]:
     output.mkdir(parents=True, exist_ok=True)
     manifest, docs, seen, scanned = [], {}, set(), 0
+    output_resolved = output.resolve()
     for path in iter_files(roots):
+        try:
+            if path.resolve().is_relative_to(output_resolved):
+                continue
+        except (OSError, ValueError):
+            continue
         scanned += 1
         try:
             stat = path.stat()
