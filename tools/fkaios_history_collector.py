@@ -13,8 +13,8 @@ MAX_FILE = 50 * 1024 * 1024
 MAX_MEMBER = 25 * 1024 * 1024
 MAX_MEMBERS = 5000
 TEXT_EXT = {".txt", ".md", ".markdown", ".csv", ".log", ".html", ".htm", ".json"}
-SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build"}
-SKIP_NAMES = {".env", ".env.local", ".env.production", "credentials.json", "secrets.json"}
+SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build", "FKAIOS-Collector"}
+SKIP_NAMES = {".env", ".env.local", ".env.production", "credentials.json", "secrets.json", "collector-state.json"}
 SECRETS = [
     re.compile(r"(?i)sk-[A-Za-z0-9_-]{20,}"),
     re.compile(r"(?i)gh[pousr]_[A-Za-z0-9]{20,}"),
@@ -157,13 +157,22 @@ def iter_files(roots: list[Path]):
                 path = Path(current) / name
                 if not path.is_symlink() and name.lower() not in SKIP_NAMES: yield path
 
-def build_bundle(roots: list[Path], output: Path, project_ref: str = "HISTORY") -> dict[str, int]:
+def build_bundle(roots: list[Path], output: Path, project_ref: str = "HISTORY", processed: dict | None = None) -> dict[str, int]:
     output.mkdir(parents=True, exist_ok=True)
     manifest, docs, seen, scanned = [], {}, set(), 0
     for path in iter_files(roots):
         scanned += 1
-        try: items = read_file(path)
-        except (OSError, ValueError): continue
+        try:
+            stat = path.stat()
+            signature = f"{stat.st_mtime_ns}:{stat.st_size}"
+            key = str(path.resolve())
+            if processed is not None and processed.get(key) == signature:
+                continue
+            items = read_file(path)
+            if processed is not None:
+                processed[key] = signature
+        except (OSError, ValueError):
+            continue
         for item in items:
             body = redact(item["text"]).strip()
             if not body: continue
@@ -179,7 +188,7 @@ def build_bundle(roots: list[Path], output: Path, project_ref: str = "HISTORY") 
                 "original_name": path.name, "source_sha256": hashlib.sha256(body.encode()).hexdigest()
             })
     if not manifest: return {"scanned": scanned, "documents": 0, "bundles": 0}
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     with zipfile.ZipFile(output / f"fkaios-history-{stamp}.zip", "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
         for name, body in docs.items(): z.writestr(name, body)
@@ -193,8 +202,15 @@ def main() -> int:
     p.add_argument("--project-ref", default="HISTORY")
     p.add_argument("--watch", action="store_true", help="Rescan every 60 seconds.")
     args = p.parse_args()
+    state_path = args.output_dir / "collector-state.json"
+    try:
+        processed = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
+    except (OSError, json.JSONDecodeError):
+        processed = {}
     while True:
-        print(json.dumps(build_bundle(args.watch_dir, args.output_dir, args.project_ref)), flush=True)
+        result = build_bundle(args.watch_dir, args.output_dir, args.project_ref, processed)
+        state_path.write_text(json.dumps(processed, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(json.dumps(result), flush=True)
         if not args.watch: break
         time.sleep(60)
     return 0
