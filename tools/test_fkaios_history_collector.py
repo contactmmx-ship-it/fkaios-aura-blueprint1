@@ -62,5 +62,18 @@ class HistoryCollectorTests(unittest.TestCase):
                 self.assertIn(manifest[0]["id"] + ".md", z.namelist())
                 self.assertEqual(manifest[0]["source_tool"], "Local file")
 
+    def test_watch_state_skips_unchanged_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "Downloads"
+            out = Path(tmp) / "ready"
+            root.mkdir()
+            (root / "notes.txt").write_text("A stable note.", encoding="utf-8")
+            state = {}
+            first = build_bundle([root], out, processed=state)
+            second = build_bundle([root], out, processed=state)
+            self.assertEqual(first["documents"], 1)
+            self.assertEqual(second["documents"], 0)
+            self.assertEqual(len(list(out.glob("*.zip"))), 1)
+
 if __name__ == "__main__":
     unittest.main()
