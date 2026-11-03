@@ -6,6 +6,7 @@ import { contractCriteria, isIndependentVerificationLevel, isRecoverableOutputBl
 import { readObjectiveState, syncObjectiveState } from "./objective-state.ts";
 import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, founderMemoryEvidenceText, researchedSourceUrls, type TaskEvidenceRecord } from "./fact-grounding.ts";
 import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP } from "./objective-rerun.ts";
+import { refreshedContract, resumeDecision } from "./objective-resume.ts";
 import { classifyObjective, completionContract, planContractMismatch, projectOutputType, measuredProductCapabilityEvidence, hasMeasuredProductBuild, hasMeasuredProductVerification, hasVerifiedLiveProductEvidence } from "./objective-contract.ts";
 import { objectiveDeadline, objectiveDeadlineMinutes, objectiveRunStartedAt } from "./objective-deadline.ts";
 import { hasSubstantiveTaskOutput } from "./task-output.ts";
@@ -954,6 +955,38 @@ export function terminalJobFailure(job: { status?: unknown; result?: unknown; er
   };
 }
 
+async function resumeFinishedWork(supabase: ReturnType<typeof createClient>, objective: Record<string, unknown>): Promise<boolean> {
+  const id = String(objective.id);
+  const { data: last } = await supabase.from("orchestration_projects").select("id").like("request", `[objective:${id}]%`).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  const latestProjectId = last?.id ? String(last.id) : "";
+  const { data: lastTasks } = latestProjectId
+    ? await supabase.from("orchestration_tasks").select("status").eq("project_id", latestProjectId)
+    : { data: [] };
+  const { data: verifier } = await supabase.from("fkaios_verification_evidence").select("project_id, status")
+    .eq("objective_id", id).eq("requirement_key", "objective_verifier:v1").order("created_at", { ascending: false }).limit(1).maybeSingle();
+  const decision = resumeDecision({ latestProjectId, latestProjectTasks: (lastTasks ?? []) as Array<{ status?: unknown }>, latestVerifier: verifier as { project_id?: unknown; status?: unknown } | null });
+  if (!decision.resume) return false;
+  const now = new Date().toISOString();
+  const { data: stored } = await supabase.from("objective_contracts").select("objective_type, evidence_requirements, acceptance_criteria, continuity, version, status").eq("objective_id", id).maybeSingle();
+  const patch = refreshedContract(stored as Record<string, unknown> | null, String(objective.raw_request ?? ""), String(objective.risk_level ?? "high"), now)
+    ?? (stored && String((stored as Record<string, unknown>).status ?? "") === "blocked" ? { status: "executing", updated_at: now } : null);
+  if (patch) {
+    const { error: contractError } = await supabase.from("objective_contracts").update(patch).eq("objective_id", id);
+    if (contractError) {
+      console.error("objective-loop: resume contract refresh failed; falling back to a new plan", id, contractError.message);
+      return false;
+    }
+  }
+  const { error: flagError } = await supabase.from("orchestrator_requests").update({ action_taken: OBJECTIVE_LOOP }).eq("id", id);
+  if (flagError) throw new Error(`Failed clearing re-run flag: ${flagError.message}`);
+  objective.action_taken = OBJECTIVE_LOOP;
+  await syncObjectiveState(supabase, { id, status: "processing", raw_request: String(objective.raw_request ?? "") }, {
+    phase: "verifying",
+    reason: `Resumed on the founder's re-run: ${decision.reason}. Re-checking that work instead of planning again${patch && "evidence_requirements" in patch ? " (contract updated to the current rules)" : ""}.`.slice(0, 500),
+  });
+  return true;
+}
+
 export async function runObjectiveLoop(
   correlationId?: string,
 ): Promise<ObjectiveLoopResult[]> {
@@ -1103,7 +1136,11 @@ export async function runObjectiveLoop(
        * planning pass now. Earlier projects/tasks stay as history; the
        * objective is judged on the new pass from here on.
        */
-      if (!deadlineExpired && isRerunRequested(objective)) {
+      // 3 Nov 2026: RESUME. If the last plan already finished and passed the independent verifier, the re-run
+      // re-checks that work (contract re-derived from the objective text) instead of planning again; this
+      // same tick falls through to the normal evaluation below.
+      const resumed = !deadlineExpired && isRerunRequested(objective) && await resumeFinishedWork(supabase, objective);
+      if (!resumed && !deadlineExpired && isRerunRequested(objective)) {
         // The founder asked for a fresh pass: close the current one first, or
         // the duplicate-active-project guard rejects the new plan on every run
         // (Kids DPS 20cbf892, 9 Oct 12:58–13:11 UTC: "DUPLICATE_ACTIVE_
