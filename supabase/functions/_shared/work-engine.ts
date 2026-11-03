@@ -55,7 +55,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { founderMemory } from "./founder-brain.ts";
 import { getWorkforce, type EmployeeSummary } from "./executive-planner.ts";
 import { executeCapability } from "./company-os.ts";
-import { compactDispatchForStorage } from "./fact-grounding.ts";
+import { alreadyMeasuredDispatch, compactDispatchForStorage } from "./fact-grounding.ts";
 import { failedCapabilityDispatchReason, hasSubstantiveTaskOutput, serializeTaskOutput } from "./task-output.ts";
 
 function getClient() {
@@ -468,34 +468,11 @@ export async function returnCompletedWork(): Promise<{ returned: number; dispatc
       capability_attempts?: number;
     } | null;
     if (resultObj?.capability) {
-      // Founder research is executed deterministically in ai-engine before
-      // LLM generation. If that measured result is already attached to the
-      // job, persist it directly instead of dispatching research.run again.
-      // This preserves the real evidence and prevents a duplicate Apify call.
-      if (
-        resultObj.capability === "research.run" &&
-        resultObj.capability_result !== undefined
-      ) {
-        const measuredDispatch = {
-          capability: "research.run",
-          status: "success",
-          attempts: Number(resultObj.capability_attempts ?? 1),
-          data: resultObj.capability_result,
-        };
-        finalOutput = { llmResult: job.result, companyOsDispatch: compactDispatchForStorage(measuredDispatch) };
-      } else if (
-        ["product.build", "product.deploy", "product.verify"].includes(resultObj.capability) &&
-        resultObj.capability_result !== undefined
-      ) {
-        // Product lifecycle execution is already measured by ai-engine.
-        // Do not run it a second time through Company OS; persist the measured
-        // result as the task's verification evidence.
-        const measuredDispatch = {
-          capability: resultObj.capability,
-          status: "success",
-          attempts: 1,
-          data: resultObj.capability_result,
-        };
+      // Founder research, founder-memory search (knowledge.search) and product lifecycle steps are executed
+      // and measured by ai-engine. Persist that measured result as the task's evidence; never run it a
+      // second time (a second run can return different matches, or a duplicate paid Apify call).
+      const measuredDispatch = alreadyMeasuredDispatch(resultObj);
+      if (measuredDispatch) {
         finalOutput = { llmResult: job.result, companyOsDispatch: compactDispatchForStorage(measuredDispatch) };
       } else {
         const dispatch = await executeCapability(resultObj.capability, resultObj.payload ?? {});
