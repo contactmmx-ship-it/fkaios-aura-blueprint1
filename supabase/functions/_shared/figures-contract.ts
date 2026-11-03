@@ -1,7 +1,7 @@
 // Figures contract for objective work (3 Nov 2026).
 //
 // Why: the first live GoMax objective (2cceed20) produced a plan built on a
-// receivables figure that its own cited source marked "unverified — do not
+// money figure that its own cited source marked "unverified — do not
 // use", and invented dealer counts, team structure and monthly targets as if
 // they were facts. It also ignored the client's recorded situation (an open fee
 // dispute and stated losses). This contract is added to every task prompt that
@@ -11,7 +11,7 @@ export const FIGURES_CONTRACT = `
 
 FIGURES RULE (mandatory for this objective):
 1. Every number you write (money, counts, percentages, headcount, dates, targets) must have ONE declared origin:
-   a) SOURCE: quoted from the supplied evidence or founder memory; name the source next to it.
+   a) SOURCE: quoted from the supplied evidence or founder memory; name the source next to it. The exact figure must appear in that source: this is checked mechanically, and a figure credited to a source that does not contain it fails the deliverable. Cite only sources about this brand.
    b) FOUNDER-STATED: given by the founder in the objective text; write "(founder-stated, unverified)" next to it.
    c) ASSUMPTION: a projection or target you derive; prefix it with "Assumption:" and show the formula using only (a) or (b) figures.
 2. Never present an invented count, split, team structure or per-person target as a fact. If you cannot derive it from (a) or (b), write "unknown" and list it under missing information.
