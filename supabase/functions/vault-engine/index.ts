@@ -3,8 +3,10 @@
 // work chats + future documents) via SQL fkaios_memory_search. Memory matches carry document_id = knowledge
 // source id and similarity = 0.5 + 0.5 x (share of the query's key terms found on the page), so the objective
 // engine's evidence rule (>= 0.8) only accepts pages containing most of the key terms. Vector search unchanged.
-// Source of truth: this file = live vault-engine (v6 context search, 29 Oct 2026).
+// v7 (3 Nov 2026): memory-search failures are errors (503), not empty results; deployed by CI from now on.
+// Source of truth: this file = live vault-engine.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { memorySearchFailed, runMemorySearch } from '../_shared/memory-search.ts';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type, x-vault-secret', 'Content-Type': 'application/json' };
 const ok = (d: unknown) => new Response(JSON.stringify(d), { status: 200, headers: CORS });
@@ -125,10 +127,17 @@ Deno.serve(async (req) => {
         const termSets = [memoryTerms(String(body.query))];
         if (typeof body.context === 'string' && body.context.trim()) termSets.push(memoryTerms(body.context, 10));
         const byDoc = new Map<string, Record<string, unknown>>();
-        for (const terms of termSets) {
-          if (!terms.length) continue;
-          const { data: mem } = await db.rpc('fkaios_memory_search', { p_terms: terms, p_limit: body.memory_count ?? 5 });
-          for (const m of (mem ?? []) as any[]) {
+        // v7 (3 Nov 2026): a failed memory search (e.g. the 8 s statement timeout) is retried with fewer terms
+        // and, if every attempt fails, reported as an error, never as "0 matches" (GoMax 5b312395 was blocked so).
+        const run = await runMemorySearch(
+          (p_terms, p_limit) => db.rpc('fkaios_memory_search', { p_terms, p_limit }) as unknown as Promise<{ data: unknown; error: unknown }>,
+          termSets, body.memory_count ?? 5);
+        if (memorySearchFailed(run)) {
+          await logExec('search', 'error', body.query.slice(0, 200), 'founder memory search failed', run.failures.join(' | '));
+          return err(`founder memory search failed (${run.failures[0] ?? 'unknown error'}); retry`, 503);
+        }
+        for (const { terms, rows } of run.sets) {
+          for (const m of rows as any[]) {
             const row = {
               id: null, chunk_id: null, document_id: m.source_id,
               similarity: Math.round((0.5 + 0.5 * Number(m.matched_fraction || 0)) * 1000) / 1000,
