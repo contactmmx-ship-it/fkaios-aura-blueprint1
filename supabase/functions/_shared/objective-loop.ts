@@ -7,6 +7,7 @@ import { readObjectiveState, syncObjectiveState } from "./objective-state.ts";
 import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, founderMemoryEvidenceText, researchedSourceUrls, type TaskEvidenceRecord } from "./fact-grounding.ts";
 import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP } from "./objective-rerun.ts";
 import { refreshedContract, resumeDecision } from "./objective-resume.ts";
+import { attributedNames, brandAliases, checkDeliverableSources, matchSource, type CheckedSource } from "./source-check.ts";
 import { classifyObjective, completionContract, planContractMismatch, projectOutputType, measuredProductCapabilityEvidence, hasMeasuredProductBuild, hasMeasuredProductVerification, hasVerifiedLiveProductEvidence } from "./objective-contract.ts";
 import { objectiveDeadline, objectiveDeadlineMinutes, objectiveRunStartedAt } from "./objective-deadline.ts";
 import { hasSubstantiveTaskOutput } from "./task-output.ts";
@@ -486,6 +487,30 @@ async function evaluateObjective(
     };
   }
 
+  // 3 Nov 2026: DETERMINISTIC SOURCE CHECK. The LLM verifier judges wording; this checks facts: every
+  // figure must be in the source it is credited to, cited sources must have been retrieved, and a source about
+  // another brand cannot support this one. Failures go back through rectification like verifier issues.
+  const sourceCheck = await runSourceCheck(objective, tasks, deliverable).catch((err) => {
+    console.error("objective-loop: source check failed to run (not blocking)", err instanceof Error ? err.message : String(err));
+    return null;
+  });
+  if (sourceCheck) {
+    await supabase.from("fkaios_verification_evidence").insert({
+      objective_id: String(objective.id), project_id: latestProjectId || null, requirement_key: "source_check:v1",
+      evidence_type: "deterministic_check", verifier: "deterministic:source_check", status: sourceCheck.issues.length ? "failed" : "passed",
+      verification_notes: sourceCheck.issues.length ? sourceCheck.issues.slice(0, 5).join(" | ").slice(0, 1500) : `Checked ${sourceCheck.checkedFigures} figure(s) on ${sourceCheck.checkedLines} sourced line(s): all found in their cited sources.`,
+      observed_result: sourceCheck, verified_at: new Date().toISOString(),
+    });
+    if (sourceCheck.issues.length) {
+      return {
+        achieved: false, blocked: false, failed: false, verification: { ...verification, passed: false, issues: sourceCheck.issues.slice(0, 10) },
+        rectify: { projectId: latestProjectId, issues: sourceCheck.issues, failedCriteria: ["Every figure appears in the source it cites; sources are about this brand"], deliverable, producerRefs },
+        reason: `Source check rejected the deliverable: ${sourceCheck.issues.slice(0, 3).join(" | ")}`,
+        next_action: "Correct or remove each figure the source check flagged (cite the source that contains it, label it founder-stated or an assumption with its formula, or write unknown), then verify again.",
+      };
+    }
+  }
+
   const evaluation: ObjectiveEvaluation = {
     achieved: true, blocked: false, failed: false, verification,
     reason: `Independently verified: ${verdict.criteria.length} criteria met, quality ${verdict.quality.toFixed(2)}, verifier ${verdict.verifierRef} (${verdict.independence}).`,
@@ -953,6 +978,40 @@ export function terminalJobFailure(job: { status?: unknown; result?: unknown; er
     reason: String(result.error ?? job.error ?? "Non-retryable execution failure."),
     disposition: String(result.kernel_disposition ?? "NON_RETRYABLE_FAILURE"),
   };
+}
+
+async function runSourceCheck(objective: Record<string, unknown>, tasks: Record<string, unknown>[], deliverable: string) {
+  const supabase = getSupabaseAdmin();
+  const urls = [...researchedSourceUrls(tasks as TaskEvidenceRecord[])];
+  const ids = [...new Set(urls.flatMap((u) => /^fkaios-memory:\/\/([0-9a-f-]{36})$/i.exec(u)?.[1] ?? []))].slice(0, 120);
+  if (!ids.length || !deliverable.trim()) return null;
+  const hasWebSources = urls.some((u) => /^https?:\/\//i.test(u));
+  const { data: rows, error } = await supabase.from("fkaios_knowledge_sources").select("id, title").in("id", ids);
+  if (error) throw new Error(`source titles: ${error.message}`);
+  const titled: CheckedSource[] = ((rows ?? []) as Array<{ id: string; title: string }>).map((r) => ({ id: r.id, title: String(r.title ?? ""), text: "" }));
+  const cited = new Set<string>();
+  for (const name of deliverable.split(/\n+/).flatMap(attributedNames)) {
+    const hit = matchSource(name, titled);
+    if (hit) cited.add(hit.id);
+  }
+  if (cited.size) {
+    const { data: pages, error: pageError } = await supabase.from("fkaios_knowledge_pages").select("source_id, text").in("source_id", [...cited]).limit(5000);
+    if (pageError) throw new Error(`source pages: ${pageError.message}`);
+    const byId = new Map<string, string[]>();
+    for (const p of (pages ?? []) as Array<{ source_id: string; text: string | null }>) {
+      const list = byId.get(p.source_id) ?? [];
+      list.push(String(p.text ?? ""));
+      byId.set(p.source_id, list);
+    }
+    for (const s of titled) s.text = (byId.get(s.id) ?? []).join("\n");
+  }
+  const { data: brandRows } = await supabase.from("brands").select("name");
+  const objectiveText = String(objective.raw_request ?? "");
+  const hay = ` ${objectiveText.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ")} `;
+  const all = ((brandRows ?? []) as Array<{ name: string }>).map((b) => String(b.name ?? "")).filter((n) => n && !/^franchise\s*kart$/i.test(n.trim()));
+  const targetBrands = all.filter((n) => brandAliases(n).some((a) => hay.includes(` ${a} `)));
+  const otherBrands = all.filter((n) => !targetBrands.includes(n));
+  return checkDeliverableSources({ deliverable, objectiveText, sources: titled, targetBrands, otherBrands, hasWebSources });
 }
 
 async function resumeFinishedWork(supabase: ReturnType<typeof createClient>, objective: Record<string, unknown>): Promise<boolean> {

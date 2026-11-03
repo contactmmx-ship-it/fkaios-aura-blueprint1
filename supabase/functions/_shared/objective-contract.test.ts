@@ -33,10 +33,10 @@ Deno.test("classifier: software and business execution", () => {
   assertEquals(classifyObjective("Follow up with every lead from last week"), "business_execution");
 });
 
-// GoMax run 4 (520f871e, 3 Nov 2026): a written growth plan is an information deliverable.
-const GOMAX = `Objective: GoMax growth plan — reach ₹50 lakh+ monthly sales within 90 days.
+// 3 Nov 2026 (synthetic text, no client data): a written growth plan is an information deliverable.
+const GROWTH_PLAN = `Objective: Acme growth plan — reach ₹12 lakh+ monthly sales within 90 days.
 
-Use only GoMax information in Founder Memory (register P08, dealer schemes, P&L files, chats).
+Use only Acme information in Founder Memory (register X01, dealer schemes, P&L files, chats).
 
 Deliver:
 
@@ -46,8 +46,8 @@ Month-by-month projection of sales, gross profit, expenses and cash.
 5 KPIs to track daily or weekly.`;
 
 Deno.test("classifier: a requested growth plan / strategy / projection is information", () => {
-  assertEquals(classifyObjective(GOMAX), "information");
-  assertEquals(baselineObjectiveContract(GOMAX, "high").evidence_requirements, ["sources", "verification"]);
+  assertEquals(classifyObjective(GROWTH_PLAN), "information");
+  assertEquals(baselineObjectiveContract(GROWTH_PLAN, "high").evidence_requirements, ["sources", "verification"]);
   assertEquals(classifyObjective("Write a dealer expansion strategy for Gio Paints"), "information");
   assertEquals(classifyObjective("Prepare a 90-day plan for Chaat Masters"), "information");
   assertEquals(classifyObjective("Follow up with every lead from last week"), "business_execution");
