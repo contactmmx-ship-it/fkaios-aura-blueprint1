@@ -370,7 +370,7 @@ export function compactDispatchForStorage(dispatch: unknown): Record<string, unk
   if (d.error) base.error = String(d.error).slice(0, 500);
   if (d.capability === KNOWLEDGE_SEARCH && d.status === "success") {
     const data = d.data as Record<string, unknown> | undefined;
-    base.evidence = { query: typeof data?.query === "string" ? data.query.slice(0, 300) : null, matches: knowledgeMatches(d).slice(0, 20) }; // 29 Oct 2026: was 5, which dropped the figure pages (positions 9-11) from citable evidence
+    base.evidence = { query: typeof data?.query === "string" ? data.query.slice(0, 300) : null, matches: knowledgeMatches(d).slice(0, 40) }; // 29 Oct 2026: was 5, which dropped the figure pages (positions 9-11) from citable evidence; 3 Nov 2026: 40 (vault + two memory term sets can return ~30)
     return base;
   }
   if (d.capability === "research.run" && d.data && typeof d.data === "object") {
@@ -526,4 +526,21 @@ export function founderMemoryEvidenceText(tasks: TaskEvidenceRecord[], maxChars 
     .sort((a, b) => Number(isCited(b, citedIn)) - Number(isCited(a, citedIn)) || figureCount(b.text) - figureCount(a.text))
     .map((e) => `${e.url} = ${e.title}\n${e.text}`);
   return `[FOUNDER MEMORY RETRIEVED BY THIS OBJECTIVE — fkaios-memory:// sources are the founder's own past-work chats, retrieved by knowledge.search; claims citing them are supported when this text supports them]\n${lines.join("\n\n")}`.slice(0, maxChars);
+}
+
+// 3 Nov 2026: capabilities ai-engine has ALREADY executed and measured. work-engine persists these as the
+// task's evidence instead of dispatching them a second time. Seen live (GoMax objective 13f48641): a
+// knowledge.search ran in ai-engine (the worker saw fkaios-memory://c5b18836, 5/5 terms) and then ran
+// again in work-engine with different results; only the second was stored as evidence, so the next task's
+// correct citation of c5b18836 was rejected as "cites source(s) that no prior research task fetched".
+const MEASURED_IN_AI_ENGINE = new Set(["research.run", "knowledge.search", "product.build", "product.deploy", "product.verify"]);
+export function alreadyMeasuredDispatch(result: unknown): Record<string, unknown> | null {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return null;
+  const r = result as Record<string, unknown>;
+  if (typeof r.capability !== "string" || !MEASURED_IN_AI_ENGINE.has(r.capability) || r.capability_result === undefined) return null;
+  if (r.capability === KNOWLEDGE_SEARCH) {
+    const data = r.capability_result as Record<string, unknown> | null;
+    if (!data || typeof data !== "object" || !Array.isArray(data.matches)) return null;
+  }
+  return { capability: r.capability, status: "success", attempts: Number(r.capability_attempts ?? 1), data: r.capability_result };
 }
