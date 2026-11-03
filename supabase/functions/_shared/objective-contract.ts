@@ -21,7 +21,11 @@ const PRODUCT_NOUNS = "app|apps|application|website|web\\s+app|portal|platform|s
 const PRODUCT_REQUEST = new RegExp(
   `\\b(?:build|create|develop|launch|ship|make|design)\\s+(?:[a-z0-9-]+\\s+){0,3}(?:${PRODUCT_NOUNS})\\b`,
 );
-const INFORMATION_DELIVERABLE = /\b(?:report|research|analy[sz]e|analysis|market\s+study|intelligence|compare|comparison|identify|swot|action\s+plan|feasibility|due\s+diligence)\b/;
+// 3 Nov 2026: a requested plan, strategy, roadmap or projection is also a written deliverable. GoMax objective
+// 520f871e ("GoMax growth plan … Deliver: … projection … KPIs") was typed business_execution, whose contract
+// asks for "action evidence" + "outcome verification" that no planning task can ever produce, so it failed
+// with "Verifier passed, but contract evidence is incomplete: 0/2" after the independent verifier passed.
+const INFORMATION_DELIVERABLE = /\b(?:report|research|analy[sz]e|analysis|market\s+study|intelligence|compare|comparison|identify|swot|action\s+plan|feasibility|due\s+diligence|(?:growth|business|sales|marketing|expansion|recovery|dealer|financial|execution|operating|\d+[- ]day)\s+plan|strategy|roadmap|projections?|forecast)\b/;
 
 export function classifyObjective(raw: string): ObjectiveType {
   const text = raw.toLowerCase();
