@@ -74,7 +74,7 @@ export function extractFigures(text: string): Figure[] {
     if (!currency && !pct && mult === 1) {
       // dates, years, durations and ordinals are not business figures
       if (nums.every((n) => n >= 1900 && n <= 2100)) continue;
-      if (/^\s*(days?|weeks?|months?|years?|hours?|hrs?|mins?|minutes?|am|pm|kg)\b/.test(after)) continue;
+      if (/^\s*-?\s*(days?|weeks?|months?|years?|hours?|hrs?|mins?|minutes?|am|pm|kg)\b/.test(after)) continue; // "90 days", "90-day"
       if (/(day|month|week|phase|step|round|top|p\.)\s*$/.test(before)) continue;
       if (/^[-/.]\d/.test(after) || /\d[-/.]$/.test(before)) continue; // 2026-10-02, 10/5
     }
@@ -158,7 +158,7 @@ export function checkDeliverableSources(input: SourceCheckInput): SourceCheckRes
     for (const fig of extractFigures(claim)) {
       checkedFigures++;
       if (figureIn(fig, pool)) continue;
-      const titles = matched.map((s) => `"${s.title.slice(0, 60)}"`).join(", ");
+      const titles = [...new Set(matched.map((s) => `"${s.title.slice(0, 60)}"`))].join(", ");
       if (founderStated && figureIn(fig, objectiveFigures)) add(`"${fig.raw}" is founder-stated but credited to ${titles}, which does not contain it. Label it founder-stated only.`);
       else add(`"${fig.raw}" is credited to ${titles}, but that source does not contain this figure.`);
     }
