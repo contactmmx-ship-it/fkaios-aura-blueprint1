@@ -13,6 +13,8 @@ on:
       - "supabase/functions/_shared/memory-search.ts"
       - "supabase/functions/_shared/memory-search.test.ts"
       - "supabase/functions/_shared/measured-dispatch.test.ts"
+      - "supabase/functions/_shared/objective-resume.ts"
+      - "supabase/functions/_shared/objective-resume.test.ts"
       - "supabase/functions/_shared/fact-grounding.ts"
       - "supabase/functions/_shared/work-engine.ts"
       - "supabase/functions/vault-engine/index.ts"
@@ -73,6 +75,8 @@ on:
       - "supabase/functions/_shared/memory-search.ts"
       - "supabase/functions/_shared/memory-search.test.ts"
       - "supabase/functions/_shared/measured-dispatch.test.ts"
+      - "supabase/functions/_shared/objective-resume.ts"
+      - "supabase/functions/_shared/objective-resume.test.ts"
       - "supabase/functions/_shared/fact-grounding.ts"
       - "supabase/functions/_shared/work-engine.ts"
       - "supabase/functions/vault-engine/index.ts"
@@ -147,6 +151,8 @@ jobs:
         run: deno test --no-check --node-modules-dir=auto --allow-env supabase/functions/_shared/memory-search.test.ts
       - name: Measured capability evidence tests
         run: deno test --no-check --node-modules-dir=auto --allow-env supabase/functions/_shared/measured-dispatch.test.ts
+      - name: Objective resume tests
+        run: deno test --no-check --node-modules-dir=auto --allow-env supabase/functions/_shared/objective-resume.test.ts
       - name: Run objective deadline regression tests
         run: deno test --no-check --node-modules-dir=auto --allow-env supabase/functions/_shared/objective-deadline.test.ts
       - name: Run free-tier provider spending-boundary regression tests
