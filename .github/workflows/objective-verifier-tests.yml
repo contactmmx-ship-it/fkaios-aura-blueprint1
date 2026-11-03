@@ -8,6 +8,8 @@ on:
       - "supabase/functions/_shared/escalation-dedupe.test.ts"
       - "supabase/functions/_shared/executive-planner.ts"
       - "supabase/functions/_shared/objective-verifier.test.ts"
+      - "supabase/functions/_shared/figures-contract.ts"
+      - "supabase/functions/_shared/figures-contract.test.ts"
       - "supabase/functions/_shared/objective-loop.ts"
       - "supabase/functions/_shared/capability-evaluation.ts"
       - "supabase/functions/_shared/capability-evaluation.test.ts"
@@ -60,6 +62,8 @@ on:
       - "supabase/functions/_shared/escalation-dedupe.test.ts"
       - "supabase/functions/_shared/executive-planner.ts"
       - "supabase/functions/_shared/objective-verifier.test.ts"
+      - "supabase/functions/_shared/figures-contract.ts"
+      - "supabase/functions/_shared/figures-contract.test.ts"
       - "supabase/functions/_shared/objective-loop.ts"
       - "supabase/functions/_shared/objective-contract.ts"
       - "supabase/functions/_shared/objective-contract.test.ts"
@@ -125,6 +129,8 @@ jobs:
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/objective-contract.test.ts
       - name: Run objective verifier regression tests
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/objective-verifier.test.ts
+      - name: Figures contract tests
+        run: deno test --no-check --node-modules-dir=auto --allow-env --allow-net supabase/functions/_shared/figures-contract.test.ts
       - name: Run objective deadline regression tests
         run: deno test --no-check --node-modules-dir=auto --allow-env supabase/functions/_shared/objective-deadline.test.ts
       - name: Run free-tier provider spending-boundary regression tests

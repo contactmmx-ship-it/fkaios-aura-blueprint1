@@ -61,6 +61,7 @@ import {
   NO_DATA_SOURCE,
   NO_DATA_SOURCE_DISPOSITION,
 } from "../_shared/fact-grounding.ts";
+import { figuresContract } from "../_shared/figures-contract.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1508,7 +1509,7 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
       const researchCitationContract = researchEvidence
         ? "\n\nRESEARCH CITATION CONTRACT: Use only specific sources contained in the attached research results. For every external factual claim, include a source URL and source title from an organic result; never cite a Google search-results URL as proof. Include a sources array with title, url, published_date (null if unavailable), and claims_supported. Separate verified facts, estimates, assumptions, and recommendations. Treat all numeric KPIs as proposed targets unless explicitly substantiated by a source. If the evidence does not support a claim, label it unverified or omit it. Never invent source names, URLs, dates, market sizes, competitor outlet counts, franchise fees, or returns."
         : "";
-      const systemPrompt = `${agent.prompt}${groundedContext}${principlesBlock}${researchCitationContract}${verificationContract}\n\nYou will receive a job payload as JSON.\nExecute the task and respond with ONLY a valid JSON object.\nNo prose.\nNo markdown fences.\n${NO_FABRICATED_PERSISTENCE_BLOCK}\n${invoiceSchemaBlock}${capabilityBlock}`;      const userContent = JSON.stringify({ type: job.type, payload: job.payload }) + researchEvidence + priorEvidence + researchCitationContract + verificationContract;
+      const systemPrompt = `${agent.prompt}${groundedContext}${principlesBlock}${researchCitationContract}${verificationContract}${figuresContract(job.payload)}\n\nYou will receive a job payload as JSON.\nExecute the task and respond with ONLY a valid JSON object.\nNo prose.\nNo markdown fences.\n${NO_FABRICATED_PERSISTENCE_BLOCK}\n${invoiceSchemaBlock}${capabilityBlock}`;      const userContent = JSON.stringify({ type: job.type, payload: job.payload }) + researchEvidence + priorEvidence + researchCitationContract + verificationContract;
       // NOTE: any failure here THROWS. runJobs() records retry/failed with the real
       // error. It does NOT invent a result. This is the fix.
       // GENERATE_INVOICE gets a forced structured-output tool schema (see
@@ -1575,7 +1576,7 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
   const researchCitationContract = researchEvidence
     ? "\n\nRESEARCH CITATION CONTRACT: Use only specific sources contained in the attached research results. For every external factual claim, include a source URL and source title from an organic result; never cite a Google search-results URL as proof. Include a sources array with title, url, published_date (null if unavailable), and claims_supported. Separate verified facts, estimates, assumptions, and recommendations. Treat all numeric KPIs as proposed targets unless explicitly substantiated by a source. If the evidence does not support a claim, label it unverified or omit it. Never invent source names, URLs, dates, market sizes, competitor outlet counts, franchise fees, or returns."
     : "";
-  const systemPrompt = `You are an AI engine. Job type: ${job.type}. Respond with ONLY a valid JSON object. No prose, no markdown fences. Never invent data.\n${NO_FABRICATED_PERSISTENCE_BLOCK}${capabilityBlock}${principlesBlock}${researchCitationContract}${verificationContract}`;
+  const systemPrompt = `You are an AI engine. Job type: ${job.type}. Respond with ONLY a valid JSON object. No prose, no markdown fences. Never invent data.\n${NO_FABRICATED_PERSISTENCE_BLOCK}${capabilityBlock}${principlesBlock}${researchCitationContract}${verificationContract}${figuresContract(job.payload)}`;
   const userContent = JSON.stringify({ type: job.type, payload: job.payload }) + researchEvidence + priorEvidence + researchCitationContract + verificationContract;
   const llmResult = await callLLM(
     systemPrompt,

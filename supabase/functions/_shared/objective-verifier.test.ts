@@ -166,3 +166,15 @@ Deno.test("short exact-reply objectives pass the length check only when output m
   assertEquals(deterministicChecks("FKAIOS WRONG.", objective).ok, false);
   assertEquals(deterministicChecks("OK.", "Write a useful project report.").ok, false);
 });
+
+Deno.test("verifier accepts founder-stated figures but rejects invented ones (GoMax run 1, 3 Nov 2026)", () => {
+  const prompt = buildVerifierPrompt(
+    "GoMax growth plan. Approximate current position: 14-person sales team.",
+    [],
+    "Sales team: 14 (founder-stated, unverified).",
+    "Register P08: a ₹90 lakh receivables figure is unverified — do not use.",
+  );
+  assertStringIncludes(prompt.user, "Do NOT reject a founder-stated figure");
+  assertStringIncludes(prompt.user, "presented as fact with none of these three origins");
+  assertStringIncludes(prompt.user, "marks it unverified or not to be used");
+});
