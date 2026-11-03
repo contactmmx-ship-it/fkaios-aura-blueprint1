@@ -60,3 +60,10 @@ Deno.test("a source that names no brand (a scheme brochure chat) is not a brand 
   const r = checkDeliverableSources({ deliverable: "- Festive slabs ₹7L to ₹18L (Source: ChatGPT: Festive Bonanza Scheme).", objectiveText: OBJECTIVE, sources: SOURCES, targetBrands: ["Acme"], otherBrands: OTHERS });
   assertEquals(r.issues, []);
 });
+
+Deno.test("durations written as 90-day are not figures; repeated source titles are named once (run 5, 3 Nov 2026)", () => {
+  assertEquals(extractFigures("a 90-day roadmap, 12-month view, 3-week sprint").length, 0);
+  const r = checkDeliverableSources({ deliverable: "- A 90-day plan to reach 14 people (Source: Register: X01 · Acme, p.2; Register: X01 · Acme, p.3).", objectiveText: OBJECTIVE, sources: SOURCES, targetBrands: ["Acme"] });
+  assertEquals(r.issues.length, 1);
+  assertEquals(r.issues[0].split("Register: X01").length - 1, 1);
+});
