@@ -68,6 +68,7 @@ jobs:
           supabase functions deploy auto-agents-engine --no-verify-jwt --use-api --project-ref "$SUPABASE_PROJECT_REF"
           # Knowledge Vault / My Brain memory search (signed-in users; gateway JWT check on, as live).
           supabase functions deploy memory-search --use-api --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy skill-excel --use-api --project-ref "$SUPABASE_PROJECT_REF"
           # Knowledge vault + founder-memory search used by objective tasks (knowledge.search). Gateway JWT check off as live;
           # the handler checks x-vault-secret. 3 Nov 2026: was a manual stub pinned to a commit, now deployed from main.
           supabase functions deploy vault-engine --no-verify-jwt --use-api --project-ref "$SUPABASE_PROJECT_REF"
