@@ -75,6 +75,9 @@ export function extractFigures(text: string): Figure[] {
       // dates, years, durations and ordinals are not business figures
       if (nums.every((n) => n >= 1900 && n <= 2100)) continue;
       if (/^\s*-?\s*(days?|weeks?|months?|years?|hours?|hrs?|mins?|minutes?|am|pm|kg)\b/.test(after)) continue; // "90 days", "90-day"
+      // a list of plain ranges that ends in a time unit: ageing buckets "0-30, 31-60, 61-90, 90+ days"
+      const rest = text.slice(start + raw.length, start + raw.length + 40).toLowerCase();
+      if (/^[\s\d,+–\-&]*(and|or)?[\s\d,+–\-]*(days?|weeks?|months?)\b/.test(rest)) continue;
       if (/(day|month|week|phase|step|round|top|p\.)\s*$/.test(before)) continue;
       if (/^[-/.]\d/.test(after) || /\d[-/.]$/.test(before)) continue; // 2026-10-02, 10/5
     }
@@ -159,8 +162,9 @@ export function checkDeliverableSources(input: SourceCheckInput): SourceCheckRes
       checkedFigures++;
       if (figureIn(fig, pool)) continue;
       const titles = [...new Set(matched.map((s) => `"${s.title.slice(0, 60)}"`))].join(", ");
-      if (founderStated && figureIn(fig, objectiveFigures)) add(`"${fig.raw}" is founder-stated but credited to ${titles}, which does not contain it. Label it founder-stated only.`);
-      else add(`"${fig.raw}" is credited to ${titles}, but that source does not contain this figure.`);
+      if (figureIn(fig, objectiveFigures)) add(`"${fig.raw}" comes from the founder's objective, not from ${titles}, which does not contain it. Write it as "(founder-stated, unverified)" with no source.`);
+      else if (founderStated) add(`"${fig.raw}" is labelled founder-stated, but the objective does not state it and ${titles} does not contain it. Remove it or write "unknown".`);
+      else add(`"${fig.raw}" is credited to ${titles}, but that source does not contain this figure. Cite the source that contains it, label it "Assumption:" with its formula, or write "unknown".`);
     }
   }
   return { checkedLines, checkedFigures, issues };
