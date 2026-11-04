@@ -37,7 +37,7 @@ Deno.test("a figure credited to a source that does not contain it is flagged", (
 
 Deno.test("a founder-stated figure credited to a document is a mis-attribution", () => {
   const r = checkDeliverableSources({ deliverable: "- Sales: ₹22–24 lakh/month (Founder-stated, unverified; source: Drive: Generic Sales Playbook v1.0).", objectiveText: OBJECTIVE, sources: SOURCES, targetBrands: ["Acme"] });
-  assert(r.issues.some((i) => i.includes("founder-stated but credited")), r.issues.join("\n"));
+  assert(r.issues.some((i) => i.includes("comes from the founder's objective")), r.issues.join("\n"));
 });
 
 Deno.test("a founder-stated figure without a source, and assumptions, are not checked here", () => {
@@ -66,4 +66,11 @@ Deno.test("durations written as 90-day are not figures; repeated source titles a
   const r = checkDeliverableSources({ deliverable: "- A 90-day plan to reach 14 people (Source: Register: X01 · Acme, p.2; Register: X01 · Acme, p.3).", objectiveText: OBJECTIVE, sources: SOURCES, targetBrands: ["Acme"] });
   assertEquals(r.issues.length, 1);
   assertEquals(r.issues[0].split("Register: X01").length - 1, 1);
+});
+
+Deno.test("ageing buckets are not figures; an unlabelled objective figure is told to be founder-stated (run 5, 4 Nov 2026)", () => {
+  assertEquals(extractFigures("Audit ledgers into 0-30, 31-60, 61-90, and 90+ days overdue buckets").length, 0);
+  const r = checkDeliverableSources({ deliverable: "- Baseline sales ₹22–24 lakh per month (Source: Drive: Generic Sales Playbook v1.0).", objectiveText: OBJECTIVE, sources: SOURCES, targetBrands: ["Acme"] });
+  assertEquals(r.issues.length, 1);
+  assert(r.issues[0].includes("(founder-stated, unverified)"), r.issues[0]);
 });

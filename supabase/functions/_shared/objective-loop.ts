@@ -495,12 +495,17 @@ async function evaluateObjective(
     return null;
   });
   if (sourceCheck) {
-    await supabase.from("fkaios_verification_evidence").insert({
+    // Only one non-superseded row per (objective, requirement) is allowed (fkaios_verification_evidence_active_req_idx):
+    // without this, every source check after the first was silently not recorded (run 5, 3 Nov 2026).
+    await supabase.from("fkaios_verification_evidence").update({ status: "superseded" })
+      .eq("objective_id", String(objective.id)).eq("requirement_key", "source_check:v1").neq("status", "superseded");
+    const { error: sourceEvidenceError } = await supabase.from("fkaios_verification_evidence").insert({
       objective_id: String(objective.id), project_id: latestProjectId || null, requirement_key: "source_check:v1",
       evidence_type: "deterministic_check", verifier: "deterministic:source_check", status: sourceCheck.issues.length ? "failed" : "passed",
       verification_notes: sourceCheck.issues.length ? sourceCheck.issues.slice(0, 5).join(" | ").slice(0, 1500) : `Checked ${sourceCheck.checkedFigures} figure(s) on ${sourceCheck.checkedLines} sourced line(s): all found in their cited sources.`,
       observed_result: sourceCheck, verified_at: new Date().toISOString(),
     });
+    if (sourceEvidenceError) console.error("objective-loop: source check evidence not recorded", String(objective.id), sourceEvidenceError.message);
     if (sourceCheck.issues.length) {
       return {
         achieved: false, blocked: false, failed: false, verification: { ...verification, passed: false, issues: sourceCheck.issues.slice(0, 10) },
