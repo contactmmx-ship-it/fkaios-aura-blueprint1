@@ -32,7 +32,7 @@ import { cognitiveTick, getGoals, seedGoalHierarchy } from "../_shared/founder-b
 import { planObjective, escalateBlocked } from "../_shared/executive-planner.ts";
 import { allocateProjectWork, reassignStuckWork, returnCompletedWork } from "../_shared/work-engine.ts";
 import { runObjectiveLoop } from "../_shared/objective-loop.ts";
-import { COGNITIVE_CYCLE_ACTION, cognitiveIntervalMinutes, shouldRunCognitiveCycle } from "../_shared/cognitive-budget.ts";
+import { COGNITIVE_CYCLE_ACTION, cognitiveIntervalMinutes, shouldRunCognitiveCycle, idleCognitiveGate } from "../_shared/cognitive-budget.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { runDiscoveryIfDue } from "../_shared/capability-discovery.ts";
 import { runScheduledDiscoveryIfDue } from "../_shared/ecosystem-discovery.ts";
@@ -165,7 +165,34 @@ Deno.serve(async (req: Request) => {
     const { data: lastCycle } = await serviceClient.from("execution_log").select("created_at")
       .eq("function_name", "founder-brain-tick").eq("action", COGNITIVE_CYCLE_ACTION)
       .order("created_at", { ascending: false }).limit(1).maybeSingle();
-    const cognitiveGate = shouldRunCognitiveCycle(
+    // 4 Nov 2026: skip the cognitive cycle while a founder objective runs, and when nothing new has arrived
+    // since the last cycle (idle cycles at most every IDLE_MAX_HOURS). Counting failures never block a cycle.
+    const since = lastCycle?.created_at ?? new Date(0).toISOString();
+    // deno-lint-ignore no-explicit-any
+    const countSince = async (table: string, column: string, extra?: (q: any) => any) => {
+      try {
+        let q = serviceClient.from(table).select("id", { count: "exact", head: true }).gt(column, since);
+        if (extra) q = extra(q);
+        const { count } = await q;
+        return count ?? 0;
+      } catch { return 0; }
+    };
+    const [newObjectives, newKnowledge, newLeads, newDecisions, runningFounderObjectives] = await Promise.all([
+      countSince("orchestrator_requests", "created_at", (q) => q.neq("requested_by", "founder-brain")),
+      countSince("fkaios_knowledge_sources", "created_at"),
+      countSince("leads", "created_at"),
+      countSince("approvals", "decided_at"),
+      serviceClient.from("orchestrator_requests").select("id", { count: "exact", head: true })
+        .neq("requested_by", "founder-brain").eq("status", "processing")
+        .then((r: { count: number | null }) => r.count ?? 0, () => 0),
+    ]);
+    const idleGate = idleCognitiveGate({
+      lastCycleAt: lastCycle?.created_at ?? null,
+      now: new Date(),
+      newSignalsSinceLastCycle: newObjectives + newKnowledge + newLeads + newDecisions,
+      founderObjectiveRunning: runningFounderObjectives > 0,
+    });
+    const cognitiveGate = idleGate ?? shouldRunCognitiveCycle(
       lastCycle?.created_at ?? null,
       new Date(),
       cognitiveIntervalMinutes(Deno.env.get("COGNITIVE_CYCLE_INTERVAL_MINUTES")),

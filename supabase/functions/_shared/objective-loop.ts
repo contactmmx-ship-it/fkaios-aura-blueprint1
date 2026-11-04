@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { reason } from "./founder-brain.ts";
 import { planObjective } from "./executive-planner.ts";
 import { allocateProjectWork, createRectificationTask, resumeTaskFromCheckpoint, returnCompletedWork } from "./work-engine.ts";
-import { contractCriteria, isIndependentVerificationLevel, isRecoverableOutputBlocker, verifyObjective } from "./objective-verifier.ts";
+import { approvalSectionIssue, contractCriteria, hasApprovalSection, humanDecisionDisposition, isIndependentVerificationLevel, isRecoverableOutputBlocker, verifyObjective } from "./objective-verifier.ts";
 import { readObjectiveState, syncObjectiveState } from "./objective-state.ts";
 import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, founderMemoryEvidenceText, researchedSourceUrls, type TaskEvidenceRecord } from "./fact-grounding.ts";
 import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP } from "./objective-rerun.ts";
@@ -489,14 +489,22 @@ async function evaluateObjective(
   if (!verdict.available) {
     return { achieved: false, blocked: false, failed: false, verificationUnavailable: true, verifierUnavailable: true, verification, reason: verdict.issues[0] ?? "Independent verifier unavailable.", next_action: "Retry independent verification next cycle." };
   }
+  // 4 Nov 2026 (run 6): for a plan/report, decisions the plan recommends go into its "Needs your approval"
+  // section instead of blocking the whole objective. Only missing access (credentials etc.) still blocks.
+  const decisionIssues: string[] = [];
   if (verdict.needsHumanDecision) {
-    return { achieved: false, blocked: true, failed: false, verification, reason: `Human decision required: ${verdict.humanDecisionReason}`, next_action: "Founder decision required before the objective can be completed." };
+    const objectiveType = String((objectiveContract as Record<string, unknown> | null)?.objective_type ?? "");
+    const decisionReason = String(verdict.humanDecisionReason ?? "");
+    if (humanDecisionDisposition(objectiveType, decisionReason) === "block") {
+      return { achieved: false, blocked: true, failed: false, verification, reason: `Human decision required: ${verdict.humanDecisionReason}`, next_action: "Founder decision required before the objective can be completed." };
+    }
+    if (!hasApprovalSection(deliverable)) decisionIssues.push(approvalSectionIssue(decisionReason));
   }
-  if (!verdict.passed) {
+  if (!verdict.passed || decisionIssues.length) {
     return {
       achieved: false, blocked: false, failed: false, verification,
-      rectify: { projectId: latestProjectId, issues: verdict.issues, failedCriteria: verdict.criteria.filter((c) => !c.met).map((c) => c.criterion), deliverable, producerRefs },
-      reason: `Independent verification rejected the deliverable: ${verdict.issues.slice(0, 3).join(" | ")}`,
+      rectify: { projectId: latestProjectId, issues: [...decisionIssues, ...verdict.issues], failedCriteria: verdict.criteria.filter((c) => !c.met).map((c) => c.criterion), deliverable, producerRefs },
+      reason: `Independent verification rejected the deliverable: ${[...decisionIssues, ...verdict.issues].slice(0, 3).join(" | ")}`,
       next_action: "Rectify the deliverable against the verifier's issues, then verify again.",
     };
   }
@@ -772,7 +780,9 @@ export async function recheckGateBlockedObjectives(
     .select("id, result_summary")
     .eq("requested_by", "founder-brain")
     .eq("status", "awaiting_approval")
-    .eq("action_taken", OBJECTIVE_LOOP)
+    // 4 Nov 2026: the SQL terminal arbiter parks with its own action name; include it so its
+    // recoverable output blocks are resumed too.
+    .in("action_taken", [OBJECTIVE_LOOP, "objective_terminal_arbiter"])
     // Filter candidate recovery classes in the database before limiting. A
     // global first-100 scan can starve an older blocked objective indefinitely.
     .or(`result_summary.like.${BLOCKED_SUMMARY_PREFIX}%,result_summary.ilike.Human decision required:%,result_summary.ilike.Objective replanned % times without reaching achieved/blocked/failed.%`)
