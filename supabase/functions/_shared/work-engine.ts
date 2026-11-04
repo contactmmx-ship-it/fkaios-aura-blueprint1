@@ -635,11 +635,18 @@ async function researchMissingFromMemory(client: ReturnType<typeof getClient>, i
 
 export async function createRectificationTask(input: { projectId: string; objectiveId: string; round: number; issues: string[]; failedCriteria: string[]; deliverable: string; producerRefs: string[] }): Promise<string | null> {
   const client = getClient();
+  // 4 Nov 2026: two overlapping loop ticks created the same rectification twice (run 5, 16:06:36.94 and .98 UTC),
+  // each with its own memory re-search. One round = one task: reuse an existing one.
+  const title = `Rectify: corrected final deliverable (round ${input.round})`;
+  const { data: existing } = await client.from("orchestration_tasks").select("id").eq("project_id", input.projectId).eq("title", title).limit(1).maybeSingle();
+  if (existing?.id) return String(existing.id);
   await researchMissingFromMemory(client, input);
+  const { data: raced } = await client.from("orchestration_tasks").select("id").eq("project_id", input.projectId).eq("title", title).limit(1).maybeSingle();
+  if (raced?.id) return String(raced.id);
   const { data, error } = await client.from("orchestration_tasks").insert({
     project_id: input.projectId,
     role: "rectifier",
-    title: `Rectify: corrected final deliverable (round ${input.round})`,
+    title,
     description: "Independent verification rejected the deliverable. Produce a materially corrected COMPLETE final deliverable for the original objective. Apply EVERY failed criterion and issue below; do not merely reproduce the rejected deliverable. Keep only the requested top-level sections and number them to match the original objective; incorporate extra findings into an existing section instead of shifting every later section. Preserve verified source URLs and publication dates. Where feedback says a quote or section is missing, add the required content explicitly so it is present in the final deliverable. Where an item was marked 'not found' but the founder memory re-search task now contains it, replace 'not found' with the exact figure and name the chat it comes from. Use only evidence recorded in prior completed tasks. Return JSON with a 'deliverable' string.",
     status: "pending",
     output: JSON.stringify({ rectification: { round: input.round, issues: input.issues.slice(0, 15), failed_criteria: input.failedCriteria.slice(0, 15), rejected_deliverable: input.deliverable.slice(0, 12000), avoid: input.producerRefs } }),
