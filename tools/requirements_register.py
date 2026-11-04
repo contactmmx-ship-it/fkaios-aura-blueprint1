@@ -4,10 +4,11 @@ from the single list below. Edit the list, then run:  python3 tools/requirements
 import csv, io, os
 from collections import Counter
 
-LAST = "2026-10-09"
+LAST = "2026-11-04"
+OLD = "2026-10-09"  # items before the 4 Nov block were last verified on 9 Oct
 FIELDS = ["id", "intent", "source", "priority", "decision", "status", "files", "deps", "criteria", "test", "evidence", "blocker", "next", "verified"]
 R = []
-def r(id, intent, source, priority, status, criteria, evidence="", files="", deps="", test="", blocker="", next="", decision="Accepted", verified=LAST):
+def r(id, intent, source, priority, status, criteria, evidence="", files="", deps="", test="", blocker="", next="", decision="Accepted", verified=OLD):
     R.append(dict(id=id, intent=intent, source=source, priority=priority, decision=decision, status=status, files=files, deps=deps,
                   criteria=criteria, test=test, evidence=evidence, blocker=blocker, next=next, verified=verified))
 
@@ -99,6 +100,137 @@ for pid, name, note in [
   ("BP-06","Kids DPS","Objective 20cbf892 in progress")]:
     r(pid, f"Reconcile project: {name}", D+" §11", "P2", "IMPLEMENTED_UNVERIFIED" if pid=="BP-01" else "IN_PROGRESS" if pid=="BP-06" else "BLOCKED" if pid in("BP-02","BP-03","BP-04") else "PLANNED",
       "Authoritative/stale/historical status recorded with source", note, "docs/fkaios_project_inventory.csv")
+
+# ── 4 Nov 2026: every feature discussed or approved since June, from all chats ──
+# Sources: Claude chats Jun–Nov, the FKAIOS memory (768 chats), Master Analysis (10 Oct), Knowledge Pack (4 Nov),
+# the 29–30 Oct tab and capability checks, and live checks on 4 Nov. Status vocabulary as above.
+# LOST = built in a chat but never reached the repo (recorded as MISSING with that note).
+N4 = "2026-11-04"
+def n(id, intent, source, status, evidence="", next="", priority="P1", blocker=""):
+    r(id, intent, source, priority, status, "Live end-to-end test with evidence (Done = proof)", evidence, next=next, blocker=blocker, verified=N4)
+MA = "Master Analysis 10 Oct"; KP = "Knowledge Pack 4 Nov"; JUL15 = "Autonomous build 15 Jul"; S = "Founder Brain sprints 17–19 Jul"
+C = "Cycles C1–C35 21 Jul"; V = "Vision restated 10–11 Oct"; OB = "ONE BRAIN plan 26 Oct"; AUR = "Aura master plan (ChatGPT, Oct–Nov)"
+
+# Brain and memory
+n("BR-01", "ONE BRAIN step 1: Brain Chat recalls founder memory and cites the chat", OB, "VERIFIED_COMPLETE", "Brain Chat acceptance test 29 Oct")
+n("BR-02", "ONE BRAIN step 2: Vault, Decision Engine, Self-Learning, objectives read the one memory", OB, "VERIFIED_COMPLETE", "28–29 Oct checks; memory search v4 live 3 Nov")
+n("BR-03", "ONE BRAIN step 3: experience loop (expected vs actual lesson, recalled before acting)", OB, "MISSING", "brain_learning_insights empty; 10,263 fleet_memory rows not linked to tool/model", "Hermes-style lessons into existing table", "P0")
+n("BR-04", "ONE BRAIN step 5: merge the 4 brains (founder-brain, brain-engine, ai-engine, executive-planner)", OB, "MISSING", "", "After GoMax passes twice")
+n("BR-05", "Founder Brain thinks like a human: own ideas, rectify until satisfied, then plan", V+" (11 Oct)", "IN_PROGRESS", "Objective loop plans/verifies/rectifies; no idea-generation-and-compare step")
+n("BR-06", "Learn Rajeev: thinking, standards, decisions, corrections; stated kept apart from inferred", V, "MISSING", "Founder Learning Loop (decision→outcome→lesson→patterns) rebuilt 21 Jul as patch only, never deployed")
+n("BR-07", "Mission Engine: a decision spawns a mission with objective, agents, metrics, review date", "Learning Loop mandate 21 Jul", "MISSING", "", "After BR-03")
+n("BR-08", "Truth Layer: every claim carries evidence, verification status, confidence", "Founder Constitution 21 Jul", "IN_PROGRESS", "Verifier + source check (PR #237–#239) cover objective outputs only")
+n("BR-09", "Cognitive cells: confidence, reflection, reassignment, salience, curiosity, belief revision, Brain Intelligence Index", S, "IMPLEMENTED_UNVERIFIED", MA+": in code, mostly not shown in UI")
+n("BR-10", "Signal Bus, Capability Registry self-model, Executive Brain controller, organ map, autonomy test", C, "MISSING", "LOST: 45 commits never pushed (confirmed 21 Jul)")
+n("BR-11", "Outer-world knowledge kept separate from brand knowledge (crux, summary, fit for my projects)", "Founder 29 Oct", "IN_PROGRESS", "AI World digests written daily to the vault; fit-to-project not scored")
+n("BR-12", "Memory types: working / episodic / semantic / procedural; 5 categories personal/org/brand/project/shared", AUR, "PLANNED")
+n("BR-13", "Current Truth with provenance; conflicting sources preserved and flagged", "Register FB-03", "PLANNED")
+
+# Objectives and quality
+n("OB-01", "Objective = finished result (a website objective means a live premium site; Excel means the file)", "Founder 29 Oct", "IN_PROGRESS", "Contracts by deliverable type (#234); only text reports proven")
+n("OB-02", "Resume a failed/finished objective from where it stopped", "Founder 3 Nov", "IMPLEMENTED_UNVERIFIED", "PR #235; failed→verifying transition still missing")
+n("OB-03", "Source check: every figure attributed to its real source; no invented targets", "Founder 3 Nov", "IMPLEMENTED_UNVERIFIED", "PR #237–#239 live; run 5 caught issues")
+n("OB-04", "GoMax real objective passes twice (6/6), second run better because of the first", KP, "IN_PROGRESS", "Runs 1–5: best 3.5/6; run 6 after quota reset", "Run 6", "P0")
+n("OB-05", "Stop self-set objectives the brain cannot execute", "Capability audit 30 Oct", "MISSING", "197 of 227 objectives were self-set and failed; 49 agent objectives active 4 Nov", "Founder decision", "P0")
+n("OB-06", "Approval queue holds only real decisions (rules not requests)", "Capability audit 30 Oct", "MISSING", "1,333 pending approvals 4 Nov", "Founder decision on cleanup", "P0")
+n("OB-07", "Portfolio: a new project never erases old ones; owners, deadlines, dependencies; parallel work", V, "MISSING", "Register AT-07: one task at a time by design")
+n("OB-08", "Fix failures by root cause in batches with regression tests", V, "IN_PROGRESS", "Practised in PRs #231–#241 with tests")
+n("OB-09", "Objective result shown on screen", "Tab check 29 Oct", "MISSING")
+n("OB-10", "Overlapping ticks cannot duplicate work (lease/lock)", "Run 5, 4 Nov", "PLANNED", "Dedupe in #240; lease table approved 4 Nov", "Build lease")
+
+# Skills ("hands")
+n("SK-01", "Skills library + make Excel", "Skills plan 3 Nov", "VERIFIED_COMPLETE", "skill-excel live 4 Nov (PR #242): 200/400/401 tests, read-back, LibreOffice total", "Planner picks it")
+n("SK-02", "Planner picks the right skill for a sheet/report/PDF/document request", "Skills plan 3 Nov", "MISSING", "Capability finder fixed 4 Nov (PR #243)", "", "P0")
+n("SK-03", "PDF and Word skills", "Skills plan 3 Nov", "MISSING")
+n("SK-04", "Radar → proposed skills; founder approves; repo-to-skill method (Karpathy-style extract + tests)", "Skills plan 3 Nov; founder 4 Nov", "MISSING")
+n("SK-05", "Delegated access to founder's apps (Drive, Gmail, Calendar) granted once, every action logged", "Gaps register 30 Oct", "MISSING")
+n("SK-06", "Document intelligence: read a signed agreement, extract clauses and obligations", "Capability audit 30 Oct", "MISSING")
+n("SK-07", "Exact-page answers from real books (OCR)", "Register AT-03", "IMPLEMENTED_UNVERIFIED", "No real book uploaded")
+
+# Radar and world intelligence
+n("RD-01", "World Radar daily free scan (GitHub, Hugging Face, MCP registry, OpenRouter, AI news)", OB+" step 4", "IMPLEMENTED_UNVERIFIED", "337 candidates, 26 discovery runs")
+n("RD-02", "Radar evaluates and scores against register needs; weekly top 5 for approval; adopt with rollback", OB+" step 4", "MISSING", "All 337 status 'new'; relevance scoring wrong (Mem0 scored 0)", "Fix scoring", "P0")
+n("RD-03", "Discovery sources: TAAFT, Futurepedia, Toolify, Product Hunt, Papers with Code, HF Agentic Resource Discovery, n8n", "ChatGPT 29 Oct", "PLANNED")
+n("RD-04", "Daily Intelligence & Learning feed per role/brand", AUR+" phase 6", "PLANNED")
+n("RD-05", "Radar → Vault: source registry, 9-step processing, confidence and expiry per item", AUR+" phase 5", "PLANNED")
+
+# Cost and resources
+n("CS-01", "Free-first: never stop when one free quota runs out — switch provider automatically", "Founder 28 Oct", "IN_PROGRESS", "Groq/Gemini chain + verifier backoff (#240); quota still ran out in run 5")
+n("CS-02", "No paid AI/search without approval (paid-search gate)", "Founder rule", "VERIFIED_COMPLETE", "paid_research_auto OFF; gate live since 28 Oct")
+n("CS-03", "Budget rules (founder sets rules, not per-request approvals; warn 80%, hard stop)", "ChatGPT Resource Engine; approved 4 Nov", "IMPLEMENTED_UNVERIFIED", "PR #243 tables + fkaios_budget_status() live; no amounts set", "Founder sets amounts; wire into AI calls", "P0")
+n("CS-04", "Cost per verified result; every AI call tagged with its objective", "ChatGPT Resource Engine", "MISSING", "agent_performance_metrics has no objective id")
+n("CS-05", "Router: cheapest suitable model per task class (L1–L4), quality-gated escalation", "ChatGPT 2 Nov", "MISSING", "Fixed backup chain today")
+n("CS-06", "AI credit wallet for brands (reserve, consume on verified work, release)", AUR+" phase 9", "PLANNED")
+n("CS-07", "Local/free models (Ollama, Qwen) and local speech (Whisper, Piper)", MA+" not built", "MISSING", "PR #112 local inference unverified")
+n("CS-08", "Provider outage preserves state and resumes; backups and recovery", "ChatGPT 2 Nov", "IN_PROGRESS", "Reaper + resume; backups not verified")
+
+# Agents and AI company
+n("AG-01", "AI CEO + executives (Finance, Sales, Marketing, Tech, Ops, HR) with KPIs, authority, reporting", V, "IMPLEMENTED_UNVERIFIED", "Executive Council: 84 reports, last 9 Oct")
+n("AG-02", "41 agents each with identity, duties, test tasks, scorecard; one team under one brain", AUR+" phase 3", "MISSING", "Agent Workday broken since 9 Oct; 1,154 agent runs")
+n("AG-03", "HR fills capability gaps: find agent/repo/free service, else define role and create agent", V, "MISSING")
+n("AG-04", "Company creates its own work: opportunity backlog, KRAs/KPIs, daily roadmap to 2030 goal", JUL15+"; "+V, "IMPLEMENTED_UNVERIFIED", "Opportunity backlog engine + Evolution Engine (daily cron)")
+n("AG-05", "Agents message each other with structured hand-offs; AI-to-AI orchestration", "Roadmap 15 Jul item 6", "MISSING")
+n("AG-06", "Chief of Staff weekly review of agent work", "Tab check 29 Oct", "BLOCKED", "Last report 9 Oct (agents paused)")
+n("AG-07", "Generic AI board review (5 disclosed roles, never real people's names)", C, "MISSING", "LOST 21 Jul")
+n("AG-08", "Specialist / dynamic temporary agents activated only when relevant", "ChatGPT 3 Nov", "PLANNED")
+
+# Founder interface
+n("UI-01", "One entry point: 'What would you like me to accomplish today?' — tabs become views of one brain", "AHI mandate 22 Jul", "IN_PROGRESS", "Give an Objective works; 31 tabs remain")
+n("UI-02", "Simplify sidebar to ~10 tabs; archive/merge duplicates (Decision Center, AI Company, My Brain)", KP, "MISSING", "", "", "P1")
+n("UI-03", "Founder Cockpit panels connected to live intelligence", "Tab check 29 Oct", "MISSING", "Panels say 'awaiting intelligence connection'")
+n("UI-04", "Founder Avatar: voice conversation in Hindi/Hinglish/English that speaks what is in the brain", V, "IN_PROGRESS", "Partly: needs Chrome/Edge; Indian voice id not set; 110 conversations")
+n("UI-05", "Living Office UI: active, premium, executives and AI employees visibly working", "Roadmap 15 Jul item 4", "MISSING")
+n("UI-06", "Morning brief and evening report (Chairman Partner OS features into FKAIOS)", MA, "MISSING", "Separate app; Founder Brain Brief stale since Sep")
+n("UI-07", "Premium dark UI everywhere; no demo data shown as live", "Founder rule; CON-05", "IN_PROGRESS", "AURA Blueprint shows demo data")
+n("UI-08", "Retire the duplicate Vercel copy of the app", "HANDOFF 28 Oct", "MISSING")
+
+# Business and revenue
+n("BZ-01", "Revenue Desk: AI drafts invoice → founder approves → sends", JUL15, "IMPLEMENTED_UNVERIFIED", "0 invoices ever raised")
+n("BZ-02", "₹5 Cr progress engine and revenue blocker engine on live numbers", JUL15, "IMPLEMENTED_UNVERIFIED", "Revenue actuals not updated since Sep")
+n("BZ-03", "Leads & pipeline from WhatsApp/Meta/LinkedIn webhooks; inbound /franchise capture", "Phases 0–5 Jun; "+JUL15, "BLOCKED", "150 leads, last 22 Sep; channel credentials missing")
+n("BZ-04", "Brand commercial register: fees, receivables, deliverables per brand", "Capability audit 30 Oct", "MISSING")
+n("BZ-05", "Dealer distribution module", "Capability audit 30 Oct", "MISSING")
+n("BZ-06", "One control system for all brand work, CRMs and full history, brand-wise", "Founder 23 Oct", "IN_PROGRESS", "Brands & Projects tab (78 projects, read-only)")
+n("BZ-07", "Razorpay payments, Google Calendar meetings, closer + objection handler, MIS briefing", "Phases 0–5 Jun", "BLOCKED", "Credentials placeholders")
+n("BZ-08", "Proposal generation as executable plan (timeline, milestones, deliverables, remuneration, requirements)", "Founder rule; roadmap 15 Jul item 8", "IN_PROGRESS", "Proposal engine exists; plan format not enforced")
+n("BZ-09", "Two reports per client objective: internal blueprint (tools, cost, profit) + client quote without tool names", "ChatGPT 2 Nov", "PLANNED")
+n("BZ-10", "Market Validation engine (idea→demand→competition→finance→risk; can say 'don't invest yet')", "ChatGPT 29 Oct", "PLANNED")
+n("BZ-11", "Business Resilience scenario tests (−20/−40/−60%)", "ChatGPT 2 Nov", "PLANNED")
+n("BZ-12", "Courier-style brand roadmap with credit cost per milestone; brand agreement; work approval", AUR+" phase 9", "PLANNED")
+
+# Software factory and products
+n("SF-01", "Software Factory: intake → planner (dependency waves) → checkpointed queue → evidence-gated tasks", JUL15, "IMPLEMENTED_UNVERIFIED", MA+": 1 project, 29 tasks; code generation PLAN ONLY")
+n("SF-02", "Component Marketplace (reusable components with evidence)", JUL15, "IMPLEMENTED_UNVERIFIED", "18 components")
+n("SF-03", "Factories: Website, CRM, SaaS, Ecommerce, Mobile, ERP, AI-agent", "Factory directive Jul", "IN_PROGRESS", "Website Factory built (not re-checked); Dealer CRM in separate project; others not built")
+n("SF-04", "Every factory product gets premium UI, roles, audit log, tests, SEO, deployment by default", "Platform Evolution Directive Jul", "PLANNED")
+n("SF-05", "Builder AI / product build from an objective produces a live premium deliverable", "Register P0-EXEC-02/03", "IN_PROGRESS", "Product builds basic")
+
+# Aura workspace (multi-user)
+n("AU-01", "Login, SSO, onboarding (invite → profile → documents → HR review → workspace)", AUR+" phase 2", "PLANNED", "Basejump (MIT) chosen; schema approved 4 Nov")
+n("AU-02", "Employee and brand workspaces; role vs brand membership; cross-brand denied at DB", AUR+" phase 2", "PLANNED", "Basejump; existing rbac_* tables empty")
+n("AU-03", "AI associates per employee and AI relationship manager per brand (clearly AI names)", AUR+" phase 4", "PLANNED")
+n("AU-04", "Relationship Engine: skill matching, relationship memory, performance", AUR+" phase 4", "PLANNED")
+n("AU-05", "Unified workspace modes: Ask / Research / Write / Design / Develop / Analyse / Automate / Execute", AUR+" phase 7", "PLANNED")
+n("AU-06", "Employee lifecycle to exit with access revocation", "Claude master plan 3 Nov", "PLANNED")
+n("AU-07", "Aura pilot: founder + 1 employee + 1 associate + one brand + one real objective", KP, "PLANNED", "", "After GoMax passes twice")
+n("AU-08", "Commercial multi-customer FKAIOS (isolation per customer)", "ChatGPT 2 Nov", "PLANNED", "", "", "P2")
+
+# Voice and calls
+n("VC-01", "Digital Rajeev call agent: routine calls always, all calls when busy; escalates money/new brand/family/legal", "Decision 25 Oct", "BLOCKED", "Plan: forwarding → Exotel/Plivo (paid) → Pipecat → speech layer", "Speech-test notebook; phone number needs approval")
+n("VC-02", "Hindi speech-to-text (AI4Bharat IndicConformer / Whisper)", "HANDOFF 28 Oct", "MISSING")
+n("VC-03", "Voice AI 'ARIA' sales calls to leads", "Tab check 29 Oct", "BLOCKED", "No phone line (paid)")
+n("VC-04", "Rajeev AI inside every project via one shared service + widget", "Founder rule 25 Oct", "IN_PROGRESS")
+
+# Continuity, governance, infrastructure
+n("GV-01", "Cross-tool continuity: handover packet (objective, decisions, files, status, tests, next task)", "ChatGPT 2 Nov; PR #178", "IMPLEMENTED_UNVERIFIED", "PR #178 draft")
+n("GV-02", "AGENTS.md rules for every AI tool", "Founder 4 Nov", "VERIFIED_COMPLETE", "PR #242")
+n("GV-03", "Brand confidentiality enforced at DB level; no cross-brand learning", "Founder rule", "IN_PROGRESS", "avatar_conversations closed (#241); workspaces not built")
+n("GV-04", "Public repo hygiene: no client data; scrub history", "Founder rule", "BLOCKED", "Client figures in git history", "Founder: SCRUB HISTORY")
+n("GV-05", "Global Collaboration Intelligence + public visibility (LinkedIn, GitHub, Hugging Face)", "ChatGPT 29 Oct", "PLANNED", "", "", "P2")
+n("GV-06", "FK DataCloud (self-hosted Postgres/MinIO/pgvector)", AUR+" phase 11", "PLANNED", "", "", "P2")
+n("GV-07", "Own AI model path: open-weight + memory first, fine-tune later", "ChatGPT 2 Nov", "PLANNED", "", "", "P2")
+n("GV-08", "Remove dummy functionality; label every part REAL/PARTIAL/MOCK/DUPLICATE/OBSOLETE", AUR+" phases 0 and 12", "MISSING")
+n("GV-09", "Update FK HANDOFF at the end of every work session", "HANDOFF rule 6", "IN_PROGRESS")
 
 counts = Counter(x["status"] for x in R)
 order = ["VERIFIED_COMPLETE","IMPLEMENTED_UNVERIFIED","IN_PROGRESS","BLOCKED","PLANNED","MISSING","CONFLICTING"]
