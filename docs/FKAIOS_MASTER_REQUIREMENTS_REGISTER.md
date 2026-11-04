@@ -9,13 +9,13 @@ A requirement is VERIFIED_COMPLETE only with accessible production evidence. Cod
 | Status | Count |
 |---|---|
 | VERIFIED_COMPLETE | 14 |
-| IMPLEMENTED_UNVERIFIED | 27 |
-| IN_PROGRESS | 24 |
-| BLOCKED | 13 |
-| PLANNED | 28 |
-| MISSING | 35 |
+| IMPLEMENTED_UNVERIFIED | 32 |
+| IN_PROGRESS | 28 |
+| BLOCKED | 15 |
+| PLANNED | 29 |
+| MISSING | 57 |
 | CONFLICTING | 0 |
-| **Total** | **141** |
+| **Total** | **175** |
 
 ## Register
 
@@ -162,5 +162,39 @@ A requirement is VERIFIED_COMPLETE only with accessible production evidence. Cod
 | GV-07 | Own AI model path: open-weight + memory first, fine-tune later | ChatGPT 2 Nov | P2 | PLANNED |  |  |  | 2026-11-04 |
 | GV-08 | Remove dummy functionality; label every part REAL/PARTIAL/MOCK/DUPLICATE/OBSOLETE | Aura master plan (ChatGPT, Oct–Nov) phases 0 and 12 | P1 | MISSING |  |  |  | 2026-11-04 |
 | GV-09 | Update FK HANDOFF at the end of every work session | HANDOFF rule 6 | P1 | IN_PROGRESS |  |  |  | 2026-11-04 |
+| HX-01 | Event bus: every business event (lead, payment, stage change) triggers the right agent | Master blueprint 18 Jun | P1 | MISSING | Designed (Postgres trigger → events table); dispatch is cron-based today |  |  | 2026-11-04 |
+| HX-02 | 50-agent workforce spec across 9 departments with per-agent role, input/output schema, escalation rule | Master blueprint 18 Jun | P1 | IMPLEMENTED_UNVERIFIED | 41 agents registered; 37 of 41 never completed a task (Sep audit) |  |  | 2026-11-04 |
+| HX-03 | Lead and visa/immigration lifecycle state machines (study-abroad brand) | Master blueprint 18 Jun | P1 | MISSING |  |  |  | 2026-11-04 |
+| HX-04 | Consolidate every existing tool, SOP, CRM and document into the one platform | Roadmap A–J 23 Jun | P1 | IN_PROGRESS | Memory holds 881 sources; tools/CRMs still separate apps |  |  | 2026-11-04 |
+| HX-05 | Founder AI Executive answers strategic questions and manages the founder's daily schedule | Roadmap A–J 23 Jun; Phases 16–20 21 Jun | P1 | MISSING | Calendar connector available, not wired |  |  | 2026-11-04 |
+| HX-06 | WhatsApp outbound to leads/clients (approval-gated) | Roadmap A–J 23 Jun; Phases 16–20 | P1 | BLOCKED | WhatsApp credentials missing; inbox 0 messages |  |  | 2026-11-04 |
+| HX-07 | Accounting AI (books, Tally sync, GST) | Roadmap A–J 23 Jun | P1 | MISSING | eBill2Tally exists as a separate Aura Tech app |  |  | 2026-11-04 |
+| HX-08 | Customer-facing AI for each brand (chatbot answering franchise enquiries) | Roadmap A–J 23 Jun | P1 | IN_PROGRESS | customer-assistant function exists; not verified |  |  | 2026-11-04 |
+| HX-09 | Self-Running Expansion: system finds, qualifies and onboards franchise partners on its own | Phases 16–20, 21 Jun | P1 | MISSING |  |  |  | 2026-11-04 |
+| HX-10 | Multi-Agent Collaboration runtime (agents work together on one goal) | Phases 16–20, 21 Jun | P1 | MISSING | See AG-05 |  |  | 2026-11-04 |
+| HX-11 | Chairman features: accountability engine, decision hierarchy, Confusion Mode, Weekly Board Review, 72-hour Emergency Mode, decision log | Chairman Partner OS 2–5 Jun | P1 | MISSING | Built in the separate Chairman Partner OS app, not in FKAIOS |  |  | 2026-11-04 |
+| HX-12 | Five-horizon progress (day/week/month/year/2030) with velocity signal and daily snapshot | Chairman Partner OS 5 Jun | P1 | IMPLEMENTED_UNVERIFIED | ₹5 Cr progress engine in FKAIOS; five-horizon engine only in the separate app |  |  | 2026-11-04 |
+| HX-13 | Brief delivery by WhatsApp, SMS and email (7:30 AM brief, 8 PM report, intraday assistant, 2030 visual dashboard) | Chairman Partner OS 5 Jun | P1 | MISSING | Reading founder's WhatsApp messages was explicitly dropped |  |  | 2026-11-04 |
+| HX-14 | Capital & holding view: SPV registry, investor pool/CRM, brand scorecard, acquisitions, capital raising calendar | FK Chairman OS 3 Jun; ₹1,100 Cr plan 30 May | P1 | MISSING |  |  |  | 2026-11-04 |
+| HX-15 | AI answers become reopenable work objects in a Founder Workspace | Recovery plan P0-1, 16 Jul | P1 | IMPLEMENTED_UNVERIFIED | work_objects bridge built 16 Jul; not re-checked |  |  | 2026-11-04 |
+| HX-16 | CEO Strategic Planning Engine | Roadmap 15 Jul item 2 | P1 | MISSING |  |  |  | 2026-11-04 |
+| HX-17 | Executive KPI & Employee Operating System | Roadmap 15 Jul item 3 | P1 | MISSING |  |  |  | 2026-11-04 |
+| HX-18 | Autonomous Business Development Engine | Roadmap 15 Jul item 7 | P1 | MISSING |  |  |  | 2026-11-04 |
+| HX-19 | Revenue Automation Engine | Roadmap 15 Jul item 9 | P1 | MISSING | Revenue Desk is manual-approve only |  |  | 2026-11-04 |
+| HX-20 | Scenario simulation ('what if 100 franchises') and business simulation | Organism audit 21 Jul; C32 | P1 | MISSING | Open-ended imagination exists; scenario model does not |  |  | 2026-11-04 |
+| HX-21 | Nightly reflection cycle ('dreams') once the heartbeat runs | Organism audit 21 Jul | P1 | MISSING | Heartbeat now runs every minute, so this is unblocked |  |  | 2026-11-04 |
+| HX-22 | Immune system: AI self-check of agent, avatar and business decisions (not only code) | Organism audit 21 Jul | P1 | IN_PROGRESS | Independent verifier for objectives only |  |  | 2026-11-04 |
+| HX-23 | Eyes: market and competitor intelligence sensing | Organism audit 21 Jul | P1 | IMPLEMENTED_UNVERIFIED | market-intelligence function; 5 rows (Jul) |  |  | 2026-11-04 |
+| HX-24 | Multi-LLM council (several models deliberate on one decision) | C32 21 Jul | P1 | MISSING |  |  |  | 2026-11-04 |
+| HX-25 | Reconcile the three constitutions (AHI DNA doc, engineering_constitution table, founder_memory amendments) | Blocker list Jul | P1 | BLOCKED | Needs export of live tables |  |  | 2026-11-04 |
+| HX-26 | Six governance documents kept in the repo: Constitution, AHI mandate, Transformation Program, Build Memory, Agent Registry, Mission Memory | Governance freeze 21–22 Jul | P1 | IN_PROGRESS | docs/FKAIOS_CONSTITUTION_V1.md present; Build/Agent/Mission Memory not maintained |  |  | 2026-11-04 |
+| HX-27 | Thinking Engine and Inner Voice (brain reasons aloud before acting) | Master objective spec 10–12 Oct | P1 | MISSING | Master objective d8ca136f ran 10 projects, 1 complete |  |  | 2026-11-04 |
+| HX-28 | Unified Digital Founder loop across the portfolio: sense → interpret → prioritise → decide → act → verify → update → escalate | Founder Execution Register 21 Oct | P1 | MISSING | Written protocol only; acceptance test defined |  |  | 2026-11-04 |
+| HX-29 | FKAIOS's first real job: maintain Bhavishya Command (daily 3 actions, proof, cash gap) | Register P01 'done when' | P1 | MISSING |  |  |  | 2026-11-04 |
+| HX-30 | Brand Discovery questionnaire / readiness scoring inside FKAIOS | PR #191; Brand Readiness Scanner 31 May–1 Jun | P1 | IMPLEMENTED_UNVERIFIED | PR #191 open |  |  | 2026-11-04 |
+| HX-31 | Software Factory phase 3+: code generation, testing, deployment factory, continuous evolution | Software Factory 15 Jul | P1 | MISSING | Stamped PLAN ONLY by design until real |  |  | 2026-11-04 |
+| HX-32 | Move paid-key engines (Business Creator, Project Review, AI Company) to the free chain | Knowledge Pack 4 Nov step 7 | P1 | MISSING |  |  |  | 2026-11-04 |
+| HX-33 | Reconcile duplicate department taxonomy (dept vs department; ACCOUNTS vs AT_ACCOUNTS) | Live audit 21 Sep | P1 | MISSING |  |  |  | 2026-11-04 |
+| HX-34 | Employee AI OS for brand staff (route staff questions to AI, approvals to owner) | Bharat Paints Employee AI OS 7 Jun; register P21 | P1 | PLANNED | Separate project; fits Aura associates (AU-03) |  |  | 2026-11-04 |
 
 Full fields (decision, files, dependencies, acceptance criteria, test result) are in the CSV.
