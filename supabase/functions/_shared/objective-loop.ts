@@ -7,6 +7,7 @@ import { readObjectiveState, syncObjectiveState } from "./objective-state.ts";
 import { assessCurrentTaskSet, assessObjectiveTasks, BLOCKED_SUMMARY_PREFIX, formatBlockedSummary, founderMemoryEvidenceText, researchedSourceUrls, type TaskEvidenceRecord } from "./fact-grounding.ts";
 import { buildCurrentDeliverable, isRerunRequested, OBJECTIVE_LOOP } from "./objective-rerun.ts";
 import { refreshedContract, resumeDecision } from "./objective-resume.ts";
+import { verifierBackoffMs } from "./verifier-backoff.ts";
 import { attributedNames, brandAliases, checkDeliverableSources, matchSource, type CheckedSource } from "./source-check.ts";
 import { classifyObjective, completionContract, planContractMismatch, projectOutputType, measuredProductCapabilityEvidence, hasMeasuredProductBuild, hasMeasuredProductVerification, hasVerifiedLiveProductEvidence } from "./objective-contract.ts";
 import { objectiveDeadline, objectiveDeadlineMinutes, objectiveRunStartedAt } from "./objective-deadline.ts";
@@ -459,6 +460,19 @@ async function evaluateObjective(
     .map((t) => `[${String(t.title ?? "task")}]\n${String(t.output ?? "").slice(0, 2500)}`)
     .join("\n\n");
   const noPaidResearch = !tasks.some((t) => /"capability"\s*:\s*"research\.run"/.test(String(t.output ?? "")));
+  // 4 Nov 2026: when the last verifier calls found no independent model, wait (2, 4, 8 … 60 min) instead of
+  // asking every one-minute tick and burning the remaining free quota.
+  const { data: recentVerdicts } = await supabase.from("fkaios_verification_evidence").select("created_at, verification_notes")
+    .eq("objective_id", String(objective.id)).eq("requirement_key", "objective_verifier:v1").order("created_at", { ascending: false }).limit(8);
+  const backoff = verifierBackoffMs((recentVerdicts ?? []) as Array<{ created_at?: unknown; verification_notes?: unknown }>, new Date());
+  if (backoff.waitMs > 0) {
+    const nextAt = new Date(Date.now() + backoff.waitMs).toISOString();
+    return {
+      achieved: false, blocked: false, failed: false, verificationUnavailable: true, verifierUnavailable: true,
+      reason: `No independent verifier was available on the last ${backoff.unavailableStreak} attempt(s) (free provider limits); next attempt after ${nextAt}.`,
+      next_action: "Wait for an independent verifier; FKAIOS retries automatically with a growing interval.",
+    };
+  }
   const verdict = await verifyObjective(supabase, {
     objectiveId: String(objective.id),
     noPaidResearch,
