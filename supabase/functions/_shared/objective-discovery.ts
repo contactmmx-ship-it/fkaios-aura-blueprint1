@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { reason } from "./founder-brain.ts";
 import { classifyObjective, type ObjectiveType } from "./objective-contract.ts";
+import { brandsIn, classifyMemoryHits, githubQueries as reuseGithubQueries, rankRadar, reuseSummary, searchTerms, type MemoryHit, type RadarCandidate } from "./reuse-first.ts";
 
 function client() {
   return createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
@@ -31,8 +32,9 @@ function githubQueries(objective: string, type: ObjectiveType): string[] {
   ))].filter(Boolean).slice(0,4);
 }
 
-async function discoverGithub(objective: string, type: ObjectiveType) {
-  const queries=githubQueries(objective,type);
+async function discoverGithub(objective: string, type: ObjectiveType, explicitQueries?: string[]) {
+  // 4 Nov 2026: keyword queries from reuse-first.ts (the raw-sentence queries below found nothing in run 6).
+  const queries=explicitQueries && explicitQueries.length ? explicitQueries : githubQueries(objective,type);
   if(!queries.length) return {query:"",candidates:[],status:"no_query"};
   try {
     const results=await Promise.all(queries.map(async(q)=>{
@@ -114,13 +116,56 @@ function scoreCapability(c:any, objective:string, type:ObjectiveType) {
   return {score,fit_score:fit,quality_score:quality,availability_score:availability,cost_score:cost,continuity_score:continuity,risk_score:risk};
 }
 
+
+// 4 Nov 2026 — REUSE FIRST: brand names known to FKAIOS (brands table + memory source brands).
+async function knownBrands(): Promise<string[]> {
+  const db=client();
+  const [{data:b},{data:s}]=await Promise.all([
+    db.from("brands").select("name").limit(200),
+    db.from("fkaios_knowledge_sources").select("brand").not("brand","is",null).limit(1000),
+  ]);
+  const names=[...(b??[]).map((r:any)=>String(r.name??"")),...(s??[]).map((r:any)=>String(r.brand??""))].map((n)=>n.trim()).filter((n)=>n.length>=3);
+  return [...new Set(names)];
+}
+
+// Past work in founder memory for ANY brand. Brand comes from the source row, else from its title.
+async function discoverMemory(terms:string[], brands:string[], objectiveBrands:string[]) {
+  if(!terms.length) return [];
+  const db=client();
+  const {data,error}=await db.rpc("fkaios_memory_search",{p_terms:terms,p_limit:12});
+  if(error||!Array.isArray(data)) return [];
+  const bySource=new Map<string,{title:string;score:number}>();
+  for(const r of data as any[]){ const id=String(r.source_id); const prev=bySource.get(id); const score=Number(r.matched_fraction??0); if(!prev||score>prev.score) bySource.set(id,{title:String(r.title??""),score}); }
+  const ids=[...bySource.keys()];
+  const {data:src}=ids.length?await db.from("fkaios_knowledge_sources").select("id,brand").in("id",ids):{data:[]};
+  const brandOf=new Map((src??[]).map((r:any)=>[String(r.id),r.brand?String(r.brand):null]));
+  const hits:MemoryHit[]=ids.map((id)=>{ const v=bySource.get(id)!; return {source_id:id,title:v.title,brand:brandOf.get(id)??brandsIn(v.title,brands)[0]??null,score:v.score}; });
+  return classifyMemoryHits(hits.sort((a,b)=>b.score-a.score).slice(0,8),objectiveBrands);
+}
+
+// Tools the World Radar has already found.
+async function discoverRadar(terms:string[]) {
+  if(!terms.length) return [];
+  const db=client();
+  const ors=terms.slice(0,4).flatMap((t)=>[`name.ilike.%${t.replace(/[%,()]/g,"")}%`,`description.ilike.%${t.replace(/[%,()]/g,"")}%`]).join(",");
+  const {data}=await db.from("fkaios_ecosystem_candidates").select("name,url,kind,license,description").or(ors).limit(200);
+  return rankRadar((data??[]) as RadarCandidate[],terms,10);
+}
+
 export async function prepareObjectiveContract(objective:{id:string;raw_request:string;department_code:string|null;status:string}, correlationId?:string) {
   const type=classifyObjective(objective.raw_request);
-  const [github,existing,capabilities]=await Promise.all([
-    discoverGithub(objective.raw_request,type),
+  // 4 Nov 2026 — REUSE FIRST: own past work (any brand; other brands = method only) → Radar + GitHub → capabilities.
+  const brands=await knownBrands().catch(()=>[] as string[]);
+  const objectiveBrands=brandsIn(objective.raw_request,brands);
+  const terms=searchTerms(objective.raw_request,brands);
+  const [github,existing,capabilities,memoryReuse,radar]=await Promise.all([
+    discoverGithub(objective.raw_request,type,reuseGithubQueries(terms,type)),
     discoverExisting(objective.raw_request),
-    discoverCapabilities(type,objective.raw_request)
+    discoverCapabilities(type,objective.raw_request),
+    discoverMemory(terms,brands,objectiveBrands).catch(()=>[]),
+    discoverRadar(terms).catch(()=>[])
   ]);
+  const reuseLine=reuseSummary(memoryReuse,radar,github.candidates??[]);
 
   const scoredCapabilities=capabilities.map((c:any)=>({...c,...scoreCapability(c,objective.raw_request,type)})).sort((a:any,b:any)=>b.score-a.score);
   const githubOptions=github.candidates.map((r:any,i:number)=>({
@@ -129,7 +174,7 @@ export async function prepareObjectiveContract(objective:{id:string;raw_request:
     fit_score:0, quality_score:Math.min(100,Math.round(Math.min(100,Number(r.stars||0)/100))), continuity_score:0,
     availability_score:100, cost_score:100, risk_score:r.license ? 0 : 25
   }));
-  const context={objective:objective.raw_request,objectiveType:type,existingWork:existing,githubQueries:github.queries ?? [],githubCandidates:githubOptions.slice(0,20),capabilities:scoredCapabilities.slice(0,12)};
+  const context={objective:objective.raw_request,objectiveType:type,reuseFirst:{summary:reuseLine,rule:"Reuse past work first. data_and_method: same brand, figures may be used with citation. method_only: another brand — reuse structure and approach, never its figures. check_brand: brand not recorded — use its figures only if the text itself shows they belong to this brand.",searchTerms:terms,objectiveBrands,pastWork:memoryReuse,radarTools:radar},existingWork:existing,githubQueries:github.queries ?? [],githubCandidates:githubOptions.slice(0,20),capabilities:scoredCapabilities.slice(0,12)};
   const response=await reason(
     "You are the FKAIOS Solution Architect. Convert the founder objective into a precise execution contract. Preserve the founder's intent; do not invent facts. Reuse existing work before new work. If a repository/capability is only a partial match, explicitly describe what must be adapted. Translate vague quality language such as premium or enterprise into measurable acceptance criteria. Return ONLY JSON.",
     JSON.stringify(context),
@@ -148,7 +193,8 @@ export async function prepareObjectiveContract(objective:{id:string;raw_request:
       github_status:github.status,
       github_candidates:github.candidates.slice(0,20),
       existing_work:existing,
-      capabilities:scoredCapabilities.slice(0,12)
+      capabilities:scoredCapabilities.slice(0,12),
+      reuse_first:{summary:reuseLine,search_terms:terms,objective_brands:objectiveBrands,past_work:memoryReuse,radar_tools:radar}
     },
     solution_plan:ai.solution_plan ?? {strategy:"reuse_adapt_compose_build"},
     continuity:{

@@ -166,6 +166,11 @@ export function ObjectiveCard({ row, checkedAt, onOpenDecisionCenter, onRerun, r
               Discovery: {Array.isArray(row.progress.contract.discovery.github_candidates) ? row.progress.contract.discovery.github_candidates.length : 0} GitHub candidates evaluated · existing-work continuity checked · capability registry evaluated.
             </p>
           )}
+          {typeof (row.progress.contract.discovery as { reuse_first?: { summary?: unknown } } | undefined)?.reuse_first?.summary === 'string' && (
+            <p className="text-[10px] text-slate-400">
+              {String((row.progress.contract.discovery as { reuse_first: { summary: string } }).reuse_first.summary)}
+            </p>
+          )}
         </section>
       )}
 
