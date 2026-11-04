@@ -101,3 +101,10 @@ Deno.test('9: fabricated output on the row is never part of the view', () => {
   const text = JSON.stringify(deriveObjectiveView(withOutput));
   assert(!text.includes('Shreeji') && !text.includes('shortlisted_distributors'), 'no fabricated content');
 });
+
+Deno.test('10: an objective parked by the SQL terminal arbiter shows Blocked with its real reason, not "awaiting approval"', () => {
+  const v = deriveObjectiveView(row({ status: 'awaiting_approval', action_taken: 'objective_terminal_arbiter', result_summary: 'Human decision required: approve the fee slabs before the plan can be completed.' }));
+  assert(v.state === 'BLOCKED' && v.stage === 'Blocked', 'arbiter-parked objective is Blocked');
+  assert(!v.opensDecisionCenter, 'no Decision Center approval to point at');
+  assert(!/high risk/i.test(v.result ?? ''), 'no false high-risk approval message');
+});

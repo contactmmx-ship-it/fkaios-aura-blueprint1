@@ -27,6 +27,7 @@
 // See NO_PERSISTENCE_JOB_TYPES and resultReportsFailure() below, and
 // FKAIOS_CHECKPOINT_PHASE0.1_EXECUTION_TRUTH_FIXED.md.
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { payloadForPrompt, PRIOR_EVIDENCE_CHARS } from "../_shared/prompt-budget.ts";
 import {
   correlationId as generateCorrelationId,
   structuredLog,
@@ -1501,7 +1502,7 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
         : "";
       const priorTasks = parsePriorCompletedTasks(job.payload?.prior_completed_tasks);
       const priorEvidence = priorTasks.length > 0
-        ? verifiedPriorSourcesBlock(job.payload?.prior_completed_tasks) + priorMemoryBlock(job.payload?.prior_completed_tasks) + "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(priorTasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
+        ? verifiedPriorSourcesBlock(job.payload?.prior_completed_tasks) + priorMemoryBlock(job.payload?.prior_completed_tasks) + "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(priorTasks).slice(0, PRIOR_EVIDENCE_CHARS) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
         : "";
       const verificationContract = !isRectification && priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)
         ? "\n\nThis is a downstream verification/report task. Return ONLY JSON with verified_facts (at least 3 when the objective asks for three facts), report, and sources. Every verified_fact must include fact, source_url, source_title, and verification_note. Every source_url must appear in the supplied prior evidence. Do not include unsupported facts. If prior evidence lacks suitable sources, state the exact missing evidence."
@@ -1509,7 +1510,7 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
       const researchCitationContract = researchEvidence
         ? "\n\nRESEARCH CITATION CONTRACT: Use only specific sources contained in the attached research results. For every external factual claim, include a source URL and source title from an organic result; never cite a Google search-results URL as proof. Include a sources array with title, url, published_date (null if unavailable), and claims_supported. Separate verified facts, estimates, assumptions, and recommendations. Treat all numeric KPIs as proposed targets unless explicitly substantiated by a source. If the evidence does not support a claim, label it unverified or omit it. Never invent source names, URLs, dates, market sizes, competitor outlet counts, franchise fees, or returns."
         : "";
-      const systemPrompt = `${agent.prompt}${groundedContext}${principlesBlock}${researchCitationContract}${verificationContract}${figuresContract(job.payload)}\n\nYou will receive a job payload as JSON.\nExecute the task and respond with ONLY a valid JSON object.\nNo prose.\nNo markdown fences.\n${NO_FABRICATED_PERSISTENCE_BLOCK}\n${invoiceSchemaBlock}${capabilityBlock}`;      const userContent = JSON.stringify({ type: job.type, payload: job.payload }) + researchEvidence + priorEvidence + researchCitationContract + verificationContract;
+      const systemPrompt = `${agent.prompt}${groundedContext}${principlesBlock}${researchCitationContract}${verificationContract}${figuresContract(job.payload)}\n\nYou will receive a job payload as JSON.\nExecute the task and respond with ONLY a valid JSON object.\nNo prose.\nNo markdown fences.\n${NO_FABRICATED_PERSISTENCE_BLOCK}\n${invoiceSchemaBlock}${capabilityBlock}`;      const userContent = JSON.stringify({ type: job.type, payload: payloadForPrompt(job.payload) }) + researchEvidence + priorEvidence + researchCitationContract + verificationContract;
       // NOTE: any failure here THROWS. runJobs() records retry/failed with the real
       // error. It does NOT invent a result. This is the fix.
       // GENERATE_INVOICE gets a forced structured-output tool schema (see
@@ -1568,7 +1569,7 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
   const principlesBlock = await getFounderPrinciplesBlock("ai-engine");
   const priorTasks = parsePriorCompletedTasks(job.payload?.prior_completed_tasks);
   const priorEvidence = priorTasks.length > 0
-    ? verifiedPriorSourcesBlock(job.payload?.prior_completed_tasks) + priorMemoryBlock(job.payload?.prior_completed_tasks) + "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(priorTasks).slice(0, 18000) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
+    ? verifiedPriorSourcesBlock(job.payload?.prior_completed_tasks) + priorMemoryBlock(job.payload?.prior_completed_tasks) + "\n\n[PRIOR COMPLETED TASK EVIDENCE — USE THIS AS THE SOURCE OF TRUTH FOR VERIFICATION/REPORTING; DO NOT RE-INTERPRET UNSUPPORTED FACTS]\n" + JSON.stringify(priorTasks).slice(0, PRIOR_EVIDENCE_CHARS) + "\n[/PRIOR COMPLETED TASK EVIDENCE]"
     : "";
   const verificationContract = !isRectification && priorEvidence && /\b(verify|verified|verification|report|sources?)\b/i.test(taskText)
     ? "\n\nThis is a downstream verification/report task. Return ONLY JSON with verified_facts, report, and sources. Every verified_fact must include fact, source_url, source_title, and verification_note. Every source_url must appear in the supplied prior evidence. Do not include unsupported facts. If prior evidence lacks suitable sources, say so clearly and list the exact missing evidence instead of substituting unrelated sources."
@@ -1577,7 +1578,7 @@ if (job.type === "work_engine_task" && (job.payload?.founder_submitted === true 
     ? "\n\nRESEARCH CITATION CONTRACT: Use only specific sources contained in the attached research results. For every external factual claim, include a source URL and source title from an organic result; never cite a Google search-results URL as proof. Include a sources array with title, url, published_date (null if unavailable), and claims_supported. Separate verified facts, estimates, assumptions, and recommendations. Treat all numeric KPIs as proposed targets unless explicitly substantiated by a source. If the evidence does not support a claim, label it unverified or omit it. Never invent source names, URLs, dates, market sizes, competitor outlet counts, franchise fees, or returns."
     : "";
   const systemPrompt = `You are an AI engine. Job type: ${job.type}. Respond with ONLY a valid JSON object. No prose, no markdown fences. Never invent data.\n${NO_FABRICATED_PERSISTENCE_BLOCK}${capabilityBlock}${principlesBlock}${researchCitationContract}${verificationContract}${figuresContract(job.payload)}`;
-  const userContent = JSON.stringify({ type: job.type, payload: job.payload }) + researchEvidence + priorEvidence + researchCitationContract + verificationContract;
+  const userContent = JSON.stringify({ type: job.type, payload: payloadForPrompt(job.payload) }) + researchEvidence + priorEvidence + researchCitationContract + verificationContract;
   const llmResult = await callLLM(
     systemPrompt,
     userContent,

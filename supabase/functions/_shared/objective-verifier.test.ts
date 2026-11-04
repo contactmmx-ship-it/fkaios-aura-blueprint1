@@ -178,3 +178,19 @@ Deno.test("verifier accepts founder-stated figures but rejects invented ones (3 
   assertStringIncludes(prompt.user, "presented as fact with none of these three origins");
   assertStringIncludes(prompt.user, "marks it unverified or not to be used");
 });
+
+// 4 Nov 2026 (run 6): plans list the founder's decisions; they do not block.
+import { approvalSectionIssue, hasApprovalSection, humanDecisionDisposition } from "./objective-verifier.ts";
+Deno.test("information objective: recommended founder decisions do not block", () => {
+  const reason = "The plan requires the founder to approve the commercial fee structure (0.5%-2% slabs), settle old dues, and authorize credit limit changes.";
+  assertEquals(humanDecisionDisposition("information", reason), "list_in_deliverable");
+  assertEquals(humanDecisionDisposition("product_creation", reason), "block");
+  assertEquals(humanDecisionDisposition("information", "Founder must provide the Tally API key / credentials to read the P&L"), "block");
+});
+Deno.test("approval section is detected and the rectify issue names the decisions", () => {
+  assertEquals(hasApprovalSection("## Needs your approval\n1. Fee slabs"), true);
+  assertEquals(hasApprovalSection("## Tasks that need founder approval\n- credit limits"), true);
+  assertEquals(hasApprovalSection("## 90-day plan\nDay 7: call dealers"), false);
+  const issue = approvalSectionIssue("Human decision required: approve fee slabs");
+  assertEquals(issue.includes("Needs your approval") && issue.includes("approve fee slabs") && !issue.includes("Human decision required"), true);
+});

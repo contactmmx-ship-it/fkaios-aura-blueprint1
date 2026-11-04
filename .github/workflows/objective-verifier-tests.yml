@@ -24,6 +24,14 @@ on:
       - "supabase/functions/vault-engine/index.ts"
       - "supabase/functions/_shared/objective-loop.ts"
       - "supabase/functions/_shared/skills/**"
+      - "supabase/functions/_shared/cognitive-budget.ts"
+      - "supabase/functions/_shared/cognitive-budget.test.ts"
+      - "supabase/functions/founder-brain-tick/index.ts"
+      - "supabase/functions/_shared/prompt-budget.ts"
+      - "supabase/functions/_shared/prompt-budget.test.ts"
+      - "supabase/functions/ai-engine/index.ts"
+      - "src/lib/objective-view.ts"
+      - "src/lib/objective-view.test.ts"
       - "supabase/functions/skill-excel/**"
       - "supabase/functions/_shared/capability-evaluation.ts"
       - "supabase/functions/_shared/capability-evaluation.test.ts"
@@ -147,6 +155,12 @@ jobs:
         run: deno test --no-check --allow-read src/app/product/\[id\]/route.test.ts
       - name: Run blocked-work escalation dedupe regression tests
         run: deno test --no-check --node-modules-dir=auto --allow-env supabase/functions/_shared/escalation-dedupe.test.ts
+      - name: Objective status view tests (console labels)
+        run: deno test --no-check --allow-read src/lib/objective-view.test.ts
+      - name: Prompt budget tests (writer input size)
+        run: deno test --no-check --allow-read supabase/functions/_shared/prompt-budget.test.ts
+      - name: Cognitive budget tests (idle brain tick)
+        run: deno test --no-check --allow-read supabase/functions/_shared/cognitive-budget.test.ts
       - name: Excel skill tests
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-read --allow-net --allow-sys supabase/functions/_shared/skills/excel.test.ts
       - name: Run objective-loop infrastructure inventory regression tests

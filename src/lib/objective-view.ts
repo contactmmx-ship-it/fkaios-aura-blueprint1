@@ -91,7 +91,9 @@ export interface ObjectiveView {
   opensDecisionCenter: boolean;
 }
 
-const LOOP_ACTION = 'objective_loop';
+// 4 Nov 2026: the SQL terminal arbiter parks objectives with its own action name; both mean
+// "the objective loop stopped this", not "a high-risk objective waits for approval".
+const LOOP_ACTIONS = new Set(['objective_loop', 'objective_terminal_arbiter']);
 
 function parseSummary(summary: string | null): { result: string | null; reason: string | null; nextAction: string | null } {
   if (!summary) return { result: null, reason: null, nextAction: null };
@@ -179,7 +181,7 @@ export function deriveObjectiveView(row: ObjectiveStatusRow): ObjectiveView {
       retry: 'No automatic retry: FKAIOS does not re-run a failed objective. Resolve the reason above, then submit the objective again.',
     };
   }
-  if (row.status === 'awaiting_approval' && row.action_taken === LOOP_ACTION) {
+  if (row.status === 'awaiting_approval' && LOOP_ACTIONS.has(String(row.action_taken ?? ''))) {
     return {
       ...base,
       state: 'BLOCKED',

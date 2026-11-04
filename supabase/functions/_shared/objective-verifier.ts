@@ -211,6 +211,27 @@ export function requiresHumanDecision(flag: boolean, reason: string): boolean {
   return externalAction;
 }
 /**
+ * 4 Nov 2026 (run 6): a plan or report can always be written. Decisions it recommends (approve a fee,
+ * settle dues, change credit limits) belong in the deliverable's "Needs your approval" section; they must
+ * not stop the objective. Only access the writer itself lacks (a credential, secret, password or login)
+ * still blocks. Other objective types keep the old gate.
+ */
+export function humanDecisionDisposition(objectiveType: string, reason: string): "block" | "list_in_deliverable" {
+  if (String(objectiveType) !== "information") return "block";
+  if (/\b(credential|api key|secret|password|log ?in|login|access token)\b/i.test(reason)) return "block";
+  return "list_in_deliverable";
+}
+
+/** True when the deliverable already has a section listing the decisions that need the founder. */
+export function hasApprovalSection(deliverable: string): boolean {
+  return /(needs?|requiring|require|awaiting)\s+(your|founder'?s?|rajeev'?s?)\s+(approval|decision)|approval\s+required|founder\s+(approvals?|decisions?)|decisions?\s+(for|needing|that need)\s+(you|the founder)/i.test(deliverable);
+}
+
+export function approvalSectionIssue(reason: string): string {
+  return `Do not stop for these decisions. Add a section "Needs your approval" that lists each one (what, why, by when): ${reason.replace(/^Human decision required:\s*/i, "").slice(0, 400)}`;
+}
+
+/**
  * Detect system-owned verification/recovery blockers that can be resumed without
  * asking the Founder to accept an unfinished deliverable. Explicit external
  * actions remain human gates.
