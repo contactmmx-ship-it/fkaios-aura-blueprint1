@@ -99,3 +99,43 @@ export function dropPausedBrands(hits: MemoryHit[], pausedBrands: string[], obje
   });
 }
 
+
+// 5 Nov 2026 — founder's search order for every task (register RU-04, RU-05):
+//   1. the founder's OWN repositories (GitHub owner contactmmx-ship-it) — what we already built,
+//   2. open-source repositories on public GitHub,
+//   3. free AI tools (registered free capabilities and Radar finds),
+//   4. previous FKAIOS work in memory,
+// and only then build something new.
+export const OWN_GITHUB_OWNER = "contactmmx-ship-it";
+export const REUSE_ORDER = ["own_repos", "open_source_repos", "free_tools", "previous_work", "build_new"] as const;
+
+/** GitHub queries limited to the founder's own repositories: one per leading term, so any match counts. */
+export function ownRepoQueries(terms: string[], owner = OWN_GITHUB_OWNER): string[] {
+  if (!owner || !terms.length) return [];
+  return [...new Set(terms.slice(0, 3).map((t) => `${t} user:${owner} fork:true`))];
+}
+
+/** True for a repository that belongs to the owner (so it is never also listed as an outside repo). */
+export function isOwnRepo(fullName: string, owner = OWN_GITHUB_OWNER): boolean {
+  return fullName.toLowerCase().startsWith(owner.toLowerCase() + "/");
+}
+
+export interface ReuseStep { step: number; source: typeof REUSE_ORDER[number]; found: number; top: string[] }
+
+/** The founder's order, with what each step found, for the planner prompt and the contract record. */
+export function reuseOrder(found: { ownRepos: Array<{ full_name: string }>; openSourceRepos: Array<{ full_name: string }>; freeTools: Array<{ name: string }>; previousWork: Array<{ title: string }> }): ReuseStep[] {
+  const top = (xs: string[]) => xs.slice(0, 3);
+  return [
+    { step: 1, source: "own_repos", found: found.ownRepos.length, top: top(found.ownRepos.map((r) => r.full_name)) },
+    { step: 2, source: "open_source_repos", found: found.openSourceRepos.length, top: top(found.openSourceRepos.map((r) => r.full_name)) },
+    { step: 3, source: "free_tools", found: found.freeTools.length, top: top(found.freeTools.map((t) => t.name)) },
+    { step: 4, source: "previous_work", found: found.previousWork.length, top: top(found.previousWork.map((w) => w.title)) },
+    { step: 5, source: "build_new", found: 0, top: [] },
+  ];
+}
+
+/** One line in the founder's order. */
+export function reuseOrderLine(steps: ReuseStep[]): string {
+  const label: Record<string, string> = { own_repos: "own repos", open_source_repos: "open-source repos", free_tools: "free tools", previous_work: "previous FKAIOS work", build_new: "build new" };
+  return "Reuse order: " + steps.filter((s) => s.source !== "build_new").map((s) => `${s.step}) ${label[s.source]}: ${s.found}`).join(", ") + ", 5) build new only for what is left.";
+}
