@@ -3,9 +3,14 @@
 // Same recall the brain uses (SQL fkaios_recall via _shared/brain-recall.ts). Signed-in users only.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { recallTerms, recallWithStatus, sourceLink } from '../_shared/brain-recall.ts';
+import { checkDocument, sha256Hex, splitPages } from '../_shared/vault-document.ts';
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey, x-heartbeat-secret' };
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
+
+function userId(auth: string | null): string | null {
+  try { return JSON.parse(atob(auth!.slice(7).split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sub ?? null; } catch { return null; }
+}
 
 function signedIn(auth: string | null, supabaseUrl: string): boolean {
   if (!auth?.startsWith('Bearer ')) return false;
@@ -27,6 +32,33 @@ Deno.serve(async (req) => {
     const arguments_ = await req.json().catch(() => ({}));
     const { action = 'search', query = '' } = arguments_ as { action?: string; query?: string };
     const db = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    // 5 Nov 2026: Knowledge Vault "Add Document" writes into this one memory, so the brain can use it at once.
+    // Signed-in users only (never the server-test secret, which is read-only).
+    if (action === 'add') {
+      if (serverTest) return json({ error: 'read-only' }, 403);
+      const b = arguments_ as Record<string, unknown>;
+      const bad = checkDocument(b.title, b.content);
+      if (bad) return json({ error: bad }, 400);
+      const title = String(b.title).trim(), content = String(b.content);
+      const brand = typeof b.brand === 'string' && b.brand.trim() ? b.brand.trim().slice(0, 80) : null;
+      const sha = await sha256Hex(content);
+      const { data: dup } = await db.from('fkaios_knowledge_sources').select('id,title').eq('sha256', sha).maybeSingle();
+      if (dup) return json({ ok: true, duplicate: true, source_id: dup.id, title: dup.title, pages: 0 });
+      const pages = splitPages(content);
+      const { data: src, error: e1 } = await db.from('fkaios_knowledge_sources').insert({
+        title, source_kind: 'document', filename: typeof b.filename === 'string' ? b.filename.slice(0, 200) : `vault-upload/${title.slice(0, 80)}.txt`,
+        provenance: `Uploaded in Knowledge Vault on ${new Date().toISOString().slice(0, 10)} by signed-in user ${userId(req.headers.get('Authorization')) ?? 'unknown'}`,
+        sha256: sha, mime_type: 'text/plain', page_count: pages.length, page_label_basis: 'line_ranges', copyright_class: 'owned',
+        brand, project_ref: null, ingestion_status: 'complete', ingestion_report: { ingested_by: 'knowledge-vault', rollback: 'delete source by sha256' },
+      }).select('id').single();
+      if (e1 || !src) return json({ error: 'Could not save the document: ' + (e1?.message ?? 'unknown') }, 500);
+      const { error: e2 } = await db.from('fkaios_knowledge_pages').insert(pages.map((p) => ({
+        source_id: src.id, pdf_page: p.page, printed_label: `lines ${p.line_start}-${p.line_end}`, label_basis: 'line_range',
+        line_start: p.line_start, line_end: p.line_end, text: p.text, char_count: p.text.length, extraction: 'plain_text', completeness: 'complete',
+      })));
+      if (e2) { await db.from('fkaios_knowledge_sources').delete().eq('id', src.id); return json({ error: 'Could not save the pages: ' + e2.message }, 500); }
+      return json({ ok: true, source_id: src.id, title, pages: pages.length });
+    }
     if (action === 'stats') {
       const [{ count: sources }, { count: pages }, { data: byProject }] = await Promise.all([
         db.from('fkaios_knowledge_sources').select('id', { count: 'exact', head: true }),
