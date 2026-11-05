@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { brandsIn, classifyMemoryHits, githubQueries, rankRadar, reuseSummary, searchTerms } from "./reuse-first.ts";
+import { brandsIn, classifyMemoryHits, dropPausedBrands, githubQueries, rankRadar, reuseSummary, searchTerms } from "./reuse-first.ts";
 
 const RUN6 = "Objective: Acme growth plan — reach ₹50 lakh+ monthly sales within 90 days. Use only Acme information in Founder Memory (register P08, dealer schemes, P&L files, chats). Deliver: receivables recovery plan, dealer plan, sales team targets, territories.";
 
@@ -41,4 +41,18 @@ Deno.test("Radar candidates are ranked by matched terms", () => {
   assertEquals(r.length, 1);
   assertEquals(r[0].name, "dealer-crm");
   assertEquals(r[0].match, 2);
+});
+
+Deno.test("paused brands are left out unless the objective names them", () => {
+  const hits = [
+    { source_id: "1", title: "Beta Paints dealer scheme", brand: null, score: 1 },
+    { source_id: "2", title: "Generic dealer SOP", brand: null, score: 0.8 },
+    { source_id: "3", title: "Turning plan for Gamma Co", brand: "Gamma Co", score: 0.7 },
+    { source_id: "4", title: "Acme loyalty app", brand: "Acme", score: 0.6 },
+  ];
+  const kept = dropPausedBrands(hits, ["Beta Paints", "Gamma Co"], []);
+  assertEquals(kept.map((h) => h.source_id), ["2", "4"]);
+  const asked = dropPausedBrands(hits, ["Beta Paints", "Gamma Co"], ["Beta Paints"]);
+  assertEquals(asked.map((h) => h.source_id), ["1", "2", "4"]);
+  assertEquals(dropPausedBrands(hits, [], []).length, 4);
 });
