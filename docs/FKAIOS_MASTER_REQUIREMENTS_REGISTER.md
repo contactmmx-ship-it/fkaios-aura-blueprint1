@@ -9,11 +9,11 @@ A requirement is VERIFIED_COMPLETE only with accessible production evidence. Cod
 | Status | Count |
 |---|---|
 | VERIFIED_COMPLETE | 16 |
-| IMPLEMENTED_UNVERIFIED | 32 |
-| IN_PROGRESS | 35 |
+| IMPLEMENTED_UNVERIFIED | 34 |
+| IN_PROGRESS | 34 |
 | BLOCKED | 15 |
 | PLANNED | 30 |
-| MISSING | 61 |
+| MISSING | 60 |
 | CONFLICTING | 1 |
 | **Total** | **190** |
 
@@ -66,7 +66,7 @@ A requirement is VERIFIED_COMPLETE only with accessible production evidence. Cod
 | BP-05 | Reconcile project: Syros OPD EMR | Master Execution Directive 9 Oct 2026 §11 | P2 | PLANNED | History only; 'DO NOT USE' artifact recorded (file 2 lines 2401-2460) |  |  | 2026-10-09 |
 | BP-06 | Reconcile project: Kids DPS | Master Execution Directive 9 Oct 2026 §11 | P2 | IN_PROGRESS | Objective 20cbf892 in progress |  |  | 2026-10-09 |
 | BR-01 | ONE BRAIN step 1: Brain Chat recalls founder memory and cites the chat | ONE BRAIN plan 26 Oct | P1 | VERIFIED_COMPLETE | Brain Chat acceptance test 29 Oct |  |  | 2026-11-04 |
-| BR-02 | ONE BRAIN step 2: Vault, Decision Engine, Self-Learning, objectives read the one memory | ONE BRAIN plan 26 Oct | P1 | CONFLICTING | 28–29 Oct checks; memory search v4 live 3 Nov. 5 Nov: founder reports the Knowledge Vault is empty; its folder/document list reads brain_knowledge_documents (0 rows), not the one memory |  | Vault list reads fkaios_knowledge_sources; founder confirms on the live app | 2026-11-04 |
+| BR-02 | ONE BRAIN step 2: Vault, Decision Engine, Self-Learning, objectives read the one memory | ONE BRAIN plan 26 Oct | P1 | CONFLICTING | 28–29 Oct checks; memory search v4 live 3 Nov. 5 Nov: founder reports the Knowledge Vault is empty. Logs: that browser opened an old branch-preview URL (built before the Founder Memory panel), not the live app. Separately the Vault's Add Document wrote to an old store the brain never reads; PR #254 makes it write to Founder Memory |  | Founder opens fkaios-aura-blueprint1.vercel.app and confirms | 2026-11-04 |
 | BR-03 | ONE BRAIN step 3: experience loop (expected vs actual lesson, recalled before acting) | ONE BRAIN plan 26 Oct | P0 | MISSING | brain_learning_insights empty; 10,263 fleet_memory rows not linked to tool/model |  | Hermes-style lessons into existing table | 2026-11-04 |
 | BR-04 | ONE BRAIN step 5: merge the 4 brains (founder-brain, brain-engine, ai-engine, executive-planner) | ONE BRAIN plan 26 Oct | P1 | MISSING |  |  | After GoMax passes twice | 2026-11-04 |
 | BR-05 | Founder Brain thinks like a human: own ideas, rectify until satisfied, then plan | Vision restated 10–11 Oct (11 Oct) | P1 | IN_PROGRESS | Objective loop plans/verifies/rectifies; no idea-generation-and-compare step |  |  | 2026-11-04 |
@@ -199,8 +199,8 @@ A requirement is VERIFIED_COMPLETE only with accessible production evidence. Cod
 | RU-01 | Karpathy-style skill: extract only the working core of a repo, keep it small, prove it with tests | Founder 4 Nov chat (reuse, repos, tools, tokens); added 5 Nov | P1 | MISSING | Method agreed; no skill built with it yet |  | Use it for the first repo→skill (RU-06) | 2026-11-04 |
 | RU-02 | Same result with less work: reuse before build, smallest change that does the job | Founder 4 Nov chat (reuse, repos, tools, tokens); added 5 Nov; founder rule | P1 | IN_PROGRESS | Rule is in founder_principles; reuse-first search live (task 29) |  |  | 2026-11-04 |
 | RU-03 | Token efficiency: find what burns tokens and cut it (brain ticks, writer input, repeated context) | Founder 4 Nov chat (reuse, repos, tools, tokens); added 5 Nov | P0 | IN_PROGRESS | Writer input capped and brain thinks only with work (fixes 3–4, 4 Nov); cost per objective not measured |  | Cost per objective (item 6) | 2026-11-04 |
-| RU-04 | Founder's reuse order for every task: 1) open-source repo, 2) free AI tool, 3) previous FKAIOS work, then build | Founder 4 Nov chat (reuse, repos, tools, tokens); added 5 Nov | P0 | IN_PROGRESS | Reuse-first search exists but order is own work → Radar/GitHub; founder order not enforced |  | Enforce order in objective discovery | 2026-11-04 |
-| RU-05 | Search the founder's own repos (contactmmx-ship-it) first, before public repos | Founder 4 Nov chat (reuse, repos, tools, tokens); added 5 Nov | P0 | MISSING | Discovery searches public GitHub only |  | Add own-repo search first | 2026-11-04 |
+| RU-04 | Founder's reuse order for every task: 1) open-source repo, 2) free AI tool, 3) previous FKAIOS work, then build | Founder 4 Nov chat (reuse, repos, tools, tokens); added 5 Nov | P0 | IMPLEMENTED_UNVERIFIED | 5 Nov: PR #253 merged and CI-deployed; every objective contract records the order own repos → open-source repos → free tools → previous work → build new, and the planner is told to follow it (7/7 tests) |  | Founder submits one objective; check its contract shows the order | 2026-11-04 |
+| RU-05 | Search the founder's own repos (contactmmx-ship-it) first, before public repos | Founder 4 Nov chat (reuse, repos, tools, tokens); added 5 Nov | P0 | IMPLEMENTED_UNVERIFIED | 5 Nov: PR #253 deployed; own-repo query checked live on GitHub ('fkaios user:contactmmx-ship-it' → 4 own repos); own repos saved as the top solution options |  | Same objective test as RU-04 | 2026-11-04 |
 | RU-06 | Find a free repo, turn it into a skill, plug it into FKAIOS (repo→skill worker) | Founder 4 Nov chat (reuse, repos, tools, tokens); added 5 Nov; SK-04 | P0 | MISSING | Needs an always-on runner (decision 23) and secrets (24) | Founder decisions 23 and 24 |  | 2026-11-04 |
 | RU-07 | Continuous check of new repos/updates; adopt only with a before/after test (fewer tokens, better results, better reasoning, more capability) | Founder 4 Nov chat (reuse, repos, tools, tokens); added 5 Nov; RD-02 | P0 | MISSING | Radar collects 337 candidates; nothing evaluated or adopted |  | Radar weekly top 5 for approval | 2026-11-04 |
 | RU-08 | FKAIOS has the capabilities of the AI tools the founder uses, through API or repos, behind one interface, one skill per task | Founder 4 Nov chat (reuse, repos, tools, tokens); added 5 Nov | P1 | IN_PROGRESS | Excel skill live; PDF/Word/slides and skill picker missing (SK-02, SK-03) |  | PDF, Word, slides + skill picker | 2026-11-04 |
