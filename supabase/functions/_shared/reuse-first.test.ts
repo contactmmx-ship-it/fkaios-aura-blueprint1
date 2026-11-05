@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { brandsIn, classifyMemoryHits, dropPausedBrands, githubQueries, rankRadar, reuseSummary, searchTerms } from "./reuse-first.ts";
+import { brandsIn, classifyMemoryHits, dropPausedBrands, githubQueries, isOwnRepo, ownRepoQueries, rankRadar, reuseOrder, reuseOrderLine, reuseSummary, searchTerms } from "./reuse-first.ts";
 
 const RUN6 = "Objective: Acme growth plan — reach ₹50 lakh+ monthly sales within 90 days. Use only Acme information in Founder Memory (register P08, dealer schemes, P&L files, chats). Deliver: receivables recovery plan, dealer plan, sales team targets, territories.";
 
@@ -55,4 +55,16 @@ Deno.test("paused brands are left out unless the objective names them", () => {
   const asked = dropPausedBrands(hits, ["Beta Paints", "Gamma Co"], ["Beta Paints"]);
   assertEquals(asked.map((h) => h.source_id), ["1", "2", "4"]);
   assertEquals(dropPausedBrands(hits, [], []).length, 4);
+});
+
+Deno.test("own repos are searched first, in the founder's order", () => {
+  const q = ownRepoQueries(["franchise", "proposal", "pricing", "extra"]);
+  assertEquals(q, ["franchise user:contactmmx-ship-it fork:true", "proposal user:contactmmx-ship-it fork:true", "pricing user:contactmmx-ship-it fork:true"]);
+  assertEquals(ownRepoQueries([]), []);
+  assertEquals(isOwnRepo("contactmmx-ship-it/fkaios-aura-blueprint1"), true);
+  assertEquals(isOwnRepo("someone/contactmmx-ship-it-clone"), false);
+  const steps = reuseOrder({ ownRepos: [{ full_name: "contactmmx-ship-it/a" }], openSourceRepos: [{ full_name: "x/y" }, { full_name: "x/z" }], freeTools: [], previousWork: [{ title: "Plan" }] });
+  assertEquals(steps.map((s) => s.source), ["own_repos", "open_source_repos", "free_tools", "previous_work", "build_new"]);
+  assertEquals(steps[1].found, 2);
+  assertEquals(reuseOrderLine(steps), "Reuse order: 1) own repos: 1, 2) open-source repos: 2, 3) free tools: 0, 4) previous FKAIOS work: 1, 5) build new only for what is left.");
 });

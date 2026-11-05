@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { reason } from "./founder-brain.ts";
 import { classifyObjective, type ObjectiveType } from "./objective-contract.ts";
-import { brandsIn, classifyMemoryHits, dropPausedBrands, githubQueries as reuseGithubQueries, rankRadar, reuseSummary, searchTerms, type MemoryHit, type RadarCandidate } from "./reuse-first.ts";
+import { brandsIn, classifyMemoryHits, dropPausedBrands, githubQueries as reuseGithubQueries, isOwnRepo, OWN_GITHUB_OWNER, ownRepoQueries, rankRadar, reuseOrder, reuseOrderLine, reuseSummary, searchTerms, type MemoryHit, type RadarCandidate } from "./reuse-first.ts";
 
 function client() {
   return createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
@@ -32,14 +32,15 @@ function githubQueries(objective: string, type: ObjectiveType): string[] {
   ))].filter(Boolean).slice(0,4);
 }
 
-async function discoverGithub(objective: string, type: ObjectiveType, explicitQueries?: string[]) {
+async function discoverGithub(objective: string, type: ObjectiveType, explicitQueries?: string[], useToken = false) {
   // 4 Nov 2026: keyword queries from reuse-first.ts (the raw-sentence queries below found nothing in run 6).
   const queries=explicitQueries && explicitQueries.length ? explicitQueries : githubQueries(objective,type);
   if(!queries.length) return {query:"",candidates:[],status:"no_query"};
   try {
     const results=await Promise.all(queries.map(async(q)=>{
       const url="https://api.github.com/search/repositories?q="+encodeURIComponent(q)+"&sort=stars&order=desc&per_page=10";
-      const res=await fetch(url,{headers:{"Accept":"application/vnd.github+json","User-Agent":"FKAIOS-Discovery/1.0"}});
+      const token=useToken ? Deno.env.get("GITHUB_TOKEN") : undefined;
+      const res=await fetch(url,{headers:{"Accept":"application/vnd.github+json","User-Agent":"FKAIOS-Discovery/1.0",...(token?{"Authorization":"Bearer "+token}:{})}});
       if(!res.ok) return {q,items:[],status:"error",httpStatus:res.status};
       const body=await res.json();
       return {q,items:Array.isArray(body.items)?body.items:[],status:"ok"};
@@ -164,14 +165,22 @@ export async function prepareObjectiveContract(objective:{id:string;raw_request:
   const brands=await knownBrands().catch(()=>[] as string[]);
   const objectiveBrands=brandsIn(objective.raw_request,brands);
   const terms=searchTerms(objective.raw_request,brands);
-  const [github,existing,capabilities,memoryReuse,radar]=await Promise.all([
+  // 5 Nov 2026 — founder's order: own repos → open-source repos → free tools → previous work → build new.
+  const owner=Deno.env.get("FKAIOS_GITHUB_OWNER") || OWN_GITHUB_OWNER;
+  const ownQueries=ownRepoQueries(terms,owner);
+  const [ownRepos,githubRaw,existing,capabilities,memoryReuse,radar]=await Promise.all([
+    ownQueries.length ? discoverGithub(objective.raw_request,type,ownQueries,true) : Promise.resolve({queries:[],candidates:[],status:"no_query"} as any),
     discoverGithub(objective.raw_request,type,reuseGithubQueries(terms,type)),
     discoverExisting(objective.raw_request),
     discoverCapabilities(type,objective.raw_request),
     discoverMemory(terms,brands,objectiveBrands).catch(()=>[]),
     discoverRadar(terms).catch(()=>[])
   ]);
-  const reuseLine=reuseSummary(memoryReuse,radar,github.candidates??[]);
+  const ownCandidates=(ownRepos.candidates??[]).filter((r:any)=>isOwnRepo(r.full_name,owner));
+  const github={...githubRaw,candidates:(githubRaw.candidates??[]).filter((r:any)=>!isOwnRepo(r.full_name,owner))};
+  const freeTools=[...capabilities.filter((c:any)=>/free|included|no_cost/i.test(String(c.cost_state??""))).map((c:any)=>({name:String(c.name)})),...radar.map((r:any)=>({name:String(r.name)}))];
+  const order=reuseOrder({ownRepos:ownCandidates,openSourceRepos:github.candidates,freeTools,previousWork:memoryReuse});
+  const reuseLine=reuseOrderLine(order)+" "+reuseSummary(memoryReuse,radar,github.candidates??[]);
 
   const scoredCapabilities=capabilities.map((c:any)=>({...c,...scoreCapability(c,objective.raw_request,type)})).sort((a:any,b:any)=>b.score-a.score);
   const githubOptions=github.candidates.map((r:any,i:number)=>({
@@ -180,9 +189,9 @@ export async function prepareObjectiveContract(objective:{id:string;raw_request:
     fit_score:0, quality_score:Math.min(100,Math.round(Math.min(100,Number(r.stars||0)/100))), continuity_score:0,
     availability_score:100, cost_score:100, risk_score:r.license ? 0 : 25
   }));
-  const context={objective:objective.raw_request,objectiveType:type,reuseFirst:{summary:reuseLine,rule:"Reuse past work first. data_and_method: same brand, figures may be used with citation. method_only: another brand — reuse structure and approach, never its figures. check_brand: brand not recorded — use its figures only if the text itself shows they belong to this brand.",searchTerms:terms,objectiveBrands,pastWork:memoryReuse,radarTools:radar},existingWork:existing,githubQueries:github.queries ?? [],githubCandidates:githubOptions.slice(0,20),capabilities:scoredCapabilities.slice(0,12)};
+  const context={objective:objective.raw_request,objectiveType:type,reuseFirst:{summary:reuseLine,order,ownRepos:ownCandidates.slice(0,10),rule:"FOUNDER ORDER: use the founder's own repositories first, then open-source repositories, then free AI tools, then previous FKAIOS work; build new only for what none of these covers, and say which step each part of the plan comes from. Reuse past work first. data_and_method: same brand, figures may be used with citation. method_only: another brand — reuse structure and approach, never its figures. check_brand: brand not recorded — use its figures only if the text itself shows they belong to this brand.",searchTerms:terms,objectiveBrands,pastWork:memoryReuse,radarTools:radar},existingWork:existing,githubQueries:github.queries ?? [],githubCandidates:githubOptions.slice(0,20),capabilities:scoredCapabilities.slice(0,12)};
   const response=await reason(
-    "You are the FKAIOS Solution Architect. Convert the founder objective into a precise execution contract. Preserve the founder's intent; do not invent facts. Reuse existing work before new work. If a repository/capability is only a partial match, explicitly describe what must be adapted. Translate vague quality language such as premium or enterprise into measurable acceptance criteria. Return ONLY JSON.",
+    "You are the FKAIOS Solution Architect. Convert the founder objective into a precise execution contract. Preserve the founder's intent; do not invent facts. Follow the founder's reuse order in reuseFirst.order: own repositories, then open-source repositories, then free AI tools, then previous FKAIOS work, and build new only for the gap. If a repository/capability is only a partial match, explicitly describe what must be adapted. Translate vague quality language such as premium or enterprise into measurable acceptance criteria. Return ONLY JSON.",
     JSON.stringify(context),
     1400,
     correlationId
@@ -200,7 +209,7 @@ export async function prepareObjectiveContract(objective:{id:string;raw_request:
       github_candidates:github.candidates.slice(0,20),
       existing_work:existing,
       capabilities:scoredCapabilities.slice(0,12),
-      reuse_first:{summary:reuseLine,search_terms:terms,objective_brands:objectiveBrands,past_work:memoryReuse,radar_tools:radar}
+      reuse_first:{summary:reuseLine,order,own_repos:ownCandidates.slice(0,10),own_repo_status:ownRepos.status,search_terms:terms,objective_brands:objectiveBrands,past_work:memoryReuse,radar_tools:radar}
     },
     solution_plan:ai.solution_plan ?? {strategy:"reuse_adapt_compose_build"},
     continuity:{
@@ -212,6 +221,7 @@ export async function prepareObjectiveContract(objective:{id:string;raw_request:
   const db=client();
   const options=[
     ...scoredCapabilities.map((c:any)=>({objective_id:objective.id,source_type:"capability",source_id:String(c.name),name:String(c.name),score:c.score,fit_score:c.fit_score,quality_score:c.quality_score,continuity_score:c.continuity_score,availability_score:c.availability_score,cost_score:c.cost_score,risk_score:c.risk_score,recommendation:c.score>=70?"preferred":c.score>=45?"candidate":"fallback",evidence:{provider:c.provider,purpose:c.purpose,limitations:c.limitations,auth_state:c.auth_state,cost_state:c.cost_state,availability:c.availability}})),
+    ...ownCandidates.map((r:any,i:number)=>({objective_id:objective.id,source_type:"github_repo",source_id:String(r.full_name),name:String(r.full_name),rank:i+1,score:90,fit_score:0,quality_score:0,continuity_score:100,availability_score:100,cost_score:100,risk_score:0,recommendation:i===0?"preferred":"candidate",evidence:{...r,own_repo:true,reuse_step:1}})),
     ...githubOptions.map((r:any,i:number)=>({objective_id:objective.id,source_type:"github_repo",source_id:String(r.full_name),name:String(r.full_name),rank:i+1,score:r.score,fit_score:r.fit_score,quality_score:r.quality_score,continuity_score:r.continuity_score,availability_score:r.availability_score,cost_score:r.cost_score,risk_score:r.risk_score,recommendation:i===0?"candidate":"alternative",evidence:r}))
   ];
   await db.from("objective_solution_options").delete().eq("objective_id",objective.id);
