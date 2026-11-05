@@ -4,7 +4,7 @@ from the single list below. Edit the list, then run:  python3 tools/requirements
 import csv, io, os
 from collections import Counter
 
-LAST = "2026-11-04"
+LAST = "2026-11-05"
 OLD = "2026-10-09"  # items before the 4 Nov block were last verified on 9 Oct
 FIELDS = ["id", "intent", "source", "priority", "decision", "status", "files", "deps", "criteria", "test", "evidence", "blocker", "next", "verified"]
 R = []
@@ -113,7 +113,7 @@ C = "Cycles C1–C35 21 Jul"; V = "Vision restated 10–11 Oct"; OB = "ONE BRAIN
 
 # Brain and memory
 n("BR-01", "ONE BRAIN step 1: Brain Chat recalls founder memory and cites the chat", OB, "VERIFIED_COMPLETE", "Brain Chat acceptance test 29 Oct")
-n("BR-02", "ONE BRAIN step 2: Vault, Decision Engine, Self-Learning, objectives read the one memory", OB, "VERIFIED_COMPLETE", "28–29 Oct checks; memory search v4 live 3 Nov")
+n("BR-02", "ONE BRAIN step 2: Vault, Decision Engine, Self-Learning, objectives read the one memory", OB, "CONFLICTING", "28–29 Oct checks; memory search v4 live 3 Nov. 5 Nov: founder reports the Knowledge Vault is empty; its folder/document list reads brain_knowledge_documents (0 rows), not the one memory", "Vault list reads fkaios_knowledge_sources; founder confirms on the live app")
 n("BR-03", "ONE BRAIN step 3: experience loop (expected vs actual lesson, recalled before acting)", OB, "MISSING", "brain_learning_insights empty; 10,263 fleet_memory rows not linked to tool/model", "Hermes-style lessons into existing table", "P0")
 n("BR-04", "ONE BRAIN step 5: merge the 4 brains (founder-brain, brain-engine, ai-engine, executive-planner)", OB, "MISSING", "", "After GoMax passes twice")
 n("BR-05", "Founder Brain thinks like a human: own ideas, rectify until satisfied, then plan", V+" (11 Oct)", "IN_PROGRESS", "Objective loop plans/verifies/rectifies; no idea-generation-and-compare step")
@@ -132,7 +132,7 @@ n("OB-02", "Resume a failed/finished objective from where it stopped", "Founder 
 n("OB-03", "Source check: every figure attributed to its real source; no invented targets", "Founder 3 Nov", "IMPLEMENTED_UNVERIFIED", "PR #237–#239 live; run 5 caught issues")
 n("OB-04", "GoMax real objective passes twice (6/6), second run better because of the first", KP, "IN_PROGRESS", "Runs 1–5: best 3.5/6; run 6 after quota reset", "Run 6", "P0")
 n("OB-05", "Stop self-set objectives the brain cannot execute", "Capability audit 30 Oct", "MISSING", "197 of 227 objectives were self-set and failed; 49 agent objectives active 4 Nov", "Founder decision", "P0")
-n("OB-06", "Approval queue holds only real decisions (rules not requests)", "Capability audit 30 Oct", "MISSING", "1,333 pending approvals 4 Nov", "Founder decision on cleanup", "P0")
+n("OB-06", "Approval queue holds only real decisions (rules not requests)", "Capability audit 30 Oct", "IN_PROGRESS", "5 Nov: pending approvals older than 2 days set to expired with a reason (migration 20261105150000, PR #251); the rule that stops new request-type approvals is not built", "Stop agents filing requests as approvals", "P0")
 n("OB-07", "Portfolio: a new project never erases old ones; owners, deadlines, dependencies; parallel work", V, "MISSING", "Register AT-07: one task at a time by design")
 n("OB-08", "Fix failures by root cause in batches with regression tests", V, "IN_PROGRESS", "Practised in PRs #231–#241 with tests")
 n("OB-09", "Objective result shown on screen", "Tab check 29 Oct", "MISSING")
@@ -268,6 +268,24 @@ n("HX-31", "Software Factory phase 3+: code generation, testing, deployment fact
 n("HX-32", "Move paid-key engines (Business Creator, Project Review, AI Company) to the free chain", KP+" step 7", "MISSING")
 n("HX-33", "Reconcile duplicate department taxonomy (dept vs department; ACCOUNTS vs AT_ACCOUNTS)", "Live audit 21 Sep", "MISSING")
 n("HX-34", "Employee AI OS for brand staff (route staff questions to AI, approvals to owner)", "Bharat Paints Employee AI OS 7 Jun; register P21", "PLANNED", "Separate project; fits Aura associates (AU-03)")
+
+# Reuse and self-improvement (founder asks 4 Nov, missed from this register until 5 Nov)
+RU = "Founder 4 Nov chat (reuse, repos, tools, tokens); added 5 Nov"
+n("RU-01", "Karpathy-style skill: extract only the working core of a repo, keep it small, prove it with tests", RU, "MISSING", "Method agreed; no skill built with it yet", "Use it for the first repo→skill (RU-06)")
+n("RU-02", "Same result with less work: reuse before build, smallest change that does the job", RU+"; founder rule", "IN_PROGRESS", "Rule is in founder_principles; reuse-first search live (task 29)")
+n("RU-03", "Token efficiency: find what burns tokens and cut it (brain ticks, writer input, repeated context)", RU, "IN_PROGRESS", "Writer input capped and brain thinks only with work (fixes 3–4, 4 Nov); cost per objective not measured", "Cost per objective (item 6)", "P0")
+n("RU-04", "Founder's reuse order for every task: 1) open-source repo, 2) free AI tool, 3) previous FKAIOS work, then build", RU, "IN_PROGRESS", "Reuse-first search exists but order is own work → Radar/GitHub; founder order not enforced", "Enforce order in objective discovery", "P0")
+n("RU-05", "Search the founder's own repos (contactmmx-ship-it) first, before public repos", RU, "MISSING", "Discovery searches public GitHub only", "Add own-repo search first", "P0")
+n("RU-06", "Find a free repo, turn it into a skill, plug it into FKAIOS (repo→skill worker)", RU+"; SK-04", "MISSING", "Needs an always-on runner (decision 23) and secrets (24)", "", "P0", "Founder decisions 23 and 24")
+n("RU-07", "Continuous check of new repos/updates; adopt only with a before/after test (fewer tokens, better results, better reasoning, more capability)", RU+"; RD-02", "MISSING", "Radar collects 337 candidates; nothing evaluated or adopted", "Radar weekly top 5 for approval", "P0")
+n("RU-08", "FKAIOS has the capabilities of the AI tools the founder uses, through API or repos, behind one interface, one skill per task", RU, "IN_PROGRESS", "Excel skill live; PDF/Word/slides and skill picker missing (SK-02, SK-03)", "PDF, Word, slides + skill picker")
+n("RU-09", "Shortlist of open-source equivalents of top AI tools (LibreChat, OpenHands, OpenCode, Goose, Open Interpreter, LiteLLM, Docling, browser-use, Presenton, RAGFlow, Perplexica, AnythingLLM, Cline, Ollama); licence-restricted: Open WebUI, LobeChat, n8n, Dify", RU, "PLANNED", "List made 4 Nov; none evaluated")
+n("RU-10", "Check open source before spending paid credits", RU+"; founder rule", "IN_PROGRESS", "No paid services without approval is enforced by rule; no automatic check before a paid call")
+n("RU-11", "Workspaces and login on the approved schema (Basejump)", RU+"; 24-item list 18", "MISSING", "Approved, not built", "", "P1")
+n("RU-12", "Fix first: repair what exists before adding new features", RU+"; founder rule", "IN_PROGRESS", "Applied 5 Nov: security fix, approvals archive, idle jobs paused")
+n("FD-01", "GoMax and Turning Point dormant: left out of every plan, task, search and execution until reactivated", "Founder decision 5 Nov", "VERIFIED_COMPLETE", "Migration 20261105140000 (PR #250): brands paused, 5 projects paused, founder principle active; memory search drops paused brands (test passes)")
+n("FD-02", "Commit to FK's own work, never promise results; no 'no guarantee' lines in proposals", "Founder decision 5 Nov", "VERIFIED_COMPLETE", "Founder principle active for every AI job (PR #250)")
+n("FD-03", "Public memory search functions closed to anonymous callers", "Investigation 5 Nov (security)", "VERIFIED_COMPLETE", "Migration 20261105100000 (PR #249): anon execute=false, service role=true")
 
 counts = Counter(x["status"] for x in R)
 order = ["VERIFIED_COMPLETE","IMPLEMENTED_UNVERIFIED","IN_PROGRESS","BLOCKED","PLANNED","MISSING","CONFLICTING"]
