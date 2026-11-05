@@ -83,3 +83,19 @@ export function reuseSummary(memory: MemoryReuse[], radar: Array<{ name: string;
   return `Reuse-first search: ${memory.length} past-work match(es) (${n("data_and_method")} same brand: data+method; ${n("method_only")} other brands: method only; ${n("check_brand")} brand not recorded: check before using figures), ` +
     `${radar.length} Radar tool(s), ${github.length} GitHub repo(s).`;
 }
+
+// 5 Nov 2026 — founder rule: a paused (dormant) brand is left out of every plan.
+// Its past work is dropped from reuse results unless the objective itself names
+// that brand (then the founder has asked for it on purpose).
+export function dropPausedBrands(hits: MemoryHit[], pausedBrands: string[], objectiveBrands: string[]): MemoryHit[] {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const asked = new Set(objectiveBrands.map(norm));
+  const paused = pausedBrands.map(norm).filter((b) => b.length >= 3 && !asked.has(b));
+  if (!paused.length) return hits;
+  return hits.filter((h) => {
+    const brand = h.brand ? norm(h.brand) : "";
+    const title = ` ${norm(h.title)} `;
+    return !paused.some((b) => brand === b || title.includes(` ${b} `));
+  });
+}
+

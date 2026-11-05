@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { reason } from "./founder-brain.ts";
 import { classifyObjective, type ObjectiveType } from "./objective-contract.ts";
-import { brandsIn, classifyMemoryHits, githubQueries as reuseGithubQueries, rankRadar, reuseSummary, searchTerms, type MemoryHit, type RadarCandidate } from "./reuse-first.ts";
+import { brandsIn, classifyMemoryHits, dropPausedBrands, githubQueries as reuseGithubQueries, rankRadar, reuseSummary, searchTerms, type MemoryHit, type RadarCandidate } from "./reuse-first.ts";
 
 function client() {
   return createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
@@ -118,6 +118,11 @@ function scoreCapability(c:any, objective:string, type:ObjectiveType) {
 
 
 // 4 Nov 2026 — REUSE FIRST: brand names known to FKAIOS (brands table + memory source brands).
+async function pausedBrands(): Promise<string[]> {
+  const {data}=await client().from("brands").select("name,status,is_active").limit(200);
+  return (data??[]).filter((r:any)=>r.status==="paused"||r.status==="archived"||r.is_active===false).map((r:any)=>String(r.name??"").trim()).filter((n:string)=>n.length>=3);
+}
+
 async function knownBrands(): Promise<string[]> {
   const db=client();
   const [{data:b},{data:s}]=await Promise.all([
@@ -140,7 +145,8 @@ async function discoverMemory(terms:string[], brands:string[], objectiveBrands:s
   const {data:src}=ids.length?await db.from("fkaios_knowledge_sources").select("id,brand").in("id",ids):{data:[]};
   const brandOf=new Map((src??[]).map((r:any)=>[String(r.id),r.brand?String(r.brand):null]));
   const hits:MemoryHit[]=ids.map((id)=>{ const v=bySource.get(id)!; return {source_id:id,title:v.title,brand:brandOf.get(id)??brandsIn(v.title,brands)[0]??null,score:v.score}; });
-  return classifyMemoryHits(hits.sort((a,b)=>b.score-a.score).slice(0,8),objectiveBrands);
+  const paused=await pausedBrands().catch(()=>[] as string[]);
+  return classifyMemoryHits(dropPausedBrands(hits,paused,objectiveBrands).sort((a,b)=>b.score-a.score).slice(0,8),objectiveBrands);
 }
 
 // Tools the World Radar has already found.
