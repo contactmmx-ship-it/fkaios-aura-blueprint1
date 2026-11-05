@@ -44,19 +44,15 @@ export default function KnowledgeVault() {
   }
 
   async function uploadDocument() {
-    if (!upTitle.trim() || !upContent.trim() || !selectedBrandId) { setUpMsg('Title and content are required.'); return; }
+    // 5 Nov 2026: documents go into Founder Memory (the one memory the brain searches), not the old July store.
+    if (!upTitle.trim() || !upContent.trim()) { setUpMsg('Title and content are required.'); return; }
     setUploading(true); setUpMsg(null);
     try {
-      const { data: doc, error: insErr } = await supabase.from('brain_knowledge_documents').insert({
-        brand_id: selectedBrandId, folder_id: selectedFolderId, title: upTitle.trim(),
-        content: upContent, status: 'active', file_type: 'txt', category: 'uploaded', version: 1,
-      }).select('id').single();
-      if (insErr) throw new Error(insErr.message);
-      const { data: ing, error: fnErr } = await supabase.functions.invoke('vault-engine', {
-        body: { action: 'ingest_document', document_id: doc.id },
+      const { data, error } = await supabase.functions.invoke('memory-search', {
+        body: { action: 'add', title: upTitle.trim(), content: upContent, brand: selectedBrand?.name ?? null },
       });
-      if (fnErr || ing?.error) throw new Error(ing?.error || fnErr?.message || 'Embedding failed');
-      setUpMsg(`Uploaded — ${ing?.chunks ?? 0} chunks embedded into the vault.`);
+      if (error || data?.error) throw new Error(data?.error || error?.message || 'Upload failed');
+      setUpMsg(data.duplicate ? `Already in Founder Memory as "${data.title}".` : `Uploaded — added to Founder Memory (${data.pages} page${data.pages === 1 ? '' : 's'}). Brain Chat and objectives can use it now.`);
       setUpTitle(''); setUpContent('');
       setRefreshKey(k => k + 1);
     } catch (e) {
@@ -82,12 +78,12 @@ export default function KnowledgeVault() {
         </button>
       </div>
 
-      <FounderMemoryPanel />
+      <FounderMemoryPanel key={refreshKey} />
 
       {showUpload && (
         <div className="bg-slate-900 border border-blue-500/30 rounded-xl p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold text-white">Add document to {selectedBrand?.name ?? 'vault'} — embedded for AI retrieval</p>
+            <p className="text-sm font-semibold text-white">Add document to Founder Memory{selectedBrand?.name ? ` (brand: ${selectedBrand.name})` : ''} — the brain can use it at once</p>
             <button onClick={() => setShowUpload(false)} className="text-slate-500 hover:text-white text-xs">Close</button>
           </div>
           <input value={upTitle} onChange={e => setUpTitle(e.target.value)} placeholder="Document title"
@@ -100,7 +96,7 @@ export default function KnowledgeVault() {
               className="text-xs text-slate-400 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-slate-800 file:text-slate-300 file:text-xs" />
             <button onClick={uploadDocument} disabled={uploading || !upTitle.trim() || !upContent.trim()}
               className="ml-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors">
-              {uploading ? 'Embedding…' : 'Upload & Embed'}
+              {uploading ? 'Saving…' : 'Add to memory'}
             </button>
           </div>
           {upMsg && <p className={`text-xs ${upMsg.startsWith('Uploaded') ? 'text-emerald-400' : 'text-rose-400'}`}>{upMsg}</p>}
@@ -137,7 +133,7 @@ export default function KnowledgeVault() {
         </div>
 
         <div className="flex-1">
-          <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">{filteredDocs.length} Documents</h3>
+          <h3 className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">{filteredDocs.length} older vault documents (July store — new documents go to Founder Memory above)</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {filteredDocs.map((doc: any) => (
               <div key={doc.id} className="bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">
@@ -155,7 +151,7 @@ export default function KnowledgeVault() {
                 </div>
               </div>
             ))}
-            {filteredDocs.length === 0 && <div className="col-span-2 text-center py-12 text-slate-500"><p className="text-sm">No documents found</p></div>}
+            {filteredDocs.length === 0 && <div className="col-span-2 text-center py-12 text-slate-500"><p className="text-sm">No older vault documents. Everything the brain knows is in Founder Memory above.</p></div>}
           </div>
         </div>
       </div>

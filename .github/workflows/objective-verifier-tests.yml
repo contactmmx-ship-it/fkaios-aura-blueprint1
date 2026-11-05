@@ -26,6 +26,10 @@ on:
       - "supabase/functions/_shared/skills/**"
       - "supabase/functions/_shared/reuse-first.ts"
       - "supabase/functions/_shared/reuse-first.test.ts"
+      - "supabase/functions/_shared/vault-document.ts"
+      - "supabase/functions/_shared/vault-document.test.ts"
+      - "supabase/functions/memory-search/index.ts"
+      - "src/components/fkaios/KnowledgeVault.tsx"
       - "supabase/functions/_shared/objective-discovery.ts"
       - "supabase/functions/_shared/cognitive-budget.ts"
       - "supabase/functions/_shared/cognitive-budget.test.ts"
@@ -166,6 +170,8 @@ jobs:
         run: deno test --no-check --allow-read supabase/functions/_shared/cognitive-budget.test.ts
       - name: Reuse-first search tests
         run: deno test --no-check --allow-read supabase/functions/_shared/reuse-first.test.ts
+      - name: Knowledge Vault documents go into Founder Memory
+        run: deno test --no-check --allow-read supabase/functions/_shared/vault-document.test.ts
       - name: Excel skill tests
         run: deno test --no-check --node-modules-dir=auto --allow-env --allow-read --allow-net --allow-sys supabase/functions/_shared/skills/excel.test.ts
       - name: Run objective-loop infrastructure inventory regression tests
