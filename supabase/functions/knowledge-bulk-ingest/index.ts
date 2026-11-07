@@ -66,11 +66,19 @@ Deno.serve(async (req) => {
           await db.from("fkaios_knowledge_sources").delete().eq("id", ex.id);
         }
         const pages = paginate(text);
+        const sourceLabel = typeof m.source_label === "string" && m.source_label.trim() ? m.source_label.trim().slice(0, 80) : "ChatGPT";
+        const sourceKind = m.source_kind === "document" ? "document" : "conversation";
+        const ingestionReport = {
+          chat_id: m.id, date: m.date, messages: m.n,
+          source_tool: typeof m.source_tool === "string" ? m.source_tool.slice(0, 80) : sourceLabel,
+          original_name: typeof m.original_name === "string" ? m.original_name.slice(0, 240) : undefined,
+          source_sha256: typeof m.source_sha256 === "string" ? m.source_sha256.slice(0, 64) : undefined,
+        };
         const { data: src, error: sErr } = await db.from("fkaios_knowledge_sources").insert({
-          title: `ChatGPT: ${m.title} (${m.date})`, source_kind: "conversation", filename: m.id + ".md",
-          storage_bucket: bucket, storage_path: `${path}#${m.id}.md`, provenance, sha256: sha, mime_type: "text/markdown",
+          title: sourceLabel + ": " + m.title + " (" + m.date + ")", source_kind: sourceKind, filename: m.id + ".md",
+          storage_bucket: bucket, storage_path: path + "#" + m.id + ".md", provenance, sha256: sha, mime_type: "text/markdown",
           page_count: pages.length, page_label_basis: "line_ranges", copyright_class, project_ref: m.p,
-          ingestion_status: "ingesting", ingestion_report: { chat_id: m.id, date: m.date, messages: m.n },
+          ingestion_status: "ingesting", ingestion_report: ingestionReport,
         }).select("id").single();
         if (sErr || !src) { report.failed.push(m.id + ":" + sErr?.message); continue; }
         const rows = pages.map((p, i) => ({ source_id: src.id, pdf_page: i + 1, printed_label: `lines ${p.start}-${p.end}`, label_basis: "line_range",
