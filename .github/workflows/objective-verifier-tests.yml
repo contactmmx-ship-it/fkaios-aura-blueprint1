@@ -3,6 +3,9 @@ name: FKAIOS objective verifier regression tests
 on:
   pull_request:
     paths:
+      - "supabase/functions/_shared/goal-hierarchy.ts"
+      - "supabase/functions/_shared/goal-hierarchy.test.ts"
+      - "supabase/functions/_shared/founder-brain.ts"
       - "supabase/functions/_shared/objective-verifier.ts"
       - "supabase/functions/_shared/escalation-dedupe.ts"
       - "supabase/functions/_shared/escalation-dedupe.test.ts"
@@ -86,6 +89,9 @@ on:
     branches:
       - main
     paths:
+      - "supabase/functions/_shared/goal-hierarchy.ts"
+      - "supabase/functions/_shared/goal-hierarchy.test.ts"
+      - "supabase/functions/_shared/founder-brain.ts"
       - "supabase/functions/_shared/objective-verifier.ts"
       - "supabase/functions/_shared/escalation-dedupe.ts"
       - "supabase/functions/_shared/escalation-dedupe.test.ts"
@@ -168,6 +174,8 @@ jobs:
         run: deno test --no-check --allow-read supabase/functions/_shared/prompt-budget.test.ts
       - name: Cognitive budget tests (idle brain tick)
         run: deno test --no-check --allow-read supabase/functions/_shared/cognitive-budget.test.ts
+      - name: Goal hierarchy (one brain step 1)
+        run: deno test --no-check --allow-read supabase/functions/_shared/goal-hierarchy.test.ts
       - name: Reuse-first search tests
         run: deno test --no-check --allow-read supabase/functions/_shared/reuse-first.test.ts
       - name: Knowledge Vault documents go into Founder Memory
