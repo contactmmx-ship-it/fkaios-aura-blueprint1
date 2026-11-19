@@ -42,6 +42,7 @@
 //   - Does not build the Memory Engine or Agent Runtime (Sprints 2+).
 // ============================================================================
 
+import { latestGoals, missingGoals, type GoalLike, type GoalRow } from "./goal-hierarchy.ts";
 import { createClient, SupabaseClient } from "npm:@supabase/supabase-js@2.57.4";
 import { callLLM as routedCallLLM, callLLMOnResources, buildDefaultRouterConfig, type ProviderName } from "./llm-router.ts";
 import { selectResources } from "./resource-selection.ts";
@@ -828,7 +829,11 @@ export async function seedGoalHierarchy(userId: string): Promise<void> {
     { level: "vision", description: "₹1,100 Crore revenue", deadline: "2030" },
     { level: "annual", description: "₹5 Crore revenue gate", deadline: "2027-03-31" },
   ];
-  for (const g of hierarchy) {
+  // ONE BRAIN step 1: write only goals that are really missing. If the goal
+  // rows can't be read, write nothing (a failed read is not an empty hierarchy).
+  const existing = await readGoalRows();
+  if (existing === null) return;
+  for (const g of missingGoals(existing, hierarchy as GoalLike[]) as Goal[]) {
     try { await setGoal(userId, g); } catch { /* logged inside permanent.set */ }
   }
 }
@@ -858,9 +863,23 @@ export async function setGoal(userId: string, goal: Goal): Promise<void> {
 }
 
 export async function getGoals(userId: string): Promise<Goal[]> {
-  const rows = (await founderMemory.permanent.get(userId)) as Array<{ content?: { kind?: string } }> | null;
-  if (!rows) return [];
-  return rows.filter((r) => r.content?.kind === "goal").map((r) => r.content as unknown as Goal);
+  void userId;
+  return ((await readGoalRows()) ?? []) as unknown as Goal[];
+}
+
+// ONE BRAIN step 1: read goal rows directly (not via permanent.get's newest-20
+// window of all kinds, which dropped the goals — see goal-hierarchy.ts).
+// Returns null when the read fails, so callers can tell "no goals" from "couldn't look".
+async function readGoalRows(): Promise<GoalLike[] | null> {
+  const { data, error } = await getFounderBrainClient()
+    .from("fleet_memory")
+    .select("structured_content, created_at")
+    .eq("source_department", FOUNDER_BRAIN_DEPARTMENT)
+    .eq("memory_type", "goal")
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) { log("ERROR", "readGoalRows failed", { error: error.message }); return null; }
+  return latestGoals((data ?? []) as GoalRow[]);
 }
 
 // ──────────────────────────────────────────────
