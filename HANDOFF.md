@@ -1,5 +1,24 @@
 # FKAIOS — SESSION HANDOFF (read this first, then continue)
 
+## LATEST — 2026-11-19 (One Brain programme started)
+**State**
+- Supabase project moved to the **Pro plan** (free egress quota had blocked every edge function with HTTP 402).
+- Background cron jobs re-enabled at lighter schedules: `founder-brain-tick`, `aeos-heartbeat`, `auto-pilot` every 15 min (were 1/5/5 min); `ai-jobs-orphan-reaper` every 30 min; `reconcile-agent-metrics` hourly. Other previously-paused jobs unchanged. Verified: all return HTTP 200.
+- Egress cause found (pg_stat_statements since 2026-09-18): ~2.7M REST calls, mostly from the once-a-minute brain tick; objective-loop `loadObjectiveState()` loads `orchestration_tasks.*` (~36 KB avg, up to ~1 MB) each tick. Not yet slimmed (optional, low priority on Pro).
+- **One Brain audit** (code + live DB): one canonical brain (`_shared/founder-brain.ts`) and shared `recall()` already used by Brain Chat, My Brain, Decision Engine, Self-Learning. Findings: goal hierarchy re-seeded every tick; `fleet_memory` "learning" rows are a success counter (7,975 rows, 3 distinct contents; read by `getLearningTrend`); decisions in 3 stores; `brain_learning_insights` last written 2026-06-26; Brain Chat messages not in recall; `brain-chat` function has no caller.
+- **Step 1 DONE (PR #255, deployed by CI):** `getGoals()` reads goal rows directly (`_shared/goal-hierarchy.ts` + test); `seedGoalHierarchy()` writes only missing goals. 1,076 duplicate goal rows re-labelled `memory_type='goal_archived_duplicate'` (reversible, nothing deleted). Verified: next tick 200, 0 new goal rows, 2 goals.
+
+**Next (in order, each = branch + PR + CI + live proof)**
+2. Brain Chat messages into the shared recall (one memory).
+3. One decision record + outcome → lesson loop (same pattern as MIRROR v1.9 outcome learning).
+4. Self-Learning screen reads real lessons.
+5. Retire `brain-chat` function; executive-brain output as an input to the brain.
+6. One front door (single chat) — only with founder approval.
+
+---
+
+## (older) SESSION HANDOFF 2026-07-12
+
 **Last updated:** 2026-07-12 (session 2) · **Branch:** `main`
 
 > **New chat: do NOT restart, re-audit, or rebuild. Everything below is DONE and
